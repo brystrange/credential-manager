@@ -26,9 +26,9 @@
   --bg-overlay: rgba(0, 0, 0, 0.65);
   --bg-glass: rgba(13, 17, 23, 0.92);
 
-  --text-primary: #FAFAFA;
-  --text-secondary: #9da0a5;
-  --text-muted: #6a7077;
+  --text-primary: #c9d1d9;
+  --text-secondary: #7d8590;
+  --text-muted: #484f58;
   --text-accent: #79c0ff;
 
   --border-color: rgba(255, 255, 255, 0.06);
@@ -55,7 +55,7 @@
 }
 
 /* MODERN RED THEME */
-[data-theme="neon-green"] {
+[data-theme="modern-red"] {
   --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: "Outfit", sans-serif;
   --font-mono: "JetBrains Mono", "Consolas", monospace;
@@ -70,17 +70,17 @@
   --bg-glass: rgba(28, 28, 30, 0.85);
 
   --text-primary: #FFFFFF;
-  --text-secondary: #c0c0c0;
-  --text-muted: #88888f;
-  --text-accent: #4f8002;
+  --text-secondary: #8E8E93;
+  --text-muted: #636366;
+  --text-accent: #FF9F0A;
 
   --border-color: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(81, 255, 58, 0.5);
+  --border-focus: rgba(255, 69, 58, 0.5);
 
-  --accent: #30b150;
-  --accent-hover: #287a54;
-  --accent-glow: #EEDB8E;
-  --green: #b2c507;
+  --accent: #FF453A;
+  --accent-hover: #FF3B30;
+  --accent-glow: rgba(255, 69, 58, 0.2);
+  --green: #30D158;
   --green-muted: rgba(48, 209, 88, 0.15);
   --danger: #FF453A;
   --danger-hover: #FF3B30;
@@ -94,7 +94,7 @@
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 30px rgba(25, 88, 46, 0.25);
+  --shadow-glow: 0 0 30px rgba(255, 69, 58, 0.25);
 }
 
 /* =================== RESET & BASE =================== */

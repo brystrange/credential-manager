@@ -341,7 +341,7 @@ function App() {
                 <div className="sidebar-footer">
                     <button className="theme-toggle-btn desktop" onClick={toggleTheme}>
                         {theme === "financial" ? <FiMoon size={14} /> : <FiSun size={14} />}
-                        <span>{theme === "financial" ? "Financial" : "Neon Green"}</span>
+                        <span>{theme === "financial" ? "Financial" : "Modern Red"}</span>
                     </button>
                     <button className="sign-out-btn desktop" onClick={handleSignOut}>
                         <FiLogOut size={14} />
