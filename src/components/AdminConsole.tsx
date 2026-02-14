@@ -20,7 +20,7 @@ import {
 } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 
-const ADMIN_KEY = "gisellekobe";
+const ADMIN_KEY = "gisellekobe1!";
 
 export default function AdminConsole() {
     const navigate = useNavigate();

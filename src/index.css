@@ -26,7 +26,7 @@
   --bg-overlay: rgba(0, 0, 0, 0.65);
   --bg-glass: rgba(13, 17, 23, 0.92);
 
-  --text-primary: #c9d1d9;
+  --text-primary: #ffffff;
   --text-secondary: #7d8590;
   --text-muted: #484f58;
   --text-accent: #79c0ff;
@@ -3116,4 +3116,10 @@ button {
   color: var(--text-muted);
   font-weight: 500;
   line-height: 1;
+}
+
+/* --- H1 Color Override --- */
+.page-title {
+  color: #ffffff !important;
+  /* Change this hex code to your desired color */
 }
