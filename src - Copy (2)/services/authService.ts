@@ -8,9 +8,9 @@ import {
     updateProfile,
 } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { doc, setDoc, getDoc, collection, query, limit, getDocs } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
-import { generateSalt, deriveKey, decryptPassword, encryptPassword } from "./crypto";
+import { generateSalt, deriveKey } from "./crypto";
 
 export type AuthUser = User;
 
@@ -81,38 +81,7 @@ export async function unlockVaultWithPassword(password: string): Promise<void> {
     if (!userDoc.exists()) throw new Error("User profile not found.");
 
     const salt = userDoc.data().salt as string;
-    const derivedKey = await deriveKey(password, salt);
-
-    // VERIFICATION: Try to decrypt a known value to ensure password is correct
-    // 1. Check for a canary (future proofing)
-    const canary = userDoc.data().canary;
-    if (canary) {
-        try {
-            await decryptPassword(canary, derivedKey);
-        } catch (e) {
-            throw new Error("Invalid vault password");
-        }
-    } else {
-        // 2. Fallback: Try to decrypt one credential
-        const q = query(collection(db, "users", uid, "credentials"), limit(1));
-        const snapshot = await getDocs(q);
-
-        if (!snapshot.empty) {
-            const testDoc = snapshot.docs[0];
-            try {
-                await decryptPassword(testDoc.data().password, derivedKey);
-            } catch (e) {
-                throw new Error("Invalid vault password");
-            }
-        } else {
-            // 3. Vault is empty and no canary -> Assume password is correct (first use / reset)
-            // CREATE A CANARY NOW so next time we can verify
-            const newCanary = await encryptPassword("canary", derivedKey);
-            await setDoc(doc(db, "users", uid), { canary: newCanary }, { merge: true });
-        }
-    }
-
-    encryptionKey = derivedKey;
+    encryptionKey = await deriveKey(password, salt);
 }
 
 export async function signOutUser(): Promise<void> {
