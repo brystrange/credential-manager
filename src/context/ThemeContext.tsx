@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-export type Theme = "financial" | "modern-red";
+export type Theme = "financial" | "neon-green";
 
 interface ThemeContextType {
     theme: Theme;
@@ -21,7 +21,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }, [theme]);
 
     const toggleTheme = () => {
-        setTheme((prev) => (prev === "financial" ? "modern-red" : "financial"));
+        setTheme((prev) => (prev === "financial" ? "neon-green" : "financial"));
     };
 
     return (
