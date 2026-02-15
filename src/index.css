@@ -26,9 +26,9 @@
   --bg-overlay: rgba(0, 0, 0, 0.65);
   --bg-glass: rgba(13, 17, 23, 0.92);
 
-  --text-primary: #c9d1d9;
-  --text-secondary: #7d8590;
-  --text-muted: #484f58;
+  --text-primary: #FFFFFF;
+  --text-secondary: #CCCCCC;
+  --text-muted: #DDDDDD;
   --text-accent: #79c0ff;
 
   --border-color: rgba(255, 255, 255, 0.06);
