@@ -1,0 +1,110 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  GLOBAL DEFAULT: Deny everything not explicitly allowed
+    // ══════════════════════════════════════════════════════════════════════════
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  HELPER FUNCTIONS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isVerifiedUser() {
+      return isAuthenticated() && isEmailVerified();
+    }
+
+    // Validate that the uploaded file is an image
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    // Validate that the file is a safe image type (no SVG — XSS risk)
+    function isSafeImageType() {
+      return request.resource.contentType in [
+        'image/png',
+        'image/jpeg',
+        'image/jpg',
+        'image/gif',
+        'image/webp',
+        'image/bmp',
+        'image/x-icon',
+        'image/vnd.microsoft.icon'
+      ];
+    }
+
+    // Max file size: 2 MB (platform logos should be small)
+    function isUnderSizeLimit() {
+      return request.resource.size < 2 * 1024 * 1024;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PLATFORM LOGOS — /platform-logos/{filename}
+    //
+    //  Read: any authenticated + verified user (logos are displayed in the UI).
+    //  Write (upload): BLOCKED at Storage level.
+    //
+    //  ⚠️ SECURITY NOTE: Logo uploads should be handled through a Cloud
+    //  Function with admin privileges, not directly from the client.
+    //  The current AdminConsole.tsx uploads directly — this must be changed.
+    //
+    //  If you MUST allow client-side uploads temporarily during development,
+    //  uncomment the "allow create" rule below and delete it before production.
+    // ══════════════════════════════════════════════════════════════════════════
+    match /platform-logos/{fileName} {
+
+      // Read: any authenticated + verified user
+      allow read: if isVerifiedUser();
+
+      // Write: only the designated admin can upload/update/delete logos
+      allow create, update: if isVerifiedUser()
+        && request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2'
+        && isSafeImageType()
+        && isUnderSizeLimit();
+
+      allow delete: if isVerifiedUser()
+        && request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2';
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  USER-SPECIFIC FILES — /users/{userId}/{allPaths=**}
+    //
+    //  Reserved for future per-user file storage (profile pics, exports, etc).
+    //  Only the verified owner can read/write their own files.
+    // ══════════════════════════════════════════════════════════════════════════
+    match /users/{userId}/{allPaths=**} {
+
+      // Read: verified owner only
+      allow read: if isAuthenticated()
+        && isEmailVerified()
+        && request.auth.uid == userId;
+
+      // Create: verified owner, images only, under 5 MB
+      allow create: if isAuthenticated()
+        && isEmailVerified()
+        && request.auth.uid == userId
+        && isSafeImageType()
+        && request.resource.size < 5 * 1024 * 1024
+        && resource == null;  // prevent overwrites
+
+      // Update: blocked (upload new file instead)
+      allow update: if false;
+
+      // Delete: verified owner only
+      allow delete: if isAuthenticated()
+        && isEmailVerified()
+        && request.auth.uid == userId;
+    }
+  }
+}

@@ -1,14 +1,11 @@
 import {
     collection,
-    addDoc,
-    updateDoc,
-    deleteDoc,
-    doc,
     getDocs,
     query,
     orderBy,
 } from "firebase/firestore";
-import { db } from "../firebaseConfig";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "../firebaseConfig";
 
 export interface Platform {
     id: string;
@@ -35,6 +32,7 @@ function getPlatformsRef() {
     return collection(db, PLATFORMS_COLLECTION);
 }
 
+/** Read platforms directly from Firestore (allowed by rules for verified users) */
 export async function getPlatforms(): Promise<Platform[]> {
     const q = query(getPlatformsRef(), orderBy("name", "asc"));
     const snapshot = await getDocs(q);
@@ -49,36 +47,26 @@ export async function getPlatforms(): Promise<Platform[]> {
     }));
 }
 
+/** Add platform via Cloud Function (admin only) */
 export async function addPlatform(input: PlatformInput): Promise<string> {
-    const docRef = await addDoc(getPlatformsRef(), {
-        name: input.name,
-        domain: input.domain,
-        color: input.color,
-        category: input.category,
-        logoUrl: input.logoUrl,
-        link: input.link,
-    });
-    return docRef.id;
+    const fn = httpsCallable<PlatformInput, { id: string }>(functions, "addPlatform");
+    const result = await fn(input);
+    return result.data.id;
 }
 
+/** Update platform via Cloud Function (admin only) */
 export async function updatePlatform(
     id: string,
     input: PlatformInput
 ): Promise<void> {
-    const docRef = doc(db, PLATFORMS_COLLECTION, id);
-    await updateDoc(docRef, {
-        name: input.name,
-        domain: input.domain,
-        color: input.color,
-        category: input.category,
-        logoUrl: input.logoUrl,
-        link: input.link,
-    });
+    const fn = httpsCallable<PlatformInput & { id: string }, { success: boolean }>(functions, "updatePlatform");
+    await fn({ ...input, id });
 }
 
+/** Delete platform via Cloud Function (admin only) */
 export async function deletePlatform(id: string): Promise<void> {
-    const docRef = doc(db, PLATFORMS_COLLECTION, id);
-    await deleteDoc(docRef);
+    const fn = httpsCallable<{ id: string }, { success: boolean }>(functions, "deletePlatform");
+    await fn({ id });
 }
 
 /** Find a platform by name from a provided list */

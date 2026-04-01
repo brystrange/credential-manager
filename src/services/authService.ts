@@ -6,6 +6,7 @@ import {
     GoogleAuthProvider,
     signInWithPopup,
     updateProfile,
+    sendEmailVerification,
 } from "firebase/auth";
 import type { User } from "firebase/auth";
 import { doc, setDoc, getDoc, collection, query, limit, getDocs } from "firebase/firestore";
@@ -35,11 +36,23 @@ export async function signUp(email: string, password: string, fullName: string):
         createdAt: new Date(),
     });
 
-    encryptionKey = await deriveKey(password, salt);
+    // Send verification email before allowing vault access
+    await sendEmailVerification(userCredential.user);
+
+    // Sign out immediately — user must verify email before logging in
+    await firebaseSignOut(auth);
+    encryptionKey = null;
 }
 
 export async function signIn(email: string, password: string): Promise<void> {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+    // Block unverified users from accessing the vault
+    if (!userCredential.user.emailVerified) {
+        await firebaseSignOut(auth);
+        throw new Error("auth/email-not-verified");
+    }
+
     const uid = userCredential.user.uid;
 
     const userDoc = await getDoc(doc(db, "users", uid));
@@ -50,24 +63,66 @@ export async function signIn(email: string, password: string): Promise<void> {
 }
 
 /**
- * Google sign-in (existing users only, no sign-up).
- * The user must already have an account with a salt in Firestore.
- * After Google auth, we prompt for their vault password to derive the encryption key.
+ * Resend the verification email to the currently signed-in (unverified) user.
+ * Signs in temporarily, sends the email, then signs out again.
  */
-export async function signInWithGoogle(): Promise<{ needsPassword: true; uid: string } | { needsPassword: false }> {
+export async function resendVerificationEmail(email: string, password: string): Promise<void> {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    if (userCredential.user.emailVerified) {
+        // Already verified — no need to resend, just sign out cleanly
+        await firebaseSignOut(auth);
+        return;
+    }
+    await sendEmailVerification(userCredential.user);
+    await firebaseSignOut(auth);
+}
+
+/**
+ * Google sign-in / sign-up (unified).
+ * - If the user has no Firestore record  → status "new"   (needs vault setup)
+ * - If the user has an existing record   → status "existing" (needs vault unlock)
+ */
+export async function signInWithGoogle(): Promise<
+    | { status: "new"; uid: string }
+    | { status: "existing"; uid: string }
+> {
     const provider = new GoogleAuthProvider();
     const result = await signInWithPopup(auth, provider);
     const uid = result.user.uid;
 
     const userDoc = await getDoc(doc(db, "users", uid));
     if (!userDoc.exists()) {
-        // No account exists — sign out and reject
-        await firebaseSignOut(auth);
-        throw new Error("No Fort Knox account found for this Google account. Please sign up with email first.");
+        // New user — stay signed in so they can set up their vault
+        return { status: "new", uid };
     }
 
-    // Account exists — we need the vault password to derive the key
-    return { needsPassword: true, uid };
+    // Existing user — needs vault password to derive the encryption key
+    return { status: "existing", uid };
+}
+
+/**
+ * Called once after a new Google user sets their vault password.
+ * Creates the Firestore user doc, derives the encryption key, and stores a canary.
+ */
+export async function setupGoogleVault(password: string): Promise<void> {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error("Not authenticated");
+
+    const salt = generateSalt();
+    const derivedKey = await deriveKey(password, salt);
+    const canary = await encryptPassword("canary", derivedKey);
+
+    await setDoc(doc(db, "users", uid), {
+        salt,
+        fullName:
+            auth.currentUser?.displayName ||
+            auth.currentUser?.email?.split("@")[0] ||
+            "User",
+        createdAt: new Date(),
+        canary,
+    });
+
+    encryptionKey = derivedKey;
 }
 
 /**

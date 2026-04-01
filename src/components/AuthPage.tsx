@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword } from "../services/authService";
+import { useLoginThrottle } from "../hooks/useLoginThrottle";
+import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, resendVerificationEmail } from "../services/authService";
 import {
     FiShield,
     FiMail,
@@ -7,33 +8,91 @@ import {
     FiLogIn,
     FiUserPlus,
     FiUser,
+    FiCheckCircle,
+    FiAlertCircle,
+    FiRefreshCw,
+    FiEye,
+    FiEyeOff,
 } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
 
 interface AuthPageProps {
     onAuthSuccess: () => void;
+    onAuthStart?: () => void;
+    onAuthEnd?: () => void;
+    onNewGoogleUser?: () => void;
 }
 
-type AuthView = "login" | "signup" | "vault-unlock";
+type AuthView = "login" | "signup" | "vault-unlock" | "verify-email";
 
-export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
+/** Maps a raw Firebase error message to a user-friendly string. */
+function friendlyError(msg: string): string {
+    if (msg.includes("auth/email-already-in-use"))
+        return "This email is already registered. Try signing in instead.";
+    if (msg.includes("auth/invalid-credential") || msg.includes("auth/wrong-password") || msg.includes("auth/user-not-found"))
+        return "Incorrect email or password. Please try again.";
+    if (msg.includes("auth/weak-password"))
+        return "Password must be at least 6 characters.";
+    if (msg.includes("auth/invalid-email"))
+        return "Please enter a valid email address.";
+    if (msg.includes("auth/email-not-verified"))
+        return "__email_not_verified__";
+    if (msg.includes("auth/popup-closed-by-user") || msg.includes("auth/cancelled-popup-request"))
+        return "Sign-in popup was closed. Please try again.";
+    if (msg.includes("auth/popup-blocked"))
+        return "Popup was blocked by your browser. Please allow popups for this site and try again.";
+    if (msg.includes("auth/too-many-requests"))
+        return "Too many failed attempts. Please wait a few minutes before trying again.";
+    if (msg.includes("auth/network-request-failed"))
+        return "Network error. Please check your connection and try again.";
+    if (msg.includes("auth/user-disabled"))
+        return "This account has been disabled. Please contact support.";
+    if (msg.includes("auth/requires-recent-login"))
+        return "Please sign out and sign back in, then try again.";
+    if (msg.includes("No Fort Knox account"))
+        return "No account found for this Google account. Please sign up with email first.";
+    // Strip raw Firebase prefix for any remaining codes
+    return msg.replace(/^Firebase:\s*/i, "").replace(/\s*\(auth\/[^)]+\)\.?$/, "");
+}
+
+export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewGoogleUser }: AuthPageProps) {
+    const {
+        isLockedOut,
+        remainingSeconds,
+        attemptsRemaining,
+        resetEmailSent,
+        resetEmailMessage,
+        recordFailure,
+        recordSuccess,
+    } = useLoginThrottle();
     const [view, setView] = useState<AuthView>("login");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
     const [confirmPassword, setConfirmPassword] = useState("");
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [fullName, setFullName] = useState("");
     const [vaultPassword, setVaultPassword] = useState("");
+    const [showVaultPassword, setShowVaultPassword] = useState(false);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
+    const [resendLoading, setResendLoading] = useState(false);
+    const [resendSuccess, setResendSuccess] = useState(false);
+    const [pendingEmail, setPendingEmail] = useState("");
+    const [pendingPassword, setPendingPassword] = useState("");
 
     const resetFields = () => {
         setEmail("");
         setPassword("");
+        setShowPassword(false);
         setConfirmPassword("");
+        setShowConfirmPassword(false);
         setFullName("");
         setVaultPassword("");
+        setShowVaultPassword(false);
         setError("");
+        setResendSuccess(false);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -54,26 +113,27 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
         setLoading(true);
         try {
             if (view === "login") {
+                onAuthStart?.();
                 await signIn(email, password);
+                recordSuccess();
                 onAuthSuccess();
             } else if (view === "signup") {
                 await signUp(email, password, fullName.trim());
-                onAuthSuccess();
+                setPendingEmail(email);
+                setPendingPassword(password);
+                setView("verify-email");
             } else if (view === "vault-unlock") {
+                onAuthStart?.();
                 await unlockVaultWithPassword(vaultPassword);
                 onAuthSuccess();
             }
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Authentication failed";
-            if (msg.includes("auth/email-already-in-use"))
-                setError("This email is already registered.");
-            else if (msg.includes("auth/invalid-credential"))
-                setError("Invalid email or password.");
-            else if (msg.includes("auth/weak-password"))
-                setError("Password must be at least 6 characters.");
-            else if (msg.includes("auth/invalid-email"))
-                setError("Please enter a valid email address.");
-            else setError(msg);
+            const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+            const friendly = friendlyError(msg);
+            setError(friendly);
+            if (view === "login" && friendly !== "__email_not_verified__") {
+                recordFailure(email);
+            }
         } finally {
             setLoading(false);
         }
@@ -82,20 +142,163 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
     const handleGoogleSignIn = async () => {
         setError("");
         setGoogleLoading(true);
+        // Guard against VaultUnlockGate / dashboard flashing while Firebase
+        // auth state changes during the popup flow.
+        onAuthStart?.();
         try {
             const result = await signInWithGoogle();
-            if (result.needsPassword) {
-                setView("vault-unlock");
-            } else {
-                onAuthSuccess();
+            if (result.status === "new") {
+                // Hand off to App.tsx to show the vault-setup screen
+                onNewGoogleUser?.();
             }
+            // For existing users, App.tsx VaultUnlockGate takes over naturally.
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Google sign-in failed";
-            setError(msg);
+            const msg = err instanceof Error ? err.message : "Google sign-in failed. Please try again.";
+            setError(friendlyError(msg));
         } finally {
+            onAuthEnd?.();
             setGoogleLoading(false);
         }
     };
+
+    const handleResendVerification = async () => {
+        setResendLoading(true);
+        setResendSuccess(false);
+        setError("");
+        try {
+            const emailToUse = pendingEmail || email;
+            const passwordToUse = pendingPassword || password;
+            await resendVerificationEmail(emailToUse, passwordToUse);
+            setResendSuccess(true);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to resend email.";
+            setError(friendlyError(msg));
+        } finally {
+            setResendLoading(false);
+        }
+    };
+
+    // ── Verify-email confirmation screen ─────────────────────────────────────
+    if (view === "verify-email") {
+        return (
+            <div className="auth-container">
+                <div className="auth-card">
+                    <div className="auth-header">
+                        <div className="auth-logo" style={{ color: "var(--accent)" }}>
+                            <FiMail size={32} />
+                        </div>
+                        <h1>Check your email</h1>
+                        <p className="auth-subtitle">
+                            We sent a verification link to <strong>{pendingEmail}</strong>
+                        </p>
+                    </div>
+
+                    <div className="verify-steps">
+                        <div className="verify-step">
+                            <FiCheckCircle size={16} className="verify-step-icon" />
+                            <span>Open the email from Fort Knox</span>
+                        </div>
+                        <div className="verify-step">
+                            <FiCheckCircle size={16} className="verify-step-icon" />
+                            <span>Click the verification link</span>
+                        </div>
+                        <div className="verify-step">
+                            <FiCheckCircle size={16} className="verify-step-icon" />
+                            <span>Return here and sign in</span>
+                        </div>
+                    </div>
+
+                    {error && <div className="auth-error">{error}</div>}
+                    {resendSuccess && (
+                        <div className="auth-success">
+                            <FiCheckCircle size={14} />
+                            Verification email resent successfully.
+                        </div>
+                    )}
+
+                    <button
+                        className="auth-submit"
+                        onClick={handleResendVerification}
+                        disabled={resendLoading}
+                        style={{ marginTop: "8px" }}
+                    >
+                        {resendLoading ? "Sending..." : (
+                            <>
+                                <FiRefreshCw size={14} style={{ marginRight: 6 }} />
+                                Resend verification email
+                            </>
+                        )}
+                    </button>
+
+                    <button
+                        className="google-btn"
+                        style={{ marginTop: 12 }}
+                        onClick={() => { resetFields(); setView("login"); }}
+                    >
+                        <FiLogIn size={16} />
+                        Go to Sign In
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Vault unlock screen (post Google sign-in) ─────────────────────────────
+    if (view === "vault-unlock") {
+        return (
+            <div className="auth-container">
+                <div className="auth-card">
+                    <div className="auth-header">
+                        <div className="auth-logo">
+                            <FiShield size={32} />
+                        </div>
+                        <h1>Fort Knox</h1>
+                        <p className="auth-subtitle">Secure credential management</p>
+                    </div>
+
+                    <div className="vault-unlock-info">
+                        <FiLock size={20} />
+                        <div>
+                            <strong>Unlock Your Vault</strong>
+                            <p>Enter your password to decrypt your credentials.</p>
+                        </div>
+                    </div>
+
+                    {error && <div className="auth-error">{error}</div>}
+
+                    <form onSubmit={handleSubmit} className="auth-form">
+                        <div className="form-group">
+                            <div className="input-icon">
+                                <FiLock size={16} />
+                            </div>
+                            <input
+                                type={showVaultPassword ? "text" : "password"}
+                                placeholder="Your password"
+                                value={vaultPassword}
+                                onChange={(e) => setVaultPassword(e.target.value)}
+                                required
+                                autoFocus
+                                autoComplete="current-password"
+                            />
+                            <button
+                                type="button"
+                                className="input-suffix"
+                                onClick={() => setShowVaultPassword(!showVaultPassword)}
+                            >
+                                {showVaultPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                            </button>
+                        </div>
+                        <button type="submit" className="auth-submit" disabled={loading}>
+                            {loading ? "Unlocking..." : "Unlock Vault"}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Login / Sign-up screens ───────────────────────────────────────────────
+    const isEmailNotVerified = error === "__email_not_verified__";
 
     return (
         <div className="auth-container">
@@ -108,133 +311,156 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                     <p className="auth-subtitle">Secure credential management</p>
                 </div>
 
-                {view === "vault-unlock" ? (
-                    <>
-                        <div className="vault-unlock-info">
-                            <FiLock size={20} />
-                            <div>
-                                <strong>Unlock Your Vault</strong>
-                                <p>Enter your vault password to decrypt your credentials.</p>
-                            </div>
+                <div className="auth-toggle">
+                    <button
+                        className={`auth-toggle-btn ${view === "login" ? "active" : ""}`}
+                        onClick={() => { setView("login"); resetFields(); }}
+                    >
+                        <FiLogIn size={14} />
+                        Sign In
+                    </button>
+                    <button
+                        className={`auth-toggle-btn ${view === "signup" ? "active" : ""}`}
+                        onClick={() => { setView("signup"); resetFields(); }}
+                    >
+                        <FiUserPlus size={14} />
+                        Sign Up
+                    </button>
+                </div>
+
+                {/* Email-not-verified gets a special banner with resend button */}
+                {isEmailNotVerified ? (
+                    <div className="auth-verify-banner">
+                        <FiAlertCircle size={16} className="banner-icon" />
+                        <div className="banner-body">
+                            <strong>Email not verified</strong>
+                            <p>
+                                Please check your inbox and click the verification link before signing in.
+                            </p>
+                            {resendSuccess ? (
+                                <span className="banner-resent">
+                                    <FiCheckCircle size={13} /> Email resent!
+                                </span>
+                            ) : (
+                                <button
+                                    className="banner-resend-btn"
+                                    onClick={handleResendVerification}
+                                    disabled={resendLoading}
+                                >
+                                    {resendLoading ? "Sending..." : (
+                                        <><FiRefreshCw size={12} /> Resend verification email</>
+                                    )}
+                                </button>
+                            )}
                         </div>
-
-                        {error && <div className="auth-error">{error}</div>}
-
-                        <form onSubmit={handleSubmit} className="auth-form">
-                            <div className="form-group">
-                                <div className="input-icon">
-                                    <FiLock size={16} />
-                                </div>
-                                <input
-                                    type="password"
-                                    placeholder="Vault password"
-                                    value={vaultPassword}
-                                    onChange={(e) => setVaultPassword(e.target.value)}
-                                    required
-                                    autoFocus
-                                    autoComplete="current-password"
-                                />
-                            </div>
-                            <button type="submit" className="auth-submit" disabled={loading}>
-                                {loading ? <span className="spinner" /> : "Unlock Vault"}
-                            </button>
-                        </form>
-                    </>
+                    </div>
                 ) : (
-                    <>
-                        <div className="auth-toggle">
+                    error && <div className="auth-error">{error}</div>
+                )}
+
+                {/* Rate limiting UI */}
+                {view === "login" && resetEmailMessage && (
+                    <div className="auth-error" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
+                        {resetEmailMessage}
+                    </div>
+                )}
+                {view === "login" && isLockedOut && !resetEmailSent && (
+                    <div className="auth-error" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: 8, padding: "12px 14px", marginBottom: 8, color: "var(--text-muted)" }}>
+                        ⚠️ Too many failed attempts. Try again in <strong>{Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}</strong>
+                    </div>
+                )}
+                {view === "login" && !isLockedOut && attemptsRemaining < 5 && attemptsRemaining > 0 && (
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", margin: "0 0 8px" }}>
+                        {attemptsRemaining} attempt{attemptsRemaining !== 1 ? "s" : ""} remaining before lockout
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="auth-form">
+                    {view === "signup" && (
+                        <div className="form-group">
+                            <div className="input-icon">
+                                <FiUser size={16} />
+                            </div>
+                            <input
+                                type="text"
+                                placeholder="Full name"
+                                value={fullName}
+                                onChange={(e) => setFullName(e.target.value)}
+                                required
+                                autoComplete="name"
+                            />
+                        </div>
+                    )}
+
+                    <div className="form-group">
+                        <div className="input-icon">
+                            <FiMail size={16} />
+                        </div>
+                        <input
+                            type="email"
+                            placeholder="Email address"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                            autoComplete="email"
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <div className="input-icon">
+                            <FiLock size={16} />
+                        </div>
+                        <input
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            minLength={6}
+                            autoComplete={view === "login" ? "current-password" : "new-password"}
+                        />
+                        <button
+                            type="button"
+                            className="input-suffix"
+                            onClick={() => setShowPassword(!showPassword)}
+                        >
+                            {showPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+
+                    {view === "signup" && (
+                        <div className="form-group">
+                            <div className="input-icon">
+                                <FiLock size={16} />
+                            </div>
+                            <input
+                                type={showConfirmPassword ? "text" : "password"}
+                                placeholder="Confirm password"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                required
+                                minLength={6}
+                                autoComplete="new-password"
+                            />
                             <button
-                                className={`auth-toggle-btn ${view === "login" ? "active" : ""}`}
-                                onClick={() => { setView("login"); resetFields(); }}
+                                type="button"
+                                className="input-suffix"
+                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                             >
-                                <FiLogIn size={14} />
-                                Sign In
-                            </button>
-                            <button
-                                className={`auth-toggle-btn ${view === "signup" ? "active" : ""}`}
-                                onClick={() => { setView("signup"); resetFields(); }}
-                            >
-                                <FiUserPlus size={14} />
-                                Sign Up
+                                {showConfirmPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                             </button>
                         </div>
+                    )}
 
-                        {error && <div className="auth-error">{error}</div>}
+                    <button type="submit" className="auth-submit" disabled={loading || (view === "login" && (isLockedOut || resetEmailSent))}>
+                        {loading
+                            ? view === "login" ? "Signing In..." : "Creating Account..."
+                            : view === "login" ? "Sign In" : "Create Account"}
+                    </button>
+                </form>
 
-                        <form onSubmit={handleSubmit} className="auth-form">
-                            {view === "signup" && (
-                                <div className="form-group">
-                                    <div className="input-icon">
-                                        <FiUser size={16} />
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder="Full name"
-                                        value={fullName}
-                                        onChange={(e) => setFullName(e.target.value)}
-                                        required
-                                        autoComplete="name"
-                                    />
-                                </div>
-                            )}
-
-                            <div className="form-group">
-                                <div className="input-icon">
-                                    <FiMail size={16} />
-                                </div>
-                                <input
-                                    type="email"
-                                    placeholder="Email address"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    required
-                                    autoComplete="email"
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <div className="input-icon">
-                                    <FiLock size={16} />
-                                </div>
-                                <input
-                                    type="password"
-                                    placeholder="Password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    required
-                                    minLength={6}
-                                    autoComplete={view === "login" ? "current-password" : "new-password"}
-                                />
-                            </div>
-
-                            {view === "signup" && (
-                                <div className="form-group">
-                                    <div className="input-icon">
-                                        <FiLock size={16} />
-                                    </div>
-                                    <input
-                                        type="password"
-                                        placeholder="Confirm password"
-                                        value={confirmPassword}
-                                        onChange={(e) => setConfirmPassword(e.target.value)}
-                                        required
-                                        minLength={6}
-                                        autoComplete="new-password"
-                                    />
-                                </div>
-                            )}
-
-                            <button type="submit" className="auth-submit" disabled={loading}>
-                                {loading ? (
-                                    <span className="spinner" />
-                                ) : view === "login" ? (
-                                    "Sign In"
-                                ) : (
-                                    "Create Account"
-                                )}
-                            </button>
-                        </form>
-
+                {view === "login" && (
+                    <>
                         <div className="auth-divider">
                             <span>or</span>
                         </div>
@@ -244,21 +470,13 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                             onClick={handleGoogleSignIn}
                             disabled={googleLoading}
                         >
-                            {googleLoading ? (
-                                <span className="spinner" />
-                            ) : (
+                            {googleLoading ? "Signing In..." : (
                                 <>
                                     <FcGoogle size={18} />
                                     Sign in with Google
                                 </>
                             )}
                         </button>
-
-                        {view === "login" && (
-                            <p className="auth-footnote">
-                                Google sign-in is for existing accounts only.
-                            </p>
-                        )}
                     </>
                 )}
             </div>

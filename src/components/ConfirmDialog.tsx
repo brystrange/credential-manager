@@ -30,7 +30,7 @@ export default function ConfirmDialog({
                 <h3>{title}</h3>
                 <p>{message}</p>
                 <div className="confirm-actions">
-                    <button className="btn-secondary" onClick={onCancel}>
+                    <button className="btn-secondary" onClick={onCancel} disabled={loading}>
                         Cancel
                     </button>
                     <button
@@ -38,7 +38,7 @@ export default function ConfirmDialog({
                         onClick={onConfirm}
                         disabled={loading}
                     >
-                        {loading ? <span className="spinner" /> : confirmLabel}
+                        {loading ? "Deleting..." : confirmLabel}
                     </button>
                 </div>
             </div>

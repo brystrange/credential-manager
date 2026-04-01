@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword } from "./services/authService";
+import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, setupGoogleVault } from "./services/authService";
+import { useAutoLock } from "./hooks/useAutoLock";
 import type { Credential, CredentialInput } from "./services/credentialService";
 import {
     getCredentials,
@@ -27,27 +28,183 @@ import {
     FiMoon,
     FiSun,
     FiLock,
+    FiEye,
+    FiEyeOff,
 } from "react-icons/fi";
 import type { User } from "firebase/auth";
 import { useTheme } from "./context/ThemeContext";
 
-/* Small inline component: shown when auth session is alive but encryption key is gone */
-function VaultUnlockGate({ onUnlocked, onSignOut }: { onUnlocked: () => void; onSignOut: () => void }) {
+/* ─── Welcome Splash ─────────────────────────────────────────────────────────
+   Shown for ~2 seconds after a successful fresh login before the dashboard.
+──────────────────────────────────────────────────────────────────────────── */
+function WelcomeSplash({
+    displayName,
+    onDone,
+}: {
+    displayName: string;
+    onDone: () => void;
+}) {
+    useEffect(() => {
+        const t = setTimeout(onDone, 2200);
+        return () => clearTimeout(t);
+    }, [onDone]);
+
+    return (
+        <div className="welcome-splash">
+            <div className="welcome-splash-icon">
+                <FiShield size={52} />
+            </div>
+            <h1 className="welcome-splash-title">Welcome back</h1>
+            <p className="welcome-splash-name">{displayName}</p>
+            <div className="welcome-splash-bar">
+                <div className="welcome-splash-bar-fill" />
+            </div>
+            <p className="welcome-splash-hint">Unlocking your vault…</p>
+        </div>
+    );
+}
+
+/* ─── Google Vault Setup ─────────────────────────────────────────────────────
+   Shown to new Google users who have no Firestore record yet.
+   They create a vault password that will be used to derive their encryption key.
+──────────────────────────────────────────────────────────────────────────── */
+function GoogleVaultSetup({
+    userEmail,
+    onSetup,
+}: {
+    userEmail: string;
+    onSetup: (password: string) => Promise<void>;
+}) {
     const [pw, setPw] = useState("");
+    const [confirmPw, setConfirmPw] = useState("");
+    const [showPw, setShowPw] = useState(false);
+    const [showConfirmPw, setShowConfirmPw] = useState(false);
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
+
+    const MIN_BUSY_MS = 600;
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (pw.length < 6) { setError("Password must be at least 6 characters."); return; }
+        if (pw !== confirmPw) { setError("Passwords do not match."); return; }
+        setError("");
+        setBusy(true);
+        const t0 = Date.now();
+        try {
+            await onSetup(pw);
+        } catch {
+            setError("Failed to set up vault. Please try again.");
+        } finally {
+            const gap = MIN_BUSY_MS - (Date.now() - t0);
+            if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="auth-container">
+            <div className="auth-card">
+                <div className="auth-header">
+                    <div className="auth-logo">
+                        <FiShield size={32} />
+                    </div>
+                    <h1>Set up your vault</h1>
+                    <p className="auth-subtitle">
+                        Signed in as <strong>{userEmail}</strong>
+                    </p>
+                </div>
+
+                <div className="vault-unlock-info">
+                    <FiLock size={20} />
+                    <div>
+                        <strong>Create a vault password</strong>
+                        <p>This password encrypts your credentials. Keep it safe — it cannot be recovered.</p>
+                    </div>
+                </div>
+
+                {error && <div className="auth-error">{error}</div>}
+
+                <form onSubmit={handleSubmit} className="auth-form">
+                    <div className="form-group">
+                        <div className="input-icon"><FiLock size={16} /></div>
+                        <input
+                            type={showPw ? "text" : "password"}
+                            placeholder="Vault password"
+                            value={pw}
+                            onChange={(e) => setPw(e.target.value)}
+                            required
+                            minLength={6}
+                            autoFocus
+                            autoComplete="new-password"
+                        />
+                        <button type="button" className="input-suffix" onClick={() => setShowPw(!showPw)}>
+                            {showPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+                    <div className="form-group">
+                        <div className="input-icon"><FiLock size={16} /></div>
+                        <input
+                            type={showConfirmPw ? "text" : "password"}
+                            placeholder="Confirm vault password"
+                            value={confirmPw}
+                            onChange={(e) => setConfirmPw(e.target.value)}
+                            required
+                            minLength={6}
+                            autoComplete="new-password"
+                        />
+                        <button type="button" className="input-suffix" onClick={() => setShowConfirmPw(!showConfirmPw)}>
+                            {showConfirmPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+                    <button type="submit" className="auth-submit" disabled={busy}>
+                        {busy ? "Setting Up..." : "Set Up Vault"}
+                    </button>
+                </form>
+
+            </div>
+        </div>
+    );
+}
+
+/* ─── Vault Unlock Gate ──────────────────────────────────────────────────────
+   Shown ONLY when the user returns to the app after a page reload.
+   Firebase restores the session but the in-memory encryption key is gone,
+   so we ask for their password to re-derive it.
+   The password is the same one used to sign in.
+──────────────────────────────────────────────────────────────────────────── */
+function VaultUnlockGate({
+    userEmail,
+    onUnlocked,
+}: {
+    userEmail: string;
+    onUnlocked: () => void;
+}) {
+    const [pw, setPw] = useState("");
+    const [showPw, setShowPw] = useState(false);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+
+    const MIN_BUSY_MS = 600;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError("");
         setBusy(true);
+        const t0 = Date.now();
         try {
             await unlockVaultWithPassword(pw);
             onUnlocked();
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Failed to unlock vault.";
-            setError(msg);
+            const msg = err instanceof Error ? err.message : "";
+            if (msg.includes("Invalid vault password") || msg.includes("decryption")) {
+                setError("Incorrect password. Please try again.");
+            } else {
+                setError("Failed to unlock vault. Please try again.");
+            }
         } finally {
+            const gap = MIN_BUSY_MS - (Date.now() - t0);
+            if (gap > 0) await new Promise((r) => setTimeout(r, gap));
             setBusy(false);
         }
     };
@@ -60,7 +217,9 @@ function VaultUnlockGate({ onUnlocked, onSignOut }: { onUnlocked: () => void; on
                         <FiShield size={32} />
                     </div>
                     <h1>Welcome back</h1>
-                    <p className="auth-subtitle">Unlock your vault to continue</p>
+                    <p className="auth-subtitle">
+                        Signed in as <strong>{userEmail}</strong>
+                    </p>
                 </div>
 
                 {error && <div className="auth-error">{error}</div>}
@@ -71,26 +230,27 @@ function VaultUnlockGate({ onUnlocked, onSignOut }: { onUnlocked: () => void; on
                             <FiLock size={16} />
                         </div>
                         <input
-                            type="password"
-                            placeholder="Vault password"
+                            type={showPw ? "text" : "password"}
+                            placeholder="Your password"
                             value={pw}
                             onChange={(e) => setPw(e.target.value)}
                             required
                             autoFocus
+                            autoComplete="current-password"
                         />
+                        <button
+                            type="button"
+                            className="input-suffix"
+                            onClick={() => setShowPw(!showPw)}
+                        >
+                            {showPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
                     </div>
-                    <button type="submit" className="auth-submit" disabled={busy}>
-                        {busy ? <span className="spinner" /> : "Unlock Vault"}
+                    <button type="submit" className="auth-submit" disabled={busy} style={{ marginTop: "10px" }}>
+                        {busy ? "Unlocking..." : "Unlock Vault"}
                     </button>
                 </form>
 
-                <button
-                    className="google-btn"
-                    style={{ marginTop: 12 }}
-                    onClick={onSignOut}
-                >
-                    Sign out instead
-                </button>
             </div>
         </div>
     );
@@ -100,12 +260,29 @@ function App() {
     const { theme, toggleTheme } = useTheme();
     const [user, setUser] = useState<User | null | undefined>(undefined);
 
+    // Tracks whether the in-memory encryption key is ready.
+    // Stays false until a fresh login OR a successful VaultUnlockGate entry.
+    const [vaultUnlocked, setVaultUnlocked] = useState(false);
+
+    // State set to true while AuthPage is actively running a login.
+    // Prevents VaultUnlockGate from flashing AND prevents the dashboard
+    // from briefly rendering during the window between onAuthChange firing
+    // and the encryption key being fully derived.
+    const [loginInProgress, setLoginInProgress] = useState(false);
+
+    // Controls the "Welcome back" splash shown briefly after fresh login.
+    const [showWelcome, setShowWelcome] = useState(false);
+
+    // Set when a Google sign-in reveals the user has no Firestore record yet.
+    const [isNewGoogleUser, setIsNewGoogleUser] = useState(false);
+
     const [credentials, setCredentials] = useState<Credential[]>([]);
     const [platforms, setPlatforms] = useState<Platform[]>([]);
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [signOutLoading, setSignOutLoading] = useState(false);
 
     // Modal states
     const [modalOpen, setModalOpen] = useState(false);
@@ -115,14 +292,38 @@ function App() {
     const [historyOpen, setHistoryOpen] = useState(false);
     const [historyCredential, setHistoryCredential] = useState<Credential | null>(null);
 
+    // Auto-lock warning
+    const [autoLockWarning, setAutoLockWarning] = useState(false);
+
+    // Auto-lock hook — locks after 1 hour of inactivity
+    useAutoLock({
+        enabled: vaultUnlocked && !!user,
+        timeoutMs: 60 * 60 * 1000, // 1 hour
+        warningBeforeMs: 30_000,    // 30 seconds warning
+        onLock: async () => {
+            setAutoLockWarning(false);
+            clearEncryptionKey();
+            await signOutUser();
+        },
+        onWarning: () => {
+            setAutoLockWarning(true);
+        },
+    });
+
     // Delete confirm
     const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null);
 
     useEffect(() => {
         const unsub = onAuthChange((u) => {
+            // Block unverified users
+            if (u && !u.emailVerified) {
+                signOutUser();
+                return;
+            }
             setUser(u);
             if (!u) {
                 setCredentials([]);
+                setVaultUnlocked(false);
                 clearEncryptionKey();
             }
         });
@@ -156,8 +357,38 @@ function App() {
         }
     }, []);
 
+    // Called after a successful login OR after vault unlock on page reload
     const handleAuthSuccess = () => {
+        setLoginInProgress(false);
+        setVaultUnlocked(true);
+        setShowWelcome(true);
         loadCredentials();
+    };
+
+    // Called by AuthPage just before it starts the async sign-in.
+    // Prevents VaultUnlockGate and the dashboard from appearing during the
+    // brief window where onAuthChange has fired but the key isn't set yet.
+    const handleAuthStart = () => {
+        setLoginInProgress(true);
+    };
+
+    // Called by AuthPage when a login attempt ends (success or failure).
+    // Clears the in-progress guard so correct gates can render.
+    const handleAuthEnd = () => {
+        setLoginInProgress(false);
+    };
+
+    // Called by AuthPage when Google auth reveals a brand-new user.
+    const handleNewGoogleUser = () => {
+        setIsNewGoogleUser(true);
+    };
+
+    // Called by GoogleVaultSetup when the user submits their new vault password.
+    const handleGoogleVaultSetup = async (password: string) => {
+        setLoginInProgress(true);
+        await setupGoogleVault(password);
+        setIsNewGoogleUser(false);
+        handleAuthSuccess();
     };
 
     const handleAdd = () => {
@@ -209,7 +440,11 @@ function App() {
     };
 
     const handleSignOut = async () => {
+        setSignOutLoading(true);
+        setVaultUnlocked(false);
+        setIsNewGoogleUser(false);
         await signOutUser();
+        setSignOutLoading(false);
     };
 
     const filteredCredentials = credentials.filter((c) =>
@@ -254,7 +489,9 @@ function App() {
         [credentials]
     );
 
-    // Loading state
+    // ── Render gates ─────────────────────────────────────────────────────────
+
+    // Waiting for Firebase to restore session
     if (user === undefined) {
         return (
             <div className="app-loading">
@@ -264,20 +501,57 @@ function App() {
         );
     }
 
-    // Auth gate
+    // Not signed in
     if (!user) {
-        return <AuthPage onAuthSuccess={handleAuthSuccess} />;
+        return (
+            <AuthPage
+                onAuthSuccess={handleAuthSuccess}
+                onAuthStart={handleAuthStart}
+                onAuthEnd={handleAuthEnd}
+                onNewGoogleUser={handleNewGoogleUser}
+            />
+        );
     }
 
-    // Vault unlock gate — user is authenticated but encryption key was lost
-    // (e.g. page reload, navigation from admin console)
-    if (!hasEncryptionKey()) {
-        return <VaultUnlockGate onUnlocked={handleAuthSuccess} onSignOut={handleSignOut} />;
+    // New Google user — has Firebase auth but no Firestore record yet.
+    // Show vault setup so they can create their encryption password.
+    if (isNewGoogleUser) {
+        return (
+            <GoogleVaultSetup
+                userEmail={user.email ?? ""}
+                onSetup={handleGoogleVaultSetup}
+            />
+        );
+    }
+
+    // Signed in but vault not yet unlocked — page was reloaded.
+    // Skip this gate if a fresh login is currently in progress,
+    // otherwise we'd flash the unlock screen mid-login.
+    if (!vaultUnlocked && !loginInProgress) {
+        return (
+            <VaultUnlockGate
+                userEmail={user.email ?? ""}
+                onUnlocked={handleAuthSuccess}
+            />
+        );
+    }
+
+    // Show the welcome splash:
+    //  - While loginInProgress is true (onAuthChange fired, key not ready yet)
+    //  - After handleAuthSuccess sets showWelcome=true (until the timer fires)
+    // This ensures the dashboard never flashes before the splash.
+    if (showWelcome || loginInProgress) {
+        const displayNameForSplash = user.displayName || user.email?.split("@")[0] || "User";
+        return (
+            <WelcomeSplash
+                displayName={displayNameForSplash}
+                onDone={() => setShowWelcome(false)}
+            />
+        );
     }
 
     const totalCredentials = credentials.length;
     const displayName = user.displayName || user.email?.split("@")[0] || "User";
-
 
     return (
         <div className="app-shell">
@@ -293,7 +567,7 @@ function App() {
                 <button className="theme-toggle-btn mobile" onClick={toggleTheme}>
                     {theme === "financial" ? <FiMoon size={16} /> : <FiSun size={16} />}
                 </button>
-                <button className="sign-out-btn mobile" onClick={handleSignOut}>
+                <button className="sign-out-btn mobile" onClick={handleSignOut} disabled={signOutLoading}>
                     <FiLogOut size={16} />
                 </button>
             </header>
@@ -343,9 +617,9 @@ function App() {
                         {theme === "financial" ? <FiMoon size={14} /> : <FiSun size={14} />}
                         <span>{theme === "financial" ? "Financial" : "Modern Red"}</span>
                     </button>
-                    <button className="sign-out-btn desktop" onClick={handleSignOut}>
+                    <button className="sign-out-btn desktop" onClick={handleSignOut} disabled={signOutLoading}>
                         <FiLogOut size={14} />
-                        <span>Sign Out</span>
+                        <span>{signOutLoading ? "Logging Out..." : "Sign Out"}</span>
                     </button>
                 </div>
             </aside>
@@ -404,6 +678,31 @@ function App() {
             </main>
 
             <FAB onClick={handleAdd} />
+
+            {/* Auto-lock warning toast */}
+            {autoLockWarning && (
+                <div className="auto-lock-warning" style={{
+                    position: "fixed",
+                    bottom: 90,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    color: "#fff",
+                    padding: "12px 24px",
+                    borderRadius: 12,
+                    fontWeight: 600,
+                    fontSize: "0.9rem",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+                    zIndex: 9999,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    animation: "fadeIn 0.3s ease",
+                }}>
+                    <FiLock size={16} />
+                    Vault will auto-lock in 30 seconds due to inactivity
+                </div>
+            )}
 
             <CredentialModal
                 isOpen={modalOpen}

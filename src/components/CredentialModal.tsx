@@ -177,13 +177,7 @@ export default function CredentialModal({
                     </div>
 
                     <button type="submit" className="modal-submit" disabled={loading || !platform.trim()}>
-                        {loading ? (
-                            <span className="spinner" />
-                        ) : isEditing ? (
-                            "Save Changes"
-                        ) : (
-                            "Add Credential"
-                        )}
+                        {loading ? "Saving..." : isEditing ? "Save Changes" : "Add Credential"}
                     </button>
                 </form>
             </div>

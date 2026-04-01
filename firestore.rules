@@ -1,0 +1,190 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  GLOBAL DEFAULT: Deny everything not explicitly allowed
+    // ══════════════════════════════════════════════════════════════════════════
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  HELPER FUNCTIONS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // Check if the request comes from an authenticated user
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the authenticated user's email is verified
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    // Check if the requesting user owns the resource (matches {userId} path)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Full auth gate: authenticated + email verified + owns the resource
+    function isVerifiedOwner(userId) {
+      return isOwner(userId) && isEmailVerified();
+    }
+
+    // Validate string field: must be a string, non-empty, and within max length
+    function isValidString(field, maxLen) {
+      return field is string && field.size() > 0 && field.size() <= maxLen;
+    }
+
+    // Validate optional string field: can be empty string, but must be a string
+    // and within max length
+    function isOptionalString(field, maxLen) {
+      return field is string && field.size() <= maxLen;
+    }
+
+    // Rate limiting helper: check that the last write was at least N seconds ago
+    // (Firestore doesn't have native rate limiting, but we can enforce timestamps)
+    function hasValidTimestamp() {
+      return request.resource.data.keys().hasAny(['createdAt', 'updatedAt', 'timestamp']);
+    }
+
+    // Prevent document from exceeding a maximum number of fields (anti-bloat)
+    function hasMaxFields(max) {
+      return request.resource.data.keys().size() <= max;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  USER PROFILES — /users/{userId}
+    //
+    //  Stores: salt (hex), fullName, createdAt, canary (encrypted marker)
+    //  Only the owner can read/create/update their own profile.
+    //  Deletion is blocked to prevent data loss / orphaned credentials.
+    // ══════════════════════════════════════════════════════════════════════════
+    match /users/{userId} {
+
+      // Read: owner only (verified)
+      allow read: if isVerifiedOwner(userId);
+
+      // Create: only during sign-up (owner, first time)
+      // For Google users who haven't verified email yet, allow auth'd owner only
+      allow create: if isOwner(userId)
+        && !exists(/databases/$(database)/documents/users/$(userId))
+        && hasMaxFields(5)
+        && isValidString(request.resource.data.salt, 64)
+        && isValidString(request.resource.data.fullName, 200)
+        && request.resource.data.createdAt is timestamp
+          || request.resource.data.createdAt is map; // Firestore Timestamp or JS Date
+
+      // Update: only the verified owner, only specific fields
+      // Used to add/update the canary for vault password verification
+      allow update: if isVerifiedOwner(userId)
+        && hasMaxFields(5)
+        // Cannot change the salt after creation (would break all encryption)
+        && request.resource.data.salt == resource.data.salt
+        // Cannot change createdAt
+        && request.resource.data.createdAt == resource.data.createdAt
+        // fullName can be updated but must remain valid
+        && isValidString(request.resource.data.fullName, 200);
+
+      // Delete: NEVER — prevents accidental/malicious profile deletion
+      allow delete: if false;
+
+      // ════════════════════════════════════════════════════════════════════════
+      //  USER CREDENTIALS — /users/{userId}/credentials/{credentialId}
+      //
+      //  Stores encrypted passwords + metadata.
+      //  Only the verified owner can CRUD their own credentials.
+      // ════════════════════════════════════════════════════════════════════════
+      match /credentials/{credentialId} {
+
+        // Read: verified owner only
+        allow read: if isVerifiedOwner(userId);
+
+        // Create: verified owner with field validation
+        allow create: if isVerifiedOwner(userId)
+          && hasMaxFields(10)
+          && isValidString(request.resource.data.platform, 200)
+          && isOptionalString(request.resource.data.email, 500)
+          && isOptionalString(request.resource.data.username, 200)
+          && isValidString(request.resource.data.password, 5000)  // encrypted pw can be long
+          && isOptionalString(request.resource.data.accountName, 200)
+          && isOptionalString(request.resource.data.comment, 2000)
+          && request.resource.data.createdAt is timestamp
+          && request.resource.data.updatedAt is timestamp;
+
+        // Update: verified owner with field validation
+        allow update: if isVerifiedOwner(userId)
+          && hasMaxFields(10)
+          && isValidString(request.resource.data.platform, 200)
+          && isOptionalString(request.resource.data.email, 500)
+          && isOptionalString(request.resource.data.username, 200)
+          && isValidString(request.resource.data.password, 5000)
+          && isOptionalString(request.resource.data.accountName, 200)
+          && isOptionalString(request.resource.data.comment, 2000)
+          && request.resource.data.updatedAt is timestamp
+          // Prevent tampering with createdAt
+          && request.resource.data.createdAt == resource.data.createdAt;
+
+        // Delete: verified owner only
+        allow delete: if isVerifiedOwner(userId);
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  CREDENTIAL HISTORY — /users/{userId}/credentials/{credId}/history/{historyId}
+        //
+        //  Append-only audit log of credential changes.
+        //  Only the verified owner can create and read history entries.
+        //  Updates and deletes are allowed only for cleanup (batch delete).
+        // ══════════════════════════════════════════════════════════════════════
+        match /history/{historyId} {
+
+          // Read: verified owner only
+          allow read: if isVerifiedOwner(userId);
+
+          // Create: verified owner with field validation
+          allow create: if isVerifiedOwner(userId)
+            && hasMaxFields(12)
+            && isValidString(request.resource.data.platform, 200)
+            && isOptionalString(request.resource.data.email, 500)
+            && isOptionalString(request.resource.data.username, 200)
+            && isValidString(request.resource.data.password, 5000)
+            && isOptionalString(request.resource.data.accountName, 200)
+            && isOptionalString(request.resource.data.comment, 2000)
+            && request.resource.data.action in ['created', 'updated']
+            && request.resource.data.timestamp is timestamp;
+
+          // Update: NEVER — history is immutable
+          allow update: if false;
+
+          // Delete: verified owner only
+          // (needed for batch cleanup when deleting a credential)
+          allow delete: if isVerifiedOwner(userId);
+        }
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PLATFORMS — /platforms/{platformId}
+    //
+    //  Shared catalog of platform definitions (Google, Facebook, etc).
+    //  Read: any authenticated + verified user (needed for credential creation).
+    //  Write: blocked at Firestore level — only admin (via Admin SDK / console)
+    //         should manage platforms. Client-side admin console should be
+    //         replaced with a Cloud Function or Firebase Admin SDK backend.
+    //
+    //  ⚠️ SECURITY NOTE: The current client-side AdminConsole.tsx uses a
+    //  hardcoded password and writes directly to Firestore. This is insecure.
+    //  Writes to /platforms should only happen through a server-side admin
+    //  endpoint. See the security audit artifact for remediation steps.
+    // ══════════════════════════════════════════════════════════════════════════
+    match /platforms/{platformId} {
+
+      // Read: any authenticated + verified user
+      allow read: if isAuthenticated() && isEmailVerified();
+
+      // Write: BLOCKED — must use Admin SDK / Cloud Functions
+      allow create, update, delete: if false;
+    }
+  }
+}

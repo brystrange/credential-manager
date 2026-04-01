@@ -32,6 +32,18 @@ export default function CredentialCard({
     const [showPassword, setShowPassword] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
     const [imgError, setImgError] = useState(false);
+    const [loadingAction, setLoadingAction] = useState<"edit" | "delete" | "history" | null>(null);
+
+    const handleActionClick = async (
+        action: "edit" | "delete" | "history",
+        fn: () => void
+    ) => {
+        if (loadingAction) return;
+        setLoadingAction(action);
+        fn();
+        await new Promise((r) => setTimeout(r, 450));
+        setLoadingAction(null);
+    };
 
     const platform = findPlatformByName(platforms, credential.platform);
 
@@ -99,24 +111,33 @@ export default function CredentialCard({
                 <div className="card-actions">
                     <button
                         className="icon-btn"
-                        onClick={() => onHistory(credential)}
+                        onClick={() => handleActionClick("history", () => onHistory(credential))}
                         title="View History"
+                        disabled={!!loadingAction}
                     >
-                        <FiClock size={16} />
+                        {loadingAction === "history"
+                            ? <span className="spinner" style={{ width: 13, height: 13 }} />
+                            : <FiClock size={16} />}
                     </button>
                     <button
                         className="icon-btn"
-                        onClick={() => onEdit(credential)}
+                        onClick={() => handleActionClick("edit", () => onEdit(credential))}
                         title="Edit"
+                        disabled={!!loadingAction}
                     >
-                        <FiEdit2 size={16} />
+                        {loadingAction === "edit"
+                            ? <span className="spinner" style={{ width: 13, height: 13 }} />
+                            : <FiEdit2 size={16} />}
                     </button>
                     <button
                         className="icon-btn danger"
-                        onClick={() => onDelete(credential)}
+                        onClick={() => handleActionClick("delete", () => onDelete(credential))}
                         title="Delete"
+                        disabled={!!loadingAction}
                     >
-                        <FiTrash2 size={16} />
+                        {loadingAction === "delete"
+                            ? <span className="spinner" style={{ width: 13, height: 13 }} />
+                            : <FiTrash2 size={16} />}
                     </button>
                 </div>
             </div>
