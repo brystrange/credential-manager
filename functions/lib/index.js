@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
+exports.recoverMasterKey = exports.escrowMasterKey = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const crypto = __importStar(require("crypto"));
 const validatePlatform_1 = require("./validatePlatform");
 admin.initializeApp();
 const db = admin.firestore();
@@ -117,5 +118,59 @@ exports.setAdminClaim = (0, https_1.onCall)(async (request) => {
     }
     await admin.auth().setCustomUserClaims(ADMIN_UID, { admin: true });
     return { success: true, message: "Admin claim set. Sign out and back in for it to take effect." };
+});
+// ─── Key Escrow Crypto Utilities ─────────────────────────────────────────────
+const ESCROW_SECRET = process.env.ESCROW_SECRET || "default_escrow_secret_key_123456";
+// Ensure exactly 32 bytes for AES-256
+const ESCROW_KEY = crypto.createHash("sha256").update(ESCROW_SECRET).digest();
+function encryptForEscrow(text) {
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv("aes-256-gcm", ESCROW_KEY, iv);
+    let encrypted = cipher.update(text, "utf8", "hex");
+    encrypted += cipher.final("hex");
+    const authTag = cipher.getAuthTag().toString("hex");
+    return `${iv.toString("hex")}:${encrypted}:${authTag}`;
+}
+function decryptFromEscrow(encryptedText) {
+    const [ivHex, cipherHex, authTagHex] = encryptedText.split(":");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", ESCROW_KEY, Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
+    let decrypted = decipher.update(cipherHex, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+}
+// ─── escrowMasterKey ─────────────────────────────────────────────────────────
+exports.escrowMasterKey = (0, https_1.onCall)(async (request) => {
+    var _a;
+    if (!request.auth)
+        throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
+    const masterKeyHex = (_a = request.data) === null || _a === void 0 ? void 0 : _a.masterKey;
+    if (typeof masterKeyHex !== "string" || !masterKeyHex) {
+        throw new https_1.HttpsError("invalid-argument", "Missing masterKey");
+    }
+    const escrowed = encryptForEscrow(masterKeyHex);
+    await db.collection("users").doc(request.auth.uid).update({
+        escrowedMasterKey: escrowed
+    });
+    return { success: true };
+});
+// ─── recoverMasterKey ────────────────────────────────────────────────────────
+exports.recoverMasterKey = (0, https_1.onCall)(async (request) => {
+    var _a;
+    if (!request.auth)
+        throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
+    const userDoc = await db.collection("users").doc(request.auth.uid).get();
+    if (!userDoc.exists)
+        throw new https_1.HttpsError("not-found", "User not found.");
+    const escrowed = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.escrowedMasterKey;
+    if (!escrowed)
+        throw new https_1.HttpsError("failed-precondition", "No escrowed key found.");
+    try {
+        const masterKey = decryptFromEscrow(escrowed);
+        return { masterKey };
+    }
+    catch (e) {
+        throw new https_1.HttpsError("internal", "Failed to decrypt escrowed key.");
+    }
 });
 //# sourceMappingURL=index.js.map

@@ -20,6 +20,7 @@ export interface Credential {
     email: string;
     username: string;
     password: string; // decrypted in memory
+    pin?: string;
     accountName?: string;
     comment: string;
     createdAt: Date;
@@ -31,6 +32,7 @@ export interface CredentialInput {
     email: string;
     username: string;
     password: string;
+    pin?: string;
     accountName?: string;
     comment: string;
 }
@@ -41,6 +43,7 @@ export interface HistoryEntry {
     email: string;
     username: string;
     password: string; // kept encrypted in history display
+    pin?: string;
     accountName?: string;
     comment: string;
     action: "created" | "updated";
@@ -68,12 +71,21 @@ export async function getCredentials(): Promise<Credential[]> {
         } catch {
             decryptedPassword = "[decryption failed]";
         }
+        let decryptedPin = "";
+        if (data.pin) {
+            try {
+                decryptedPin = await decryptPassword(data.pin, key);
+            } catch {
+                decryptedPin = "[decryption failed]";
+            }
+        }
         credentials.push({
             id: docSnap.id,
             platform: data.platform,
             email: data.email,
             username: data.username || "",
             password: decryptedPassword,
+            pin: decryptedPin,
             accountName: data.accountName || "",
             comment: data.comment || "",
             createdAt: (data.createdAt as Timestamp).toDate(),
@@ -86,6 +98,7 @@ export async function getCredentials(): Promise<Credential[]> {
 export async function addCredential(input: CredentialInput): Promise<string> {
     const key = getEncryptionKey();
     const encryptedPw = await encryptPassword(input.password, key);
+    const encryptedPin = input.pin ? await encryptPassword(input.pin, key) : "";
     const now = Timestamp.now();
 
     const credRef = await addDoc(getUserCredentialsRef(), {
@@ -93,6 +106,7 @@ export async function addCredential(input: CredentialInput): Promise<string> {
         email: input.email,
         username: input.username,
         password: encryptedPw,
+        pin: encryptedPin,
         accountName: input.accountName || "",
         comment: input.comment,
         createdAt: now,
@@ -105,6 +119,7 @@ export async function addCredential(input: CredentialInput): Promise<string> {
         email: input.email,
         username: input.username,
         password: encryptedPw,
+        pin: encryptedPin,
         accountName: input.accountName || "",
         comment: input.comment,
         action: "created",
@@ -121,6 +136,7 @@ export async function updateCredential(
 ): Promise<void> {
     const key = getEncryptionKey();
     const encryptedPw = await encryptPassword(input.password, key);
+    const encryptedPin = input.pin ? await encryptPassword(input.pin, key) : "";
     const now = Timestamp.now();
 
     const uid = auth.currentUser?.uid;
@@ -132,6 +148,7 @@ export async function updateCredential(
         email: input.email,
         username: input.username,
         password: encryptedPw,
+        pin: encryptedPin,
         accountName: input.accountName || "",
         comment: input.comment,
         updatedAt: now,
@@ -143,6 +160,7 @@ export async function updateCredential(
     if (oldCredential.email !== input.email) changes.push("email");
     if (oldCredential.username !== input.username) changes.push("username");
     if (oldCredential.password !== input.password) changes.push("password");
+    if (oldCredential.pin !== input.pin) changes.push("pin");
     if (oldCredential.accountName !== input.accountName) changes.push("account name");
     if (oldCredential.comment !== input.comment) changes.push("comment");
 
@@ -151,6 +169,7 @@ export async function updateCredential(
         email: input.email,
         username: input.username,
         password: encryptedPw,
+        pin: encryptedPin,
         accountName: input.accountName || "",
         comment: input.comment,
         action: "updated",
@@ -198,6 +217,7 @@ export async function getHistory(id: string): Promise<HistoryEntry[]> {
             email: data.email,
             username: data.username || "",
             password: "••••••••",
+            pin: data.pin ? "••••" : "",
             accountName: data.accountName || "",
             comment: data.comment || "",
             action: data.action,

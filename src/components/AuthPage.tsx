@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useLoginThrottle } from "../hooks/useLoginThrottle";
-import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, resendVerificationEmail } from "../services/authService";
+import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, resendVerificationEmail, resetPassword } from "../services/authService";
 import {
-    FiShield,
     FiMail,
     FiLock,
     FiLogIn,
@@ -29,8 +28,10 @@ type AuthView = "login" | "signup" | "vault-unlock" | "verify-email";
 function friendlyError(msg: string): string {
     if (msg.includes("auth/email-already-in-use"))
         return "This email is already registered. Try signing in instead.";
-    if (msg.includes("auth/invalid-credential") || msg.includes("auth/wrong-password") || msg.includes("auth/user-not-found"))
-        return "Incorrect email or password. Please try again.";
+    if (msg.includes("auth/user-not-found"))
+        return "Account does not exist.";
+    if (msg.includes("auth/invalid-credential") || msg.includes("auth/wrong-password"))
+        return "Incorrect email or password.";
     if (msg.includes("auth/weak-password"))
         return "Password must be at least 6 characters.";
     if (msg.includes("auth/invalid-email"))
@@ -81,6 +82,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     const [resendSuccess, setResendSuccess] = useState(false);
     const [pendingEmail, setPendingEmail] = useState("");
     const [pendingPassword, setPendingPassword] = useState("");
+    const [resetPasswordSuccess, setResetPasswordSuccess] = useState("");
 
     const resetFields = () => {
         setEmail("");
@@ -93,6 +95,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         setShowVaultPassword(false);
         setError("");
         setResendSuccess(false);
+        setResetPasswordSuccess("");
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -147,6 +150,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         onAuthStart?.();
         try {
             const result = await signInWithGoogle();
+            recordSuccess();
             if (result.status === "new") {
                 // Hand off to App.tsx to show the vault-setup screen
                 onNewGoogleUser?.();
@@ -175,6 +179,25 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
             setError(friendlyError(msg));
         } finally {
             setResendLoading(false);
+        }
+    };
+
+    const handleForgotPassword = async () => {
+        if (!email) {
+            setError("Please enter your email address first.");
+            return;
+        }
+        setLoading(true);
+        setError("");
+        setResetPasswordSuccess("");
+        try {
+            await resetPassword(email);
+            setResetPasswordSuccess("Password reset email sent. Check your inbox.");
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to send reset email.";
+            setError(friendlyError(msg));
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -250,7 +273,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo">
-                            <FiShield size={32} />
+                            <img src="/logo.svg" alt="Logo" style={{ width: 32, height: 32 }} />
                         </div>
                         <h1>Fort Knox</h1>
                         <p className="auth-subtitle">Secure credential management</p>
@@ -305,7 +328,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <FiShield size={32} />
+                        <img src="/logo.svg" alt="Logo" style={{ width: 40, height: 40 }} />
                     </div>
                     <h1>Fort Knox</h1>
                     <p className="auth-subtitle">Secure credential management</p>
@@ -357,6 +380,13 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 ) : (
                     error && <div className="auth-error">{error}</div>
                 )}
+                
+                {resetPasswordSuccess && (
+                    <div className="auth-success" style={{ marginBottom: "16px" }}>
+                        <FiCheckCircle size={16} />
+                        {resetPasswordSuccess}
+                    </div>
+                )}
 
                 {/* Rate limiting UI */}
                 {view === "login" && resetEmailMessage && (
@@ -369,7 +399,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                         ⚠️ Too many failed attempts. Try again in <strong>{Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}</strong>
                     </div>
                 )}
-                {view === "login" && !isLockedOut && attemptsRemaining < 5 && attemptsRemaining > 0 && (
+                {view === "login" && !isLockedOut && attemptsRemaining < 5 && attemptsRemaining > 0 && error && (
                     <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", margin: "0 0 8px" }}>
                         {attemptsRemaining} attempt{attemptsRemaining !== 1 ? "s" : ""} remaining before lockout
                     </div>
@@ -427,6 +457,19 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                             {showPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                         </button>
                     </div>
+
+                    {view === "login" && (
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "-8px", marginBottom: "12px" }}>
+                            <button
+                                type="button"
+                                onClick={handleForgotPassword}
+                                style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "0.85rem", cursor: "pointer", padding: 0 }}
+                                disabled={loading}
+                            >
+                                Forgot password?
+                            </button>
+                        </div>
+                    )}
 
                     {view === "signup" && (
                         <div className="form-group">

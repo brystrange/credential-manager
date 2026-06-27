@@ -141,6 +141,14 @@ export default function HistoryPanel({
                                                     {entry.password}
                                                 </span>
                                             </div>
+                                            {entry.pin && (
+                                                <div className="snapshot-row">
+                                                    <span className="snapshot-label">Pin</span>
+                                                    <span className="snapshot-value mono">
+                                                        {entry.pin}
+                                                    </span>
+                                                </div>
+                                            )}
                                             {entry.comment && (
                                                 <div className="snapshot-row">
                                                     <span className="snapshot-label">Comment</span>

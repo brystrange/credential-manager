@@ -11,6 +11,7 @@ import {
     FiEye,
     FiEyeOff,
     FiTag,
+    FiHash,
 } from "react-icons/fi";
 
 interface CredentialModalProps {
@@ -21,6 +22,22 @@ interface CredentialModalProps {
     loading?: boolean;
     existingPlatforms?: string[];
     platforms: Platform[];
+}
+
+/**
+ * On mobile, when an input/textarea receives focus the virtual keyboard
+ * slides up from the bottom and can obscure the focused element.
+ * scrollIntoView({ block: "nearest" }) asks the browser to reveal
+ * the element with the minimum scroll — keeps it in view without
+ * jumping more than necessary.
+ */
+function handleMobileFocus(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
+    if (window.matchMedia("(max-width: 768px)").matches) {
+        const el = e.currentTarget;
+        setTimeout(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 150);
+    }
 }
 
 export default function CredentialModal({
@@ -37,8 +54,10 @@ export default function CredentialModal({
     const [email, setEmail] = useState("");
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [pin, setPin] = useState("");
     const [comment, setComment] = useState("");
     const [showPassword, setShowPassword] = useState(false);
+    const [showPin, setShowPin] = useState(false);
 
     useEffect(() => {
         if (initialData) {
@@ -47,6 +66,7 @@ export default function CredentialModal({
             setEmail(initialData.email);
             setUsername(initialData.username);
             setPassword(initialData.password);
+            setPin(initialData.pin || "");
             setComment(initialData.comment);
         } else {
             setPlatform("");
@@ -54,9 +74,11 @@ export default function CredentialModal({
             setEmail("");
             setUsername("");
             setPassword("");
+            setPin("");
             setComment("");
         }
         setShowPassword(false);
+        setShowPin(false);
     }, [initialData, isOpen]);
 
     // Disable body scroll when modal is open
@@ -74,7 +96,7 @@ export default function CredentialModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!platform.trim()) return;
-        onSubmit({ platform, accountName, email, username, password, comment });
+        onSubmit({ platform, accountName, email, username, password, pin, comment });
     };
 
     if (!isOpen) return null;
@@ -86,7 +108,6 @@ export default function CredentialModal({
             <div
                 className="modal-content"
                 onClick={(e) => e.stopPropagation()}
-                style={{ maxHeight: "90vh", minHeight: "550px", overflowY: "auto" }}
             >
                 <div className="modal-header">
                     <h2>{isEditing ? "Edit Credential" : "New Credential"}</h2>
@@ -116,6 +137,7 @@ export default function CredentialModal({
                             placeholder="Account Name (e.g. Work, Personal)"
                             value={accountName}
                             onChange={(e) => setAccountName(e.target.value)}
+                            onFocus={handleMobileFocus}
                         />
                     </div>
 
@@ -129,6 +151,7 @@ export default function CredentialModal({
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
+                            onFocus={handleMobileFocus}
                         />
                     </div>
 
@@ -141,6 +164,7 @@ export default function CredentialModal({
                             placeholder="Username (optional)"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
+                            onFocus={handleMobileFocus}
                         />
                     </div>
 
@@ -154,6 +178,7 @@ export default function CredentialModal({
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
+                            onFocus={handleMobileFocus}
                         />
                         <button
                             type="button"
@@ -161,6 +186,26 @@ export default function CredentialModal({
                             onClick={() => setShowPassword(!showPassword)}
                         >
                             {showPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+
+                    <div className="form-group">
+                        <div className="input-icon">
+                            <FiHash size={18} />
+                        </div>
+                        <input
+                            type={showPin ? "text" : "password"}
+                            placeholder="Pin (optional)"
+                            value={pin}
+                            onChange={(e) => setPin(e.target.value)}
+                            onFocus={handleMobileFocus}
+                        />
+                        <button
+                            type="button"
+                            className="input-suffix"
+                            onClick={() => setShowPin(!showPin)}
+                        >
+                            {showPin ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                         </button>
                     </div>
 
@@ -173,6 +218,7 @@ export default function CredentialModal({
                             value={comment}
                             onChange={(e) => setComment(e.target.value)}
                             rows={3}
+                            onFocus={handleMobileFocus}
                         />
                     </div>
 

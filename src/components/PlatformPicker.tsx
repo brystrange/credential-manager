@@ -11,6 +11,17 @@ interface PlatformPickerProps {
     platforms: Platform[];
 }
 
+/** Scroll an element into view only on touch/mobile devices */
+function scrollIntoViewOnMobile(el: HTMLElement | null) {
+    if (!el) return;
+    if (window.matchMedia("(max-width: 768px)").matches) {
+        // Small delay lets the keyboard start opening before we scroll
+        setTimeout(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 150);
+    }
+}
+
 export default function PlatformPicker({
     value,
     onChange,
@@ -25,6 +36,7 @@ export default function PlatformPicker({
     const [imgErrors, setImgErrors] = useState<Set<string>>(new Set());
     const pickerRef = useRef<HTMLDivElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
+    const customInputRef = useRef<HTMLInputElement>(null);
 
     // Close on outside click
     useEffect(() => {
@@ -41,12 +53,21 @@ export default function PlatformPicker({
         }
     }, [isOpen]);
 
-    // Focus search on open
+    // Focus search on open and scroll into view on mobile
     useEffect(() => {
         if (isOpen && searchInputRef.current) {
             searchInputRef.current.focus();
+            scrollIntoViewOnMobile(searchInputRef.current);
         }
     }, [isOpen]);
+
+    // Scroll custom input into view on mobile when it appears
+    useEffect(() => {
+        if (customMode && customInputRef.current) {
+            customInputRef.current.focus();
+            scrollIntoViewOnMobile(customInputRef.current);
+        }
+    }, [customMode]);
 
     const filteredPlatforms = useMemo(() => {
         if (!search.trim()) return platforms;
@@ -130,13 +151,42 @@ export default function PlatformPicker({
 
     return (
         <div className="platform-picker" ref={pickerRef}>
-            {/* Trigger button */}
-            <button
-                type="button"
-                className={`platform-picker-trigger ${value ? "has-value" : ""}`}
-                onClick={() => setIsOpen(!isOpen)}
+            {/* Trigger / Search area */}
+            <div
+                className={`platform-picker-trigger ${value && !isOpen ? "has-value" : ""} ${isOpen ? "is-open" : ""}`}
+                onClick={() => {
+                    if (!isOpen) {
+                        setIsOpen(true);
+                        setSearch("");
+                    }
+                }}
             >
-                {value ? (
+                {isOpen ? (
+                    <div className="platform-picker-search-inline">
+                        <FiSearch size={16} className="picker-search-icon" />
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            placeholder="Search platforms…"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            onFocus={(e) => scrollIntoViewOnMobile(e.currentTarget)}
+                        />
+                        {search && (
+                            <button
+                                type="button"
+                                className="picker-search-clear"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSearch("");
+                                    searchInputRef.current?.focus();
+                                }}
+                            >
+                                <FiX size={14} />
+                            </button>
+                        )}
+                    </div>
+                ) : value ? (
                     <>
                         {selectedPlatform && selectedPlatform.logoUrl && !imgErrors.has(selectedPlatform.id) ? (
                             <img
@@ -156,38 +206,18 @@ export default function PlatformPicker({
                         <span>{value}</span>
                     </>
                 ) : (
-                    <>
-                        <FiSearch size={16} />
-                        <span className="placeholder-text">Select a platform…</span>
-                    </>
+                    <div className="platform-picker-search-inline">
+                        <FiSearch size={16} className="picker-search-icon" />
+                        <span className="placeholder-text">Search platforms…</span>
+                    </div>
                 )}
-            </button>
+            </div>
 
             {/* Dropdown */}
             {isOpen && (
                 <div className="platform-picker-dropdown">
-                    {/* Search bar */}
-                    <div className="platform-picker-search">
-                        <FiSearch size={14} className="picker-search-icon" />
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            placeholder="Search platforms…"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-                        {search && (
-                            <button
-                                type="button"
-                                className="picker-search-clear"
-                                onClick={() => setSearch("")}
-                            >
-                                <FiX size={12} />
-                            </button>
-                        )}
-                    </div>
 
-                    {/* Platform grid */}
+                    {/* Platform list */}
                     <div className="platform-picker-grid">
                         {categories.map((cat) => {
                             const catPlatforms = platformsByCategory.get(cat) || [];
@@ -195,33 +225,46 @@ export default function PlatformPicker({
                             return (
                                 <div key={cat} className="platform-category">
                                     <span className="platform-category-label">{cat}</span>
-                                    <div className="platform-tiles">
+                                    <div className="platform-list">
                                         {catPlatforms.map((p) => (
                                             <button
                                                 key={p.id}
                                                 type="button"
-                                                className={`platform-tile ${value.toLowerCase() === p.name.toLowerCase() ? "selected" : ""}`}
+                                                className={`platform-list-item ${value.toLowerCase() === p.name.toLowerCase() ? "selected" : ""}`}
                                                 onClick={() => handleSelect(p)}
                                             >
+                                                {/* Icon */}
                                                 {p.logoUrl && !imgErrors.has(p.id) ? (
                                                     <img
                                                         src={p.logoUrl}
                                                         alt={p.name}
-                                                        className="platform-tile-logo"
+                                                        className="platform-list-logo"
                                                         onError={() => handleImgError(p.id)}
                                                     />
                                                 ) : (
                                                     <div
-                                                        className="platform-tile-fallback"
+                                                        className="platform-list-fallback"
                                                         style={{ backgroundColor: p.color }}
                                                     >
                                                         {p.name.charAt(0)}
                                                     </div>
                                                 )}
-                                                <span className="platform-tile-name">{p.name}</span>
+
+                                                {/* Name */}
+                                                <span className="platform-list-name">{p.name}</span>
+
+                                                {/* Already-added badge */}
                                                 {isExisting(p.name) && (
-                                                    <span className="platform-tile-badge">
-                                                        <FiCheck size={8} />
+                                                    <span className="platform-list-badge">
+                                                        <FiCheck size={10} />
+                                                        Added
+                                                    </span>
+                                                )}
+
+                                                {/* Selected checkmark on right */}
+                                                {value.toLowerCase() === p.name.toLowerCase() && (
+                                                    <span className="platform-list-selected-icon">
+                                                        <FiCheck size={13} />
                                                     </span>
                                                 )}
                                             </button>
@@ -252,17 +295,18 @@ export default function PlatformPicker({
                         ) : (
                             <div className="platform-custom-input">
                                 <input
+                                    ref={customInputRef}
                                     type="text"
                                     placeholder="Enter platform name…"
                                     value={customName}
                                     onChange={(e) => setCustomName(e.target.value)}
+                                    onFocus={(e) => scrollIntoViewOnMobile(e.currentTarget)}
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") {
                                             e.preventDefault();
                                             handleCustomSubmit();
                                         }
                                     }}
-                                    autoFocus
                                 />
                                 <button
                                     type="button"

@@ -21,6 +21,7 @@ const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_TOTAL_BEFORE_RESET = 10;
 
 interface ThrottleState {
+    email: string | null;
     failedAttempts: number;
     lockedUntil: number | null;       // epoch ms
     totalFailures: number;
@@ -32,7 +33,7 @@ function loadState(): ThrottleState {
         const raw = sessionStorage.getItem(STORAGE_KEY);
         if (raw) return JSON.parse(raw);
     } catch { /* ignore */ }
-    return { failedAttempts: 0, lockedUntil: null, totalFailures: 0, resetEmailSent: false };
+    return { email: null, failedAttempts: 0, lockedUntil: null, totalFailures: 0, resetEmailSent: false };
 }
 
 function saveState(state: ThrottleState): void {
@@ -65,6 +66,7 @@ export function useLoginThrottle() {
                     // Lockout expired — reset the per-cycle counter, keep totalFailures
                     setState((prev) => ({
                         ...prev,
+                        email: prev.email,
                         failedAttempts: 0,
                         lockedUntil: null,
                     }));
@@ -92,11 +94,19 @@ export function useLoginThrottle() {
     /** Call this after a failed login attempt */
     const recordFailure = useCallback(async (emailUsed?: string) => {
         setState((prev) => {
-            const newFailedAttempts = prev.failedAttempts + 1;
-            const newTotalFailures = prev.totalFailures + 1;
+            let baseState = prev;
+            // Reset if email changed
+            if (emailUsed && prev.email && emailUsed !== prev.email) {
+                baseState = { email: emailUsed, failedAttempts: 0, lockedUntil: null, totalFailures: 0, resetEmailSent: false };
+            } else if (emailUsed && !prev.email) {
+                baseState = { ...prev, email: emailUsed };
+            }
+
+            const newFailedAttempts = baseState.failedAttempts + 1;
+            const newTotalFailures = baseState.totalFailures + 1;
 
             // Check if we need to force a password reset
-            if (newTotalFailures >= MAX_TOTAL_BEFORE_RESET && !prev.resetEmailSent && emailUsed) {
+            if (newTotalFailures >= MAX_TOTAL_BEFORE_RESET && !baseState.resetEmailSent && emailUsed) {
                 // Send password reset email (fire-and-forget)
                 sendPasswordResetEmail(auth, emailUsed).then(() => {
                     setResetEmailMessage(
@@ -110,6 +120,7 @@ export function useLoginThrottle() {
                 });
 
                 return {
+                    ...baseState,
                     failedAttempts: newFailedAttempts,
                     lockedUntil: Date.now() + LOCKOUT_DURATION_MS,
                     totalFailures: newTotalFailures,
@@ -120,7 +131,7 @@ export function useLoginThrottle() {
             // Check if we've hit the per-cycle lockout threshold
             if (newFailedAttempts >= MAX_ATTEMPTS_BEFORE_LOCKOUT) {
                 return {
-                    ...prev,
+                    ...baseState,
                     failedAttempts: newFailedAttempts,
                     lockedUntil: Date.now() + LOCKOUT_DURATION_MS,
                     totalFailures: newTotalFailures,
@@ -128,7 +139,7 @@ export function useLoginThrottle() {
             }
 
             return {
-                ...prev,
+                ...baseState,
                 failedAttempts: newFailedAttempts,
                 totalFailures: newTotalFailures,
             };
@@ -137,7 +148,9 @@ export function useLoginThrottle() {
 
     /** Call this after a successful login */
     const recordSuccess = useCallback(() => {
-        setState({ failedAttempts: 0, lockedUntil: null, totalFailures: 0, resetEmailSent: false });
+        const newState = { email: null, failedAttempts: 0, lockedUntil: null, totalFailures: 0, resetEmailSent: false };
+        setState(newState);
+        saveState(newState);
         setResetEmailMessage("");
     }, []);
 

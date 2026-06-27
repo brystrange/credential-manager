@@ -12,6 +12,7 @@ import {
     FiMail,
     FiUser,
     FiMessageSquare,
+    FiHash,
 } from "react-icons/fi";
 
 interface CredentialCardProps {
@@ -30,6 +31,7 @@ export default function CredentialCard({
     onHistory,
 }: CredentialCardProps) {
     const [showPassword, setShowPassword] = useState(false);
+    const [showPin, setShowPin] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
     const [imgError, setImgError] = useState(false);
     const [loadingAction, setLoadingAction] = useState<"edit" | "delete" | "history" | null>(null);
@@ -199,6 +201,33 @@ export default function CredentialCard({
                         )}
                     </button>
                 </div>
+
+                {credential.pin && (
+                    <div className="field-row">
+                        <FiHash size={14} className="field-icon" />
+                        <span className="field-label">Pin</span>
+                        <span className="field-value mono">
+                            {showPin ? credential.pin : "••••"}
+                        </span>
+                        <button
+                            className="copy-btn"
+                            onClick={() => setShowPin(!showPin)}
+                            title={showPin ? "Hide" : "Show"}
+                        >
+                            {showPin ? <FiEyeOff size={12} /> : <FiEye size={12} />}
+                        </button>
+                        <button
+                            className={`copy-btn ${copied === "pin" ? "copied" : ""}`}
+                            onClick={() => copyToClipboard(credential.pin!, "pin")}
+                            title="Copy"
+                        >
+                            <FiCopy size={12} />
+                            {copied === "pin" && (
+                                <span className="copy-toast">Copied!</span>
+                            )}
+                        </button>
+                    </div>
+                )}
 
                 {credential.comment && (
                     <div className="field-row">

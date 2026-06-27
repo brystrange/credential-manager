@@ -10,7 +10,6 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage
 import { storage, auth } from "../firebaseConfig";
 import { getIdTokenResult } from "firebase/auth";
 import {
-    FiShield,
     FiPlus,
     FiEdit2,
     FiTrash2,
@@ -287,7 +286,7 @@ export default function AdminConsole() {
             <div className="admin-gate">
                 <div className="admin-gate-card">
                     <div className="admin-gate-icon">
-                        <FiShield size={40} />
+                        <img src="/logo.svg" alt="Logo" style={{ width: 40, height: 40 }} />
                     </div>
                     <h1>Admin Console</h1>
                     <p className="admin-gate-sub">Verifying access…</p>
@@ -341,7 +340,7 @@ export default function AdminConsole() {
                     <span>Back</span>
                 </button>
                 <div className="admin-title-group">
-                    <FiShield size={18} />
+                    <img src="/logo.svg" alt="Logo" style={{ width: 18, height: 18 }} />
                     <h1>Admin Console</h1>
                 </div>
                 <button className="admin-add-btn" onClick={openAddForm}>
@@ -492,7 +491,7 @@ export default function AdminConsole() {
                     </div>
                 ) : platforms.length === 0 ? (
                     <div className="admin-empty">
-                        <FiShield size={40} />
+                        <img src="/logo.svg" alt="Logo" style={{ width: 40, height: 40 }} />
                         <h2>No platforms yet</h2>
                         <p>Add your first platform to get started</p>
                         <button className="admin-add-btn" onClick={openAddForm}>

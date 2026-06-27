@@ -21,6 +21,30 @@ export function generateSalt(): string {
     return bufferToHex(salt.buffer);
 }
 
+export async function generateMasterKey(): Promise<CryptoKey> {
+    return await crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 },
+        true, // extractable
+        ["encrypt", "decrypt"]
+    );
+}
+
+export async function exportKeyToHex(key: CryptoKey): Promise<string> {
+    const raw = await crypto.subtle.exportKey("raw", key);
+    return bufferToHex(raw);
+}
+
+export async function importKeyFromHex(hex: string): Promise<CryptoKey> {
+    const raw = hexToBuffer(hex);
+    return await crypto.subtle.importKey(
+        "raw",
+        raw,
+        { name: "AES-GCM" },
+        true, // extractable
+        ["encrypt", "decrypt"]
+    );
+}
+
 export async function deriveKey(
     password: string,
     saltHex: string

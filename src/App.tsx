@@ -18,7 +18,6 @@ import SearchBar from "./components/SearchBar";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PlatformGroup from "./components/PlatformGroup";
 import {
-    FiShield,
     FiLogOut,
     FiInbox,
     FiKey,
@@ -52,7 +51,7 @@ function WelcomeSplash({
     return (
         <div className="welcome-splash">
             <div className="welcome-splash-icon">
-                <FiShield size={52} />
+                <img src="/logo.svg" alt="Logo" style={{ width: 52, height: 52 }} />
             </div>
             <h1 className="welcome-splash-title">Welcome back</h1>
             <p className="welcome-splash-name">{displayName}</p>
@@ -107,7 +106,7 @@ function GoogleVaultSetup({
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <FiShield size={32} />
+                        <img src="/logo.svg" alt="Logo" style={{ width: 32, height: 32 }} />
                     </div>
                     <h1>Set up your vault</h1>
                     <p className="auth-subtitle">
@@ -214,7 +213,7 @@ function VaultUnlockGate({
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <FiShield size={32} />
+                        <img src="/logo.svg" alt="Logo" style={{ width: 32, height: 32 }} />
                     </div>
                     <h1>Welcome back</h1>
                     <p className="auth-subtitle">
@@ -248,6 +247,15 @@ function VaultUnlockGate({
                     </div>
                     <button type="submit" className="auth-submit" disabled={busy} style={{ marginTop: "10px" }}>
                         {busy ? "Unlocking..." : "Unlock Vault"}
+                    </button>
+                    
+                    <button 
+                        type="button" 
+                        className="google-btn" 
+                        style={{ marginTop: "12px", background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                        onClick={() => signOutUser()}
+                    >
+                        Sign out & Reset Password
                     </button>
                 </form>
 
@@ -341,8 +349,10 @@ function App() {
     }, []);
 
     useEffect(() => {
-        loadPlatforms();
-    }, [loadPlatforms]);
+        if (user && user.emailVerified) {
+            loadPlatforms();
+        }
+    }, [loadPlatforms, user]);
 
     const loadCredentials = useCallback(async () => {
         if (!hasEncryptionKey()) return;
@@ -495,7 +505,7 @@ function App() {
     if (user === undefined) {
         return (
             <div className="app-loading">
-                <FiShield size={36} className="pulse" />
+                <img src="/logo.svg" alt="Logo" style={{ width: 36, height: 36 }} className="pulse" />
                 <p>Initializing vault…</p>
             </div>
         );
@@ -561,21 +571,18 @@ function App() {
                     {sidebarOpen ? <FiX size={20} /> : <FiMenu size={20} />}
                 </button>
                 <div className="mobile-brand">
-                    <FiShield size={16} />
+                    <img src="/logo.svg" alt="Logo" style={{ width: 22, height: 22 }} />
                     <span>Fort Knox</span>
                 </div>
                 <button className="theme-toggle-btn mobile" onClick={toggleTheme}>
-                    {theme === "financial" ? <FiMoon size={16} /> : <FiSun size={16} />}
-                </button>
-                <button className="sign-out-btn mobile" onClick={handleSignOut} disabled={signOutLoading}>
-                    <FiLogOut size={16} />
+                    {theme === "dark" ? <FiMoon size={16} /> : <FiSun size={16} />}
                 </button>
             </header>
 
             {/* Sidebar */}
             <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
                 <div className="sidebar-brand">
-                    <FiShield size={20} className="brand-icon" />
+                    <img src="/logo.svg" alt="Logo" style={{ width: 30, height: 30 }} className="brand-icon" />
                     <span className="brand-text">Fort Knox</span>
                 </div>
 
@@ -614,8 +621,8 @@ function App() {
 
                 <div className="sidebar-footer">
                     <button className="theme-toggle-btn desktop" onClick={toggleTheme}>
-                        {theme === "financial" ? <FiMoon size={14} /> : <FiSun size={14} />}
-                        <span>{theme === "financial" ? "Financial" : "Modern Red"}</span>
+                        {theme === "dark" ? <FiMoon size={14} /> : <FiSun size={14} />}
+                        <span>{theme === "dark" ? "Dark" : "Light"}</span>
                     </button>
                     <button className="sign-out-btn desktop" onClick={handleSignOut} disabled={signOutLoading}>
                         <FiLogOut size={14} />
@@ -669,7 +676,7 @@ function App() {
                                     onEdit={handleEdit}
                                     onDelete={setDeleteTarget}
                                     onHistory={handleHistory}
-                                    defaultExpanded={platformOrder.length <= 3 || !!search}
+                                    defaultExpanded={!!search}
                                 />
                             );
                         })}
