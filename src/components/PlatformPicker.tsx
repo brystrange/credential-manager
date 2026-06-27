@@ -161,34 +161,9 @@ export default function PlatformPicker({
                     }
                 }}
             >
-                {isOpen ? (
-                    <div className="platform-picker-search-inline">
-                        <FiSearch size={16} className="picker-search-icon" />
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            placeholder="Search platforms…"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            onFocus={(e) => scrollIntoViewOnMobile(e.currentTarget)}
-                        />
-                        {search && (
-                            <button
-                                type="button"
-                                className="picker-search-clear"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSearch("");
-                                    searchInputRef.current?.focus();
-                                }}
-                            >
-                                <FiX size={14} />
-                            </button>
-                        )}
-                    </div>
-                ) : value ? (
-                    <>
-                        {selectedPlatform && selectedPlatform.logoUrl && !imgErrors.has(selectedPlatform.id) ? (
+                <div className="platform-picker-search-inline">
+                    {value && !isOpen && selectedPlatform ? (
+                        selectedPlatform.logoUrl && !imgErrors.has(selectedPlatform.id) ? (
                             <img
                                 src={selectedPlatform.logoUrl}
                                 alt={selectedPlatform.name}
@@ -198,19 +173,45 @@ export default function PlatformPicker({
                         ) : (
                             <div
                                 className="platform-picker-initial"
-                                style={{ backgroundColor: selectedPlatform?.color || "#6366f1" }}
+                                style={{ backgroundColor: selectedPlatform.color || "#6366f1" }}
                             >
-                                {value.charAt(0).toUpperCase()}
+                                {selectedPlatform.name.charAt(0).toUpperCase()}
                             </div>
-                        )}
-                        <span>{value}</span>
-                    </>
-                ) : (
-                    <div className="platform-picker-search-inline">
+                        )
+                    ) : (
                         <FiSearch size={16} className="picker-search-icon" />
-                        <span className="placeholder-text">Search platforms…</span>
-                    </div>
-                )}
+                    )}
+                    <input
+                        ref={searchInputRef}
+                        type="text"
+                        placeholder={value && !isOpen ? "" : "Search platforms…"}
+                        value={isOpen ? search : (value || search)}
+                        onChange={(e) => {
+                            setSearch(e.target.value);
+                            if (!isOpen) setIsOpen(true);
+                        }}
+                        onFocus={(e) => {
+                            if (!isOpen) {
+                                setIsOpen(true);
+                                setSearch("");
+                            }
+                            scrollIntoViewOnMobile(e.currentTarget);
+                        }}
+                    />
+                    {isOpen && search && (
+                        <button
+                            type="button"
+                            className="picker-search-clear"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setSearch("");
+                                searchInputRef.current?.focus();
+                            }}
+                        >
+                            <FiX size={14} />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Dropdown */}

@@ -1800,13 +1800,12 @@ button {
   top: 100%;
   left: 0;
   right: 0;
+  z-index: 300;
   background: var(--bg-secondary);
   border: 1px solid #E8E9EB;
-  border-top: 1px solid #E8E9EB;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  z-index: 300;
-  max-height: 360px;
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  max-height: 250px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2289,32 +2288,12 @@ button {
   }
 
   .platform-picker-dropdown {
-    position: fixed;
-    /* Anchor to top so the keyboard (at bottom) cannot obscure the search results */
-    top: calc(var(--mobile-header) + 8px);
-    bottom: auto;
-    left: 8px;
-    right: 8px;
-    /* Allow up to 60% of the visual viewport height */
-    max-height: 60dvh;
-    border-radius: var(--radius-lg);
-    animation: pickerSlideDown 0.2s ease;
-    z-index: 400;
+    position: static;
+    box-shadow: none;
+    border: 1px solid #E8E9EB;
+    border-top: none;
+    max-height: 250px;
   }
-
-  @keyframes pickerSlideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-12px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-
 
   .platform-group-header {
     padding: 8px 10px;
