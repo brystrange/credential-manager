@@ -138,21 +138,23 @@ async function initializeMasterKey(
             // otherwise any random password would unlock the vault via escrow.
 
             const user = auth.currentUser;
+            const isEmailUser = user?.providerData.some(p => p.providerId === 'password');
 
             if (passwordVerified) {
                 // Caller already authenticated via Firebase (e.g. signIn flow) — safe to recover.
-            } else if (rawPassword && user?.email) {
-                // Verify against Firebase Auth to confirm this is the user's real password.
-                // If they reset their password, this will succeed and allow escrow recovery.
+            } else if (isEmailUser && rawPassword && user?.email) {
+                // Re-authenticate against Firebase Auth to confirm this is the user's real password.
+                // If Firebase rejects it → wrong password → reject immediately.
+                // If Firebase accepts it but MK decryption failed → password was reset → allow escrow recovery.
                 try {
-                    // Use signInWithEmailAndPassword instead of reauthenticateWithCredential
-                    // because reauthenticate can fail if the current session is strictly Google.
-                    await signInWithEmailAndPassword(auth, user.email, rawPassword);
+                    const credential = EmailAuthProvider.credential(user.email, rawPassword);
+                    await reauthenticateWithCredential(user, credential);
+                    // Firebase accepted the password — this is a genuine password-reset scenario.
                 } catch {
                     throw new Error("Invalid vault password");
                 }
             } else {
-                // Google user or unknown provider who never reset their password.
+                // Google user or unknown provider — vault password is independent of Firebase auth.
                 // No escrow recovery path here; the password is simply wrong.
                 throw new Error("Invalid vault password");
             }
