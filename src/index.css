@@ -13,7 +13,7 @@
 }
 
 /* DARK THEME (Default) */
-[data-theme="dark"] {
+:root, [data-theme="dark"] {
   --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: "Google Sans", Georgia, serif;
   --font-mono: "JetBrains Mono", "Consolas", monospace;
