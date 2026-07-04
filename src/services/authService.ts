@@ -295,6 +295,59 @@ export async function unlockVaultWithPassword(password: string): Promise<void> {
     await initializeMasterKey(uid, pdk, userDoc.data(), password);
 }
 
+/**
+ * Resets the vault password for a Google-authenticated user.
+ *
+ * Security model: The caller must already have a valid Firebase session
+ * (enforced by the VaultUnlockGate rendering only for signed-in users).
+ * The Cloud Function `recoverMasterKey` independently verifies Firebase auth
+ * before returning the escrowed key, so no additional re-auth popup is needed.
+ * (Popup re-authentication is also broken in this environment due to
+ *  Cross-Origin-Opener-Policy headers blocking window.closed communication.)
+ *
+ * Flow:
+ *   1. Recover the escrowed Master Key via Cloud Function (requires Firebase auth).
+ *   2. Derive a new PDK from newPassword + the user's existing salt.
+ *   3. Re-encrypt the MK with the new PDK and save to Firestore.
+ *   4. Set the in-memory encryption key so the vault unlocks immediately.
+ */
+export async function resetGoogleVaultPassword(newPassword: string): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Not authenticated");
+
+    const functions = getFunctions();
+
+    // Step 1: Recover the escrowed Master Key AND the user's salt via Cloud Function.
+    // Using admin SDK server-side bypasses any client-side Firestore network blocks.
+    let masterKeyHex: string;
+    let salt: string;
+    try {
+        const recoverMasterKeyFn = httpsCallable(functions, "recoverMasterKey");
+        const result = await recoverMasterKeyFn();
+        masterKeyHex = (result.data as any).masterKey;
+        salt = (result.data as any).salt;
+        if (!masterKeyHex || !salt) throw new Error("Incomplete recovery data.");
+    } catch {
+        throw new Error("Unable to recover vault key. Please contact support.");
+    }
+
+    // Step 2: Derive a new PDK from the new password + salt (all local crypto)
+    const newPdk = await deriveKey(newPassword, salt);
+    const newEncryptedMasterKey = await encryptPassword(masterKeyHex, newPdk);
+
+    // Step 3: Save the new encryptedMasterKey via Cloud Function (admin SDK write,
+    // bypasses client-side Firestore channel blocks).
+    try {
+        const saveEncryptedMasterKeyFn = httpsCallable(functions, "saveEncryptedMasterKey");
+        await saveEncryptedMasterKeyFn({ encryptedMasterKey: newEncryptedMasterKey });
+    } catch {
+        throw new Error("Unable to save new vault key. Please contact support.");
+    }
+
+    // Step 4: Set the in-memory encryption key so the vault unlocks immediately
+    encryptionKey = await importKeyFromHex(masterKeyHex);
+}
+
 export async function signOutUser(): Promise<void> {
     await firebaseSignOut(auth);
     encryptionKey = null;

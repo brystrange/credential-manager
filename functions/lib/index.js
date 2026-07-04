@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recoverMasterKey = exports.escrowMasterKey = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
+exports.saveEncryptedMasterKey = exports.recoverMasterKey = exports.escrowMasterKey = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const crypto = __importStar(require("crypto"));
@@ -154,9 +154,11 @@ exports.escrowMasterKey = (0, https_1.onCall)(async (request) => {
     });
     return { success: true };
 });
-// ─── recoverMasterKey ────────────────────────────────────────────────────────
+// ─── recoverMasterKey ─────────────────────────────────────────────────────────────────────────
+// Also returns the user's salt so the client can re-derive the PDK without
+// a separate Firestore read (which may be blocked by network/ad filters).
 exports.recoverMasterKey = (0, https_1.onCall)(async (request) => {
-    var _a;
+    var _a, _b, _c;
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
     const userDoc = await db.collection("users").doc(request.auth.uid).get();
@@ -167,10 +169,26 @@ exports.recoverMasterKey = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("failed-precondition", "No escrowed key found.");
     try {
         const masterKey = decryptFromEscrow(escrowed);
-        return { masterKey };
+        // Return the salt alongside the master key so the caller can derive
+        // a new PDK entirely client-side without an extra Firestore read.
+        return { masterKey, salt: (_c = (_b = userDoc.data()) === null || _b === void 0 ? void 0 : _b.salt) !== null && _c !== void 0 ? _c : null };
     }
     catch (e) {
         throw new https_1.HttpsError("internal", "Failed to decrypt escrowed key.");
     }
+});
+// ─── saveEncryptedMasterKey ─────────────────────────────────────────────────────────────────
+// Persists a freshly re-encrypted master key back to Firestore via admin SDK,
+// bypassing any client-side network filters that block googleapis.com writes.
+exports.saveEncryptedMasterKey = (0, https_1.onCall)(async (request) => {
+    var _a;
+    if (!request.auth)
+        throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
+    const encryptedMasterKey = (_a = request.data) === null || _a === void 0 ? void 0 : _a.encryptedMasterKey;
+    if (typeof encryptedMasterKey !== "string" || !encryptedMasterKey) {
+        throw new https_1.HttpsError("invalid-argument", "Missing encryptedMasterKey.");
+    }
+    await db.collection("users").doc(request.auth.uid).update({ encryptedMasterKey });
+    return { success: true };
 });
 //# sourceMappingURL=index.js.map

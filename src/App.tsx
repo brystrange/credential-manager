@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, setupGoogleVault } from "./services/authService";
+import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, setupGoogleVault, resetGoogleVaultPassword } from "./services/authService";
 import { useAutoLock } from "./hooks/useAutoLock";
 import type { Credential, CredentialInput } from "./services/credentialService";
 import {
@@ -70,9 +70,11 @@ function WelcomeSplash({
 function GoogleVaultSetup({
     userEmail,
     onSetup,
+    onCancel,
 }: {
     userEmail: string;
     onSetup: (password: string) => Promise<void>;
+    onCancel: () => void;
 }) {
     const [pw, setPw] = useState("");
     const [confirmPw, setConfirmPw] = useState("");
@@ -118,7 +120,7 @@ function GoogleVaultSetup({
                     <FiLock size={20} />
                     <div>
                         <strong>Create a vault password</strong>
-                        <p>This password encrypts your credentials. Keep it safe — it cannot be recovered.</p>
+                        <p>This password encrypts your credentials. Keep it safe.</p>
                     </div>
                 </div>
 
@@ -157,7 +159,25 @@ function GoogleVaultSetup({
                         </button>
                     </div>
                     <button type="submit" className="auth-submit" disabled={busy}>
-                        {busy ? "Setting Up..." : "Set Up Vault"}
+                        {busy ? "Setting Up..." : "Create"}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        disabled={busy}
+                        style={{
+                            display: "block",
+                            margin: "10px auto 0",
+                            background: "none",
+                            border: "none",
+                            color: "var(--text-muted)",
+                            fontSize: "0.82rem",
+                            cursor: "pointer",
+                            padding: "4px 8px",
+                            opacity: busy ? 0.5 : 1,
+                        }}
+                    >
+                        Cancel
                     </button>
                 </form>
 
@@ -174,15 +194,24 @@ function GoogleVaultSetup({
 ──────────────────────────────────────────────────────────────────────────── */
 function VaultUnlockGate({
     userEmail,
+    isGoogleUser,
     onUnlocked,
 }: {
     userEmail: string;
+    isGoogleUser: boolean;
     onUnlocked: () => void;
 }) {
     const [pw, setPw] = useState("");
     const [showPw, setShowPw] = useState(false);
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
+    const [view, setView] = useState<"unlock" | "reset-vault">("unlock");
+
+    // Reset-vault form state
+    const [newPw, setNewPw] = useState("");
+    const [confirmNewPw, setConfirmNewPw] = useState("");
+    const [showNewPw, setShowNewPw] = useState(false);
+    const [showConfirmNewPw, setShowConfirmNewPw] = useState(false);
 
     const MIN_BUSY_MS = 600;
 
@@ -208,6 +237,128 @@ function VaultUnlockGate({
         }
     };
 
+    const handleResetVaultPassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError("");
+        if (newPw.length < 6) {
+            setError("Password must be at least 6 characters.");
+            return;
+        }
+        if (newPw !== confirmNewPw) {
+            setError("Passwords do not match.");
+            return;
+        }
+        setBusy(true);
+        const t0 = Date.now();
+        try {
+            await resetGoogleVaultPassword(newPw);
+            onUnlocked();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "";
+            if (msg.includes("Unable to recover vault key")) {
+                setError("Unable to recover vault key. Please contact support.");
+            } else if (msg.includes("Unable to save new vault key")) {
+                setError("Password reset failed while saving. Please contact support.");
+            } else if (msg.includes("User profile not found")) {
+                setError("Account profile not found. Please contact support.");
+            } else {
+                setError("Failed to reset vault password. Please try again.");
+            }
+        } finally {
+            const gap = MIN_BUSY_MS - (Date.now() - t0);
+            if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+            setBusy(false);
+        }
+    };
+
+    // ── Reset-vault view ─────────────────────────────────────────────────────
+    if (view === "reset-vault") {
+        return (
+            <div className="auth-container">
+                <div className="auth-card">
+                    <div className="auth-header">
+                        <div className="auth-logo">
+                            <img src="/logo.svg" alt="Logo" style={{ width: 32, height: 32 }} />
+                        </div>
+                        <h1>Reset Vault Password</h1>
+                        <p className="auth-subtitle">
+                            Signed in as <strong>{userEmail}</strong>
+                        </p>
+                    </div>
+
+                    <div className="vault-unlock-info">
+                        <FiLock size={20} />
+                        <div>
+                            <strong>Reset your vault password</strong>
+                            <p>
+                                Set a new password to decrypt your vault. Your saved credentials
+                                will remain intact.
+                            </p>
+                        </div>
+                    </div>
+
+                    {error && <div className="auth-error">{error}</div>}
+
+                    <form onSubmit={handleResetVaultPassword} className="auth-form">
+                        <div className="form-group">
+                            <div className="input-icon"><FiLock size={16} /></div>
+                            <input
+                                type={showNewPw ? "text" : "password"}
+                                placeholder="New password"
+                                value={newPw}
+                                onChange={(e) => setNewPw(e.target.value)}
+                                required
+                                minLength={6}
+                                autoFocus
+                                autoComplete="new-password"
+                            />
+                            <button
+                                type="button"
+                                className="input-suffix"
+                                onClick={() => setShowNewPw(!showNewPw)}
+                            >
+                                {showNewPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                            </button>
+                        </div>
+                        <div className="form-group">
+                            <div className="input-icon"><FiLock size={16} /></div>
+                            <input
+                                type={showConfirmNewPw ? "text" : "password"}
+                                placeholder="Confirm password"
+                                value={confirmNewPw}
+                                onChange={(e) => setConfirmNewPw(e.target.value)}
+                                required
+                                minLength={6}
+                                autoComplete="new-password"
+                            />
+                            <button
+                                type="button"
+                                className="input-suffix"
+                                onClick={() => setShowConfirmNewPw(!showConfirmNewPw)}
+                            >
+                                {showConfirmNewPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                            </button>
+                        </div>
+                        <button type="submit" className="auth-submit" disabled={busy}>
+                            {busy ? "Resetting…" : "Reset Password"}
+                        </button>
+                    </form>
+
+                    <button
+                        type="button"
+                        className="google-btn"
+                        style={{ marginTop: "12px", background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                        onClick={() => { setView("unlock"); setError(""); setNewPw(""); setConfirmNewPw(""); }}
+                        disabled={busy}
+                    >
+                        Back
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Unlock view ──────────────────────────────────────────────────────────
     return (
         <div className="auth-container">
             <div className="auth-card">
@@ -248,17 +399,30 @@ function VaultUnlockGate({
                     <button type="submit" className="auth-submit" disabled={busy} style={{ marginTop: "10px" }}>
                         {busy ? "Unlocking..." : "Unlock Vault"}
                     </button>
-                    
-                    <button 
-                        type="button" 
-                        className="google-btn" 
-                        style={{ marginTop: "12px", background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-                        onClick={() => signOutUser()}
-                    >
-                        Sign out & Reset Password
-                    </button>
-                </form>
 
+                    <button
+                    type="button"
+                    className="google-btn"
+                    style={{background: "#f5f5f5", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                    onClick={() => signOutUser()}
+                    >
+                    Sign out &amp; Reset Password
+                    </button>
+
+                    {isGoogleUser && (
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
+                            <button
+                                type="button"
+                                onClick={() => { setView("reset-vault"); setError(""); setPw(""); }}
+                                style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "0.73rem",fontWeight: "600", cursor: "pointer", padding: 0 }}
+                                disabled={busy}
+                            >
+                                Forgot vault password?
+                            </button>
+                        </div>
+                    )}
+
+                </form>
             </div>
         </div>
     );
@@ -530,6 +694,7 @@ function App() {
             <GoogleVaultSetup
                 userEmail={user.email ?? ""}
                 onSetup={handleGoogleVaultSetup}
+                onCancel={handleSignOut}
             />
         );
     }
@@ -538,9 +703,11 @@ function App() {
     // Skip this gate if a fresh login is currently in progress,
     // otherwise we'd flash the unlock screen mid-login.
     if (!vaultUnlocked && !loginInProgress) {
+        const isGoogleUser = !!user.providerData.some((p) => p.providerId === "google.com");
         return (
             <VaultUnlockGate
                 userEmail={user.email ?? ""}
+                isGoogleUser={isGoogleUser}
                 onUnlocked={handleAuthSuccess}
             />
         );

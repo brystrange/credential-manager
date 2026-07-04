@@ -145,7 +145,9 @@ export const escrowMasterKey = onCall(async (request) => {
     return { success: true };
 });
 
-// ─── recoverMasterKey ────────────────────────────────────────────────────────
+// ─── recoverMasterKey ─────────────────────────────────────────────────────────────────────────
+// Also returns the user's salt so the client can re-derive the PDK without
+// a separate Firestore read (which may be blocked by network/ad filters).
 export const recoverMasterKey = onCall(async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
     
@@ -157,8 +159,25 @@ export const recoverMasterKey = onCall(async (request) => {
 
     try {
         const masterKey = decryptFromEscrow(escrowed);
-        return { masterKey };
+        // Return the salt alongside the master key so the caller can derive
+        // a new PDK entirely client-side without an extra Firestore read.
+        return { masterKey, salt: userDoc.data()?.salt ?? null };
     } catch (e) {
         throw new HttpsError("internal", "Failed to decrypt escrowed key.");
     }
+});
+
+// ─── saveEncryptedMasterKey ─────────────────────────────────────────────────────────────────
+// Persists a freshly re-encrypted master key back to Firestore via admin SDK,
+// bypassing any client-side network filters that block googleapis.com writes.
+export const saveEncryptedMasterKey = onCall(async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+
+    const encryptedMasterKey = request.data?.encryptedMasterKey;
+    if (typeof encryptedMasterKey !== "string" || !encryptedMasterKey) {
+        throw new HttpsError("invalid-argument", "Missing encryptedMasterKey.");
+    }
+
+    await db.collection("users").doc(request.auth.uid).update({ encryptedMasterKey });
+    return { success: true };
 });
