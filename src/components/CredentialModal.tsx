@@ -22,6 +22,8 @@ interface CredentialModalProps {
     loading?: boolean;
     existingPlatforms?: string[];
     platforms: Platform[];
+    isAtLimit?: boolean;
+    onUpgrade?: () => void;
 }
 
 /**
@@ -48,6 +50,8 @@ export default function CredentialModal({
     loading,
     existingPlatforms = [],
     platforms,
+    isAtLimit = false,
+    onUpgrade,
 }: CredentialModalProps) {
     const [platform, setPlatform] = useState("");
     const [accountName, setAccountName] = useState("");
@@ -96,6 +100,8 @@ export default function CredentialModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!platform.trim()) return;
+        // Safety net: block new credential creation when at limit
+        if (isAtLimit && !isEditing) return;
         onSubmit({ platform, accountName, email, username, password, pin, comment });
     };
 
@@ -222,9 +228,26 @@ export default function CredentialModal({
                         />
                     </div>
 
-                    <button type="submit" className="modal-submit" disabled={loading || !platform.trim()}>
-                        {loading ? "Saving..." : isEditing ? "Save Changes" : "Add Credential"}
-                    </button>
+                    {/* Limit gate — shown for new credentials when Free user is at limit */}
+                    {isAtLimit && !isEditing ? (
+                        <div className="limit-gate">
+                            <span className="limit-gate-icon">🔒</span>
+                            <strong>Free plan limit reached</strong>
+                            <p>You've used all 10 free credential slots.</p>
+                            <button
+                                type="button"
+                                className="modal-submit upgrade-btn"
+                                onClick={onUpgrade}
+                                id="credential-modal-upgrade-btn"
+                            >
+                                Upgrade to Pro — Up to 1,000
+                            </button>
+                        </div>
+                    ) : (
+                        <button type="submit" className="modal-submit" disabled={loading || !platform.trim()}>
+                            {loading ? "Saving..." : isEditing ? "Save Changes" : "Add Credential"}
+                        </button>
+                    )}
                 </form>
             </div>
         </div>

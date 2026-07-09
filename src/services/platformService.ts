@@ -28,15 +28,20 @@ export interface PlatformInput {
 
 const PLATFORMS_COLLECTION = "platforms";
 
+let cachedPlatforms: Platform[] | null = null;
+
 function getPlatformsRef() {
     return collection(db, PLATFORMS_COLLECTION);
 }
 
-/** Read platforms directly from Firestore (allowed by rules for verified users) */
-export async function getPlatforms(): Promise<Platform[]> {
+/** Read platforms directly from Firestore (with memory caching) */
+export async function getPlatforms(forceRefresh = false): Promise<Platform[]> {
+    if (cachedPlatforms && !forceRefresh) {
+        return cachedPlatforms;
+    }
     const q = query(getPlatformsRef(), orderBy("name", "asc"));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map((d) => ({
+    cachedPlatforms = snapshot.docs.map((d) => ({
         id: d.id,
         name: d.data().name,
         domain: d.data().domain || "",
@@ -45,12 +50,14 @@ export async function getPlatforms(): Promise<Platform[]> {
         logoUrl: d.data().logoUrl || "",
         link: d.data().link || "",
     }));
+    return cachedPlatforms;
 }
 
 /** Add platform via Cloud Function (admin only) */
 export async function addPlatform(input: PlatformInput): Promise<string> {
     const fn = httpsCallable<PlatformInput, { id: string }>(functions, "addPlatform");
     const result = await fn(input);
+    cachedPlatforms = null; // Invalidate cache
     return result.data.id;
 }
 
@@ -61,12 +68,14 @@ export async function updatePlatform(
 ): Promise<void> {
     const fn = httpsCallable<PlatformInput & { id: string }, { success: boolean }>(functions, "updatePlatform");
     await fn({ ...input, id });
+    cachedPlatforms = null; // Invalidate cache
 }
 
 /** Delete platform via Cloud Function (admin only) */
 export async function deletePlatform(id: string): Promise<void> {
     const fn = httpsCallable<{ id: string }, { success: boolean }>(functions, "deletePlatform");
     await fn({ id });
+    cachedPlatforms = null; // Invalidate cache
 }
 
 /** Find a platform by name from a provided list */
@@ -89,5 +98,12 @@ export function getCategories(platforms: Platform[]): string[] {
             cats.push(p.category);
         }
     }
-    return cats;
+    return cats.sort();
+}
+
+/** Get pending custom platforms added by users */
+export async function getPendingCustomPlatforms(): Promise<{ name: string; count: number }[]> {
+    const fn = httpsCallable<void, { pendingPlatforms: { name: string; count: number }[] }>(functions, "getPendingCustomPlatforms");
+    const result = await fn();
+    return result.data.pendingPlatforms;
 }

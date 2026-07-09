@@ -69,12 +69,12 @@ service firebase.storage {
 
       // Write: only the designated admin can upload/update/delete logos
       allow create, update: if isVerifiedUser()
-        && request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2'
+        && (request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2' || request.auth.token.admin == true)
         && isSafeImageType()
         && isUnderSizeLimit();
 
       allow delete: if isVerifiedUser()
-        && request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2';
+        && (request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2' || request.auth.token.admin == true);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

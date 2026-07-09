@@ -1,0 +1,197 @@
+import React, { useState } from "react";
+import { FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import { changeVaultPassword, generateNewRecoveryKey, validatePassword } from "../services/authService";
+
+export default function SettingsPage() {
+    const [currentPw, setCurrentPw] = useState("");
+    const [newPw, setNewPw] = useState("");
+    const [confirmPw, setConfirmPw] = useState("");
+
+    const [showCurrentPw, setShowCurrentPw] = useState(false);
+    const [showNewPw, setShowNewPw] = useState(false);
+    const [showConfirmPw, setShowConfirmPw] = useState(false);
+
+    const [error, setError] = useState("");
+    const [success, setSuccess] = useState("");
+    const [busy, setBusy] = useState(false);
+
+    const [recoveryKeyPw, setRecoveryKeyPw] = useState("");
+    const [showRecoveryKeyPw, setShowRecoveryKeyPw] = useState(false);
+    const [generatedRecoveryKey, setGeneratedRecoveryKey] = useState("");
+    const [recoveryError, setRecoveryError] = useState("");
+    const [recoveryBusy, setRecoveryBusy] = useState(false);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError("");
+        setSuccess("");
+
+        const passwordError = validatePassword(newPw);
+        if (passwordError) {
+            setError(passwordError);
+            return;
+        }
+        if (newPw !== confirmPw) {
+            setError("New passwords do not match.");
+            return;
+        }
+
+        setBusy(true);
+        try {
+            await changeVaultPassword(currentPw, newPw);
+            setSuccess("Vault password changed successfully.");
+            setCurrentPw("");
+            setNewPw("");
+            setConfirmPw("");
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to change password.";
+            setError(msg);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const handleGenerateRecoveryKey = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setRecoveryError("");
+        setGeneratedRecoveryKey("");
+        setRecoveryBusy(true);
+
+        try {
+            const key = await generateNewRecoveryKey(recoveryKeyPw);
+            setGeneratedRecoveryKey(key);
+            setRecoveryKeyPw("");
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to generate recovery key.";
+            setRecoveryError(msg);
+        } finally {
+            setRecoveryBusy(false);
+        }
+    };
+
+    return (
+        <div style={{ maxWidth: "600px" }}>
+            <div className="content-header">
+                <div>
+                    <h1 className="page-title">Settings</h1>
+                    <p className="page-subtitle">
+                        Manage your vault security and preferences
+                    </p>
+                </div>
+            </div>
+
+            <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
+                <h3 style={{ marginBottom: "8px" }}>Change Vault Password</h3>
+                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                    You must enter your current vault password to set a new one.
+                </p>
+
+                {error && <div className="auth-error" style={{ marginBottom: "16px" }}>{error}</div>}
+                {success && <div className="auth-success" style={{ marginBottom: "16px", color: "var(--success)" }}>{success}</div>}
+
+                <form onSubmit={handleSubmit} className="auth-form" style={{ gap: "12px", display: "flex", flexDirection: "column" }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                        <div className="input-icon"><FiLock size={16} /></div>
+                        <input
+                            type={showCurrentPw ? "text" : "password"}
+                            placeholder="Current password"
+                            value={currentPw}
+                            onChange={(e) => setCurrentPw(e.target.value)}
+                            required
+                        />
+                        <button
+                            type="button"
+                            className="input-suffix"
+                            onClick={() => setShowCurrentPw(!showCurrentPw)}
+                        >
+                            {showCurrentPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                        <div className="input-icon"><FiLock size={16} /></div>
+                        <input
+                            type={showNewPw ? "text" : "password"}
+                            placeholder="New password"
+                            value={newPw}
+                            onChange={(e) => setNewPw(e.target.value)}
+                            required
+                            minLength={6}
+                        />
+                        <button
+                            type="button"
+                            className="input-suffix"
+                            onClick={() => setShowNewPw(!showNewPw)}
+                        >
+                            {showNewPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                        <div className="input-icon"><FiLock size={16} /></div>
+                        <input
+                            type={showConfirmPw ? "text" : "password"}
+                            placeholder="Confirm new password"
+                            value={confirmPw}
+                            onChange={(e) => setConfirmPw(e.target.value)}
+                            required
+                            minLength={6}
+                        />
+                        <button
+                            type="button"
+                            className="input-suffix"
+                            onClick={() => setShowConfirmPw(!showConfirmPw)}
+                        >
+                            {showConfirmPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+
+                    <button type="submit" className="auth-submit" disabled={busy} style={{ marginTop: "8px", maxWidth: "200px" }}>
+                        {busy ? "Updating..." : "Change Password"}
+                    </button>
+                </form>
+            </div>
+
+            <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
+                <h3 style={{ marginBottom: "8px" }}>Recovery Key</h3>
+                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                    Generate a new Recovery Key if you lost your old one or are an existing user. This will invalidate any old Recovery Keys.
+                </p>
+
+                {recoveryError && <div className="auth-error" style={{ marginBottom: "16px" }}>{recoveryError}</div>}
+
+                {generatedRecoveryKey ? (
+                    <div style={{ background: "var(--bg-glass)", border: "1px solid var(--danger)", padding: "16px", borderRadius: "var(--radius-md)", marginBottom: "20px", textAlign: "left" }}>
+                        <p style={{ margin: "0 0 12px", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: "1.4" }}>
+                            This is your <strong>only</strong> way to recover your vault if you forget your password. We cannot recover it for you. Copy it now and store it somewhere safe.
+                        </p>
+                        <div style={{ display: "block", background: "var(--bg-card)", padding: "12px", borderRadius: "var(--radius-sm)", userSelect: "all", fontSize: "1rem", fontFamily: "monospace", color: "var(--text-primary)", border: "1px dashed var(--border-color)", wordBreak: "break-all", textAlign: "center" }}>
+                            {generatedRecoveryKey}
+                        </div>
+                    </div>
+                ) : (
+                    <form onSubmit={handleGenerateRecoveryKey} className="auth-form" style={{ gap: "12px", display: "flex", flexDirection: "column" }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                            <div className="input-icon"><FiLock size={16} /></div>
+                            <input
+                                type={showRecoveryKeyPw ? "text" : "password"}
+                                placeholder="Current password"
+                                value={recoveryKeyPw}
+                                onChange={(e) => setRecoveryKeyPw(e.target.value)}
+                                required
+                            />
+                            <button
+                                type="button"
+                                className="input-suffix"
+                                onClick={() => setShowRecoveryKeyPw(!showRecoveryKeyPw)}
+                            >
+                                {showRecoveryKeyPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                            </button>
+                        </div>
+                        <button type="submit" className="auth-submit" disabled={recoveryBusy} style={{ marginTop: "8px", maxWidth: "250px" }}>
+                            {recoveryBusy ? "Generating..." : "Generate New Recovery Key"}
+                        </button>
+                    </form>
+                )}
+            </div>
+        </div>
+    );
+}

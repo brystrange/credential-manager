@@ -64,29 +64,32 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════════
     match /users/{userId} {
 
-      // Read: owner only (verified)
-      allow read: if isVerifiedOwner(userId);
+      // Read: owner only (verified) OR admin
+      allow read: if isVerifiedOwner(userId) || (isAuthenticated() && (request.auth.token.admin == true || request.auth.token.email == "bryankeithmayor1@gmail.com"));
 
       // Create: only during sign-up (owner, first time)
       // For Google users who haven't verified email yet, allow auth'd owner only
       allow create: if isOwner(userId)
         && !exists(/databases/$(database)/documents/users/$(userId))
-        && hasMaxFields(5)
+        && hasMaxFields(10)
         && isValidString(request.resource.data.salt, 64)
         && isValidString(request.resource.data.fullName, 200)
         && request.resource.data.createdAt is timestamp
           || request.resource.data.createdAt is map; // Firestore Timestamp or JS Date
 
       // Update: only the verified owner, only specific fields
-      // Used to add/update the canary for vault password verification
+      // Used to add/update the canary for vault password verification.
+      // Subscription fields (plan, subscriptionId, subscriptionStatus,
+      // currentPeriodEnd, lsCustomerId) are written ONLY by Cloud Functions
+      // via Admin SDK, which bypasses these rules entirely.
       allow update: if isVerifiedOwner(userId)
-        && hasMaxFields(5)
+        && hasMaxFields(10)
         // Cannot change the salt after creation (would break all encryption)
         && request.resource.data.salt == resource.data.salt
         // Cannot change createdAt
         && request.resource.data.createdAt == resource.data.createdAt
-        // fullName can be updated but must remain valid
-        && isValidString(request.resource.data.fullName, 200);
+        // fullName can be updated but must remain valid (optional for backward compatibility)
+        && (!request.resource.data.keys().hasAll(['fullName']) || isValidString(request.resource.data.fullName, 200));
 
       // Delete: NEVER — prevents accidental/malicious profile deletion
       allow delete: if false;
@@ -185,6 +188,18 @@ service cloud.firestore {
 
       // Write: BLOCKED — must use Admin SDK / Cloud Functions
       allow create, update, delete: if false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  EXEMPTIONS — /exemptions/{email}
+    //
+    //  Allows specific users to bypass subscription limits.
+    //  Read: allowed if the user's email matches the doc ID or if admin.
+    //  Write: allowed only for admins.
+    // ══════════════════════════════════════════════════════════════════════════
+    match /exemptions/{email} {
+      allow read: if isAuthenticated() && (request.auth.token.email == email || request.auth.token.admin == true || request.auth.token.email == "bryankeithmayor1@gmail.com");
+      allow write: if isAuthenticated() && (request.auth.token.admin == true || request.auth.token.email == "bryankeithmayor1@gmail.com");
     }
   }
 }

@@ -40,6 +40,10 @@ function saveState(state: ThrottleState): void {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+export function clearLoginThrottle(): void {
+    sessionStorage.removeItem(STORAGE_KEY);
+}
+
 export function useLoginThrottle() {
     const [state, setState] = useState<ThrottleState>(loadState);
     const [remainingSeconds, setRemainingSeconds] = useState(0);

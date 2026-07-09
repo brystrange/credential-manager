@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLoginThrottle } from "../hooks/useLoginThrottle";
-import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, resendVerificationEmail, resetPassword } from "../services/authService";
+import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, resendVerificationEmail, resetPassword, validatePassword } from "../services/authService";
 import {
     FiMail,
     FiLock,
@@ -12,6 +12,8 @@ import {
     FiRefreshCw,
     FiEye,
     FiEyeOff,
+    FiX,
+    FiInfo,
 } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
 
@@ -50,7 +52,7 @@ function friendlyError(msg: string): string {
         return "This account has been disabled. Please contact support.";
     if (msg.includes("auth/requires-recent-login"))
         return "Please sign out and sign back in, then try again.";
-    if (msg.includes("No Fort Knox account"))
+    if (msg.includes("No Fort Sterling account"))
         return "No account found for this Google account. Please sign up with email first.";
     // Strip raw Firebase prefix for any remaining codes
     return msg.replace(/^Firebase:\s*/i, "").replace(/\s*\(auth\/[^)]+\)\.?$/, "");
@@ -75,6 +77,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     const [fullName, setFullName] = useState("");
     const [vaultPassword, setVaultPassword] = useState("");
     const [showVaultPassword, setShowVaultPassword] = useState(false);
+    const [showSecurityInfo, setShowSecurityInfo] = useState(false);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
@@ -82,6 +85,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     const [resendSuccess, setResendSuccess] = useState(false);
     const [pendingEmail, setPendingEmail] = useState("");
     const [pendingPassword, setPendingPassword] = useState("");
+    const [recoveryKey, setRecoveryKey] = useState("");
     const [resetPasswordSuccess, setResetPasswordSuccess] = useState("");
 
     const resetFields = () => {
@@ -96,6 +100,45 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         setError("");
         setResendSuccess(false);
         setResetPasswordSuccess("");
+        setRecoveryKey("");
+        setShowSecurityInfo(false);
+    };
+
+    const renderSecurityModal = () => {
+        if (!showSecurityInfo) return null;
+        return (
+            <div className="modal-overlay" onClick={() => setShowSecurityInfo(false)} style={{ zIndex: 9999 }}>
+                <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+                    <div className="modal-header">
+                        <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                            <FiInfo style={{ color: 'var(--accent)' }} /> Security & Privacy
+                        </h2>
+                        <button className="modal-close" onClick={() => setShowSecurityInfo(false)}>
+                            <FiX size={20} />
+                        </button>
+                    </div>
+                    <div style={{ fontSize: '0.9rem', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
+                        <p style={{ marginBottom: '16px' }}>
+                            <strong style={{ color: 'var(--text-primary)' }}>Zero-Knowledge Encryption</strong><br/>
+                            Fort Sterling uses zero-knowledge encryption. Your vault is encrypted locally on your device. We can never see or access your passwords.
+                        </p>
+                        <p style={{ marginBottom: '16px' }}>
+                            <strong style={{ color: 'var(--text-primary)' }}>Login vs. Vault Password</strong><br/>
+                            Your login and vault passwords start out the same. However, if you ever reset your login password via email, your vault remains securely locked with your old password until you sync them.
+                        </p>
+                        <p style={{ marginBottom: '0' }}>
+                            <strong style={{ color: 'var(--text-primary)' }}>The Recovery Key</strong><br/>
+                            Because we can't access your vault, <strong>your Recovery Key is your only backup</strong> if you forget your vault password. Please store it securely—it is only shown once.
+                        </p>
+                    </div>
+                    <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>
+                        <button className="auth-submit" style={{ width: 'auto', margin: 0, padding: '10px 24px' }} onClick={() => setShowSecurityInfo(false)}>
+                            Understood
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -105,6 +148,11 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         if (view === "signup") {
             if (password !== confirmPassword) {
                 setError("Passwords do not match.");
+                return;
+            }
+            const passwordError = validatePassword(password);
+            if (passwordError) {
+                setError(passwordError);
                 return;
             }
             if (fullName.trim().length < 2) {
@@ -121,7 +169,8 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 recordSuccess();
                 onAuthSuccess();
             } else if (view === "signup") {
-                await signUp(email, password, fullName.trim());
+                const recKey = await signUp(email, password, fullName.trim());
+                setRecoveryKey(recKey);
                 setPendingEmail(email);
                 setPendingPassword(password);
                 setView("verify-email");
@@ -138,6 +187,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 recordFailure(email);
             }
         } finally {
+            onAuthEnd?.();
             setLoading(false);
         }
     };
@@ -205,6 +255,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     if (view === "verify-email") {
         return (
             <div className="auth-container">
+                {renderSecurityModal()}
                 <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo" style={{ color: "var(--accent)" }}>
@@ -219,7 +270,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                     <div className="verify-steps">
                         <div className="verify-step">
                             <FiCheckCircle size={16} className="verify-step-icon" />
-                            <span>Open the email from Fort Knox</span>
+                            <span>Open the email from Fort Sterling</span>
                         </div>
                         <div className="verify-step">
                             <FiCheckCircle size={16} className="verify-step-icon" />
@@ -230,6 +281,20 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                             <span>Return here and sign in</span>
                         </div>
                     </div>
+
+                    {recoveryKey && (
+                        <div style={{ background: "var(--bg-glass)", border: "1px solid var(--danger)", padding: "16px", borderRadius: "var(--radius-md)", marginBottom: "20px", textAlign: "left" }}>
+                            <h3 style={{ margin: "0 0 8px", color: "var(--danger)", display: "flex", alignItems: "center", gap: "6px", fontSize: "1rem" }}>
+                                <FiAlertCircle /> Save Your Recovery Key
+                            </h3>
+                            <p style={{ margin: "0 0 12px", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: "1.4" }}>
+                                This is your <strong>only</strong> way to recover your vault if you forget your password. We cannot recover it for you. Copy it now and store it somewhere safe.
+                            </p>
+                            <div style={{ display: "block", background: "var(--bg-card)", padding: "12px", borderRadius: "var(--radius-sm)", userSelect: "all", fontSize: "1rem", fontFamily: "monospace", color: "var(--text-primary)", border: "1px dashed var(--border-color)", wordBreak: "break-all", textAlign: "center" }}>
+                                {recoveryKey}
+                            </div>
+                        </div>
+                    )}
 
                     {error && <div className="auth-error">{error}</div>}
                     {resendSuccess && (
@@ -270,12 +335,13 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     if (view === "vault-unlock") {
         return (
             <div className="auth-container">
+                {renderSecurityModal()}
                 <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo">
-                            <img src="/logo.svg" alt="Logo" style={{ width: 32, height: 32 }} />
+                            <img src="/logo.png" alt="Logo" style={{ width: 32, height: 32 }} />
                         </div>
-                        <h1>Fort Knox</h1>
+                        <h1>Fort Sterling</h1>
                         <p className="auth-subtitle">Secure credential management</p>
                     </div>
 
@@ -325,12 +391,13 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
 
     return (
         <div className="auth-container">
+            {renderSecurityModal()}
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <img src="/logo.svg" alt="Logo" style={{ width: 40, height: 40 }} />
+                        <img src="/logo.png" alt="Logo" style={{ width: 40, height: 40 }} />
                     </div>
-                    <h1>Fort Knox</h1>
+                    <h1>Fort Sterling</h1>
                     <p className="auth-subtitle">Secure credential management</p>
                 </div>
 
@@ -459,7 +526,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                     </div>
 
                     {view === "login" && (
-                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "-8px", marginBottom: "12px" }}>
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "-2px", marginBottom: "12px", gap: "12px", alignItems: "center" }}>
                             <button
                                 type="button"
                                 onClick={handleForgotPassword}
@@ -467,6 +534,14 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                                 disabled={loading}
                             >
                                 Forgot password?
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowSecurityInfo(true)}
+                                style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}
+                                title="Security Info"
+                            >
+                                <FiInfo size={14} />
                             </button>
                         </div>
                     )}

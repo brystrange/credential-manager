@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.saveEncryptedMasterKey = exports.recoverMasterKey = exports.escrowMasterKey = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
+exports.getPendingCustomPlatforms = exports.createBillingPortalSession = exports.lemonWebhook = exports.createCheckoutSession = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const crypto = __importStar(require("crypto"));
@@ -105,90 +105,239 @@ exports.deletePlatform = (0, https_1.onCall)(async (request) => {
     return { success: true };
 });
 // ─── setAdminClaim ───────────────────────────────────────────────────────────
-// One-time setup function. Grant admin privileges to the hard-coded UID.
+// One-time setup function. Grant admin privileges to the hard-coded email.
 // This can be called once and then removed or left disabled.
 exports.setAdminClaim = (0, https_1.onCall)(async (request) => {
-    // Only allow the specific admin UID to bootstrap themselves
-    const ADMIN_UID = "NGq845EEJEMDZKKAPZMaSxznt5p2";
+    // Only allow the specific admin email to bootstrap themselves
+    const ADMIN_EMAIL = "bryankeithmayor1@gmail.com";
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must be signed in.");
     }
-    if (request.auth.uid !== ADMIN_UID) {
+    if (request.auth.token.email !== ADMIN_EMAIL) {
         throw new https_1.HttpsError("permission-denied", "Not authorised to set admin claims.");
     }
-    await admin.auth().setCustomUserClaims(ADMIN_UID, { admin: true });
+    await admin.auth().setCustomUserClaims(request.auth.uid, { admin: true });
     return { success: true, message: "Admin claim set. Sign out and back in for it to take effect." };
 });
-// ─── Key Escrow Crypto Utilities ─────────────────────────────────────────────
-const ESCROW_SECRET = process.env.ESCROW_SECRET || "default_escrow_secret_key_123456";
-// Ensure exactly 32 bytes for AES-256
-const ESCROW_KEY = crypto.createHash("sha256").update(ESCROW_SECRET).digest();
-function encryptForEscrow(text) {
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv("aes-256-gcm", ESCROW_KEY, iv);
-    let encrypted = cipher.update(text, "utf8", "hex");
-    encrypted += cipher.final("hex");
-    const authTag = cipher.getAuthTag().toString("hex");
-    return `${iv.toString("hex")}:${encrypted}:${authTag}`;
-}
-function decryptFromEscrow(encryptedText) {
-    const [ivHex, cipherHex, authTagHex] = encryptedText.split(":");
-    const decipher = crypto.createDecipheriv("aes-256-gcm", ESCROW_KEY, Buffer.from(ivHex, "hex"));
-    decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
-    let decrypted = decipher.update(cipherHex, "hex", "utf8");
-    decrypted += decipher.final("utf8");
-    return decrypted;
-}
-// ─── escrowMasterKey ─────────────────────────────────────────────────────────
-exports.escrowMasterKey = (0, https_1.onCall)(async (request) => {
-    var _a;
-    if (!request.auth)
-        throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
-    const masterKeyHex = (_a = request.data) === null || _a === void 0 ? void 0 : _a.masterKey;
-    if (typeof masterKeyHex !== "string" || !masterKeyHex) {
-        throw new https_1.HttpsError("invalid-argument", "Missing masterKey");
-    }
-    const escrowed = encryptForEscrow(masterKeyHex);
-    await db.collection("users").doc(request.auth.uid).update({
-        escrowedMasterKey: escrowed
+// Removed escrow functionality for true zero-knowledge security.
+// ══════════════════════════════════════════════════════════════════════════════
+//  LEMON SQUEEZY SUBSCRIPTION INTEGRATION
+// ══════════════════════════════════════════════════════════════════════════════
+const https_2 = require("firebase-functions/v2/https");
+const https = __importStar(require("https"));
+/** Helper: POST to Lemon Squeezy REST API */
+function lsRequest(path, method, apiKey, body) {
+    return new Promise((resolve, reject) => {
+        const payload = body ? JSON.stringify(body) : undefined;
+        const req = https.request({
+            hostname: "api.lemonsqueezy.com",
+            path,
+            method,
+            headers: {
+                "Accept": "application/vnd.api+json",
+                "Content-Type": "application/vnd.api+json",
+                "Authorization": `Bearer ${apiKey}`,
+                ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {}),
+            },
+        }, (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => {
+                try {
+                    resolve(JSON.parse(data));
+                }
+                catch (_a) {
+                    reject(new Error(`Invalid JSON from Lemon Squeezy: ${data}`));
+                }
+            });
+        });
+        req.on("error", reject);
+        if (payload)
+            req.write(payload);
+        req.end();
     });
-    return { success: true };
-});
-// ─── recoverMasterKey ─────────────────────────────────────────────────────────────────────────
-// Also returns the user's salt so the client can re-derive the PDK without
-// a separate Firestore read (which may be blocked by network/ad filters).
-exports.recoverMasterKey = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c;
+}
+// ─── createCheckoutSession ───────────────────────────────────────────────────
+// Called from the frontend when a user clicks "Upgrade".
+// Creates a Lemon Squeezy hosted checkout session and returns its URL.
+exports.createCheckoutSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_STORE_ID"] }, async (request) => {
+    var _a, _b, _c, _d;
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
-    const userDoc = await db.collection("users").doc(request.auth.uid).get();
-    if (!userDoc.exists)
-        throw new https_1.HttpsError("not-found", "User not found.");
-    const escrowed = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.escrowedMasterKey;
-    if (!escrowed)
-        throw new https_1.HttpsError("failed-precondition", "No escrowed key found.");
+    const variantId = (_a = request.data) === null || _a === void 0 ? void 0 : _a.variantId;
+    if (!variantId || typeof variantId !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "variantId is required.");
+    }
+    const apiKey = process.env.LEMONSQUEEZY_API_KEY;
+    const storeId = process.env.LEMONSQUEEZY_STORE_ID;
+    if (!apiKey || !storeId) {
+        throw new https_1.HttpsError("failed-precondition", "Lemon Squeezy not configured.");
+    }
+    // Fetch user email for pre-filling the checkout form
+    const userRecord = await admin.auth().getUser(request.auth.uid);
+    const response = await lsRequest("/v1/checkouts", "POST", apiKey, {
+        data: {
+            type: "checkouts",
+            attributes: {
+                checkout_data: {
+                    email: (_b = userRecord.email) !== null && _b !== void 0 ? _b : undefined,
+                    custom: {
+                        user_id: request.auth.uid,
+                    },
+                },
+            },
+            relationships: {
+                store: { data: { type: "stores", id: storeId } },
+                variant: { data: { type: "variants", id: variantId } },
+            },
+        },
+    });
+    const checkoutUrl = (_d = (_c = response.data) === null || _c === void 0 ? void 0 : _c.attributes) === null || _d === void 0 ? void 0 : _d.url;
+    if (!checkoutUrl) {
+        console.error("Lemon Squeezy checkout error:", JSON.stringify(response));
+        throw new https_1.HttpsError("internal", "Failed to create checkout session.");
+    }
+    return { checkoutUrl };
+});
+// ─── lemonWebhook ────────────────────────────────────────────────────────────
+// Public HTTPS endpoint for Lemon Squeezy to POST events to.
+// Verifies HMAC-SHA256 signature before processing.
+exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] }, async (req, res) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    if (req.method !== "POST") {
+        res.status(405).send("Method Not Allowed");
+        return;
+    }
+    const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET;
+    if (!secret) {
+        console.error("LEMONSQUEEZY_WEBHOOK_SECRET not set");
+        res.status(500).send("Server misconfiguration");
+        return;
+    }
+    // Verify HMAC-SHA256 signature
+    const signature = req.headers["x-signature"];
+    if (!signature) {
+        res.status(401).send("Missing signature");
+        return;
+    }
+    // req.rawBody is available in Firebase Functions v2
+    const rawBody = req.rawBody;
+    if (!rawBody) {
+        res.status(400).send("No raw body");
+        return;
+    }
+    const hmac = crypto.createHmac("sha256", secret);
+    hmac.update(rawBody);
+    const digest = hmac.digest("hex");
+    if (!crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"))) {
+        res.status(403).send("Invalid signature");
+        return;
+    }
+    // Parse payload
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload = JSON.parse(rawBody.toString("utf8"));
+    const eventName = (_b = (_a = payload.meta) === null || _a === void 0 ? void 0 : _a.event_name) !== null && _b !== void 0 ? _b : "";
+    const uid = (_d = (_c = payload.meta) === null || _c === void 0 ? void 0 : _c.custom_data) === null || _d === void 0 ? void 0 : _d.user_id;
+    const attributes = (_f = (_e = payload.data) === null || _e === void 0 ? void 0 : _e.attributes) !== null && _f !== void 0 ? _f : {};
+    if (!uid) {
+        // Cannot associate event with a user — acknowledge and move on
+        res.status(200).send("ok");
+        return;
+    }
+    const userRef = db.collection("users").doc(uid);
     try {
-        const masterKey = decryptFromEscrow(escrowed);
-        // Return the salt alongside the master key so the caller can derive
-        // a new PDK entirely client-side without an extra Firestore read.
-        return { masterKey, salt: (_c = (_b = userDoc.data()) === null || _b === void 0 ? void 0 : _b.salt) !== null && _c !== void 0 ? _c : null };
+        switch (eventName) {
+            case "subscription_created":
+            case "subscription_resumed":
+                await userRef.update({
+                    plan: "pro",
+                    subscriptionId: String((_h = (_g = payload.data) === null || _g === void 0 ? void 0 : _g.id) !== null && _h !== void 0 ? _h : ""),
+                    subscriptionStatus: "active",
+                    currentPeriodEnd: attributes.renews_at
+                        ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
+                        : null,
+                    lsCustomerId: String((_j = attributes.customer_id) !== null && _j !== void 0 ? _j : ""),
+                });
+                break;
+            case "subscription_updated":
+                await userRef.update({
+                    subscriptionStatus: (_k = attributes.status) !== null && _k !== void 0 ? _k : "active",
+                    currentPeriodEnd: attributes.renews_at
+                        ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
+                        : null,
+                });
+                break;
+            case "subscription_cancelled":
+                await userRef.update({
+                    subscriptionStatus: "cancelled",
+                    // Keep plan: "pro" — user retains access until period ends
+                });
+                break;
+            case "subscription_expired":
+                await userRef.update({
+                    plan: "free",
+                    subscriptionStatus: "expired",
+                });
+                break;
+            default:
+                console.log(`Unhandled Lemon Squeezy event: ${eventName}`);
+        }
     }
-    catch (e) {
-        throw new https_1.HttpsError("internal", "Failed to decrypt escrowed key.");
+    catch (err) {
+        console.error(`Failed to process ${eventName} for uid ${uid}:`, err);
     }
+    // Always respond 200 so Lemon Squeezy doesn't retry unnecessarily
+    res.status(200).send("ok");
 });
-// ─── saveEncryptedMasterKey ─────────────────────────────────────────────────────────────────
-// Persists a freshly re-encrypted master key back to Firestore via admin SDK,
-// bypassing any client-side network filters that block googleapis.com writes.
-exports.saveEncryptedMasterKey = (0, https_1.onCall)(async (request) => {
-    var _a;
+// ─── createBillingPortalSession ──────────────────────────────────────────────
+// Returns the Lemon Squeezy customer portal URL for a given subscription.
+exports.createBillingPortalSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_API_KEY"] }, async (request) => {
+    var _a, _b, _c, _d;
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
-    const encryptedMasterKey = (_a = request.data) === null || _a === void 0 ? void 0 : _a.encryptedMasterKey;
-    if (typeof encryptedMasterKey !== "string" || !encryptedMasterKey) {
-        throw new https_1.HttpsError("invalid-argument", "Missing encryptedMasterKey.");
+    const subscriptionId = (_a = request.data) === null || _a === void 0 ? void 0 : _a.subscriptionId;
+    if (!subscriptionId || typeof subscriptionId !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "subscriptionId is required.");
     }
-    await db.collection("users").doc(request.auth.uid).update({ encryptedMasterKey });
-    return { success: true };
+    const apiKey = process.env.LEMONSQUEEZY_API_KEY;
+    if (!apiKey) {
+        throw new https_1.HttpsError("failed-precondition", "Lemon Squeezy not configured.");
+    }
+    const response = await lsRequest(`/v1/subscriptions/${subscriptionId}`, "GET", apiKey);
+    const portalUrl = (_d = (_c = (_b = response.data) === null || _b === void 0 ? void 0 : _b.attributes) === null || _c === void 0 ? void 0 : _c.urls) === null || _d === void 0 ? void 0 : _d.customer_portal;
+    if (!portalUrl) {
+        throw new https_1.HttpsError("not-found", "Could not retrieve billing portal URL.");
+    }
+    return { portalUrl };
+});
+// ─── getPendingCustomPlatforms ──────────────────────────────────────────────
+exports.getPendingCustomPlatforms = (0, https_1.onCall)({ timeoutSeconds: 300 }, async (request) => {
+    assertAdmin(request.auth);
+    // 1. Fetch all existing global platforms
+    const platformsSnap = await db.collection(PLATFORMS_COLLECTION).get();
+    const globalPlatformNames = new Set();
+    platformsSnap.forEach((doc) => {
+        globalPlatformNames.add(doc.data().name.toLowerCase());
+    });
+    // 2. Fetch all credentials across all users using a collectionGroup query
+    const credentialsSnap = await db.collectionGroup("credentials").get();
+    const pendingMap = new Map();
+    credentialsSnap.forEach((doc) => {
+        const platform = doc.data().platform;
+        if (platform && typeof platform === "string") {
+            const platformName = platform.trim();
+            if (platformName && !globalPlatformNames.has(platformName.toLowerCase())) {
+                const count = pendingMap.get(platformName) || 0;
+                pendingMap.set(platformName, count + 1);
+            }
+        }
+    });
+    // 3. Convert to array and sort by count descending
+    const pendingPlatforms = Array.from(pendingMap.entries()).map(([name, count]) => ({
+        name,
+        count
+    }));
+    pendingPlatforms.sort((a, b) => b.count - a.count);
+    return { pendingPlatforms };
 });
 //# sourceMappingURL=index.js.map

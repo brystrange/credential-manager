@@ -4,6 +4,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import AdminConsole from './components/AdminConsole.tsx'
+import TermsOfService from './components/TermsOfService.tsx'
+import PrivacyPolicy from './components/PrivacyPolicy.tsx'
 import { ThemeProvider } from './context/ThemeContext.tsx'
 
 createRoot(document.getElementById('root')!).render(
@@ -11,8 +13,10 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<App />} />
-          <Route path="/admin-console" element={<AdminConsole />} />
+          <Route path="/*" element={<App />} />
+          <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/admin" element={<AdminConsole />} />
         </Routes>
       </BrowserRouter>
     </ThemeProvider>

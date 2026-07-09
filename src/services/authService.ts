@@ -8,12 +8,10 @@ import {
     updateProfile,
     sendEmailVerification,
     sendPasswordResetEmail,
-    EmailAuthProvider,
-    reauthenticateWithCredential,
     fetchSignInMethodsForEmail,
 } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { getFunctions, httpsCallable } from "firebase/functions";
+
 import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { 
@@ -23,7 +21,8 @@ import {
     encryptPassword,
     generateMasterKey,
     exportKeyToHex,
-    importKeyFromHex
+    importKeyFromHex,
+    generateRecoveryKey
 } from "./crypto";
 
 export type AuthUser = User;
@@ -33,13 +32,23 @@ export async function resetPassword(email: string): Promise<void> {
 }
 
 let encryptionKey: CryptoKey | null = null;
+let pendingSyncPassword: string | null = null;
 
 export function getEncryptionKey(): CryptoKey {
     if (!encryptionKey) throw new Error("Encryption key not available. Please sign in.");
     return encryptionKey;
 }
 
-export async function signUp(email: string, password: string, fullName: string): Promise<void> {
+export function validatePassword(pw: string): string | null {
+    if (pw.length < 8) return "Password must be at least 8 characters.";
+    if (!/[a-z]/.test(pw)) return "Password must contain at least one lowercase letter.";
+    if (!/[A-Z]/.test(pw)) return "Password must contain at least one uppercase letter.";
+    if (!/[0-9]/.test(pw)) return "Password must contain at least one number.";
+    if (!/[^a-zA-Z0-9]/.test(pw)) return "Password must contain at least one special character.";
+    return null;
+}
+
+export async function signUp(email: string, password: string, fullName: string): Promise<string> {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const uid = userCredential.user.uid;
 
@@ -52,21 +61,18 @@ export async function signUp(email: string, password: string, fullName: string):
     const masterKeyHex = await exportKeyToHex(mk);
     const encryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
 
+    const recoveryKey = generateRecoveryKey();
+    const recoveryPdk = await deriveKey(recoveryKey, salt);
+    const encryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
+
     await setDoc(doc(db, "users", uid), {
         salt,
+        email,
         fullName,
         createdAt: new Date(),
         encryptedMasterKey,
+        encryptedMasterKeyRecovery,
     });
-
-    // Escrow the master key
-    try {
-        const functions = getFunctions();
-        const escrowMasterKeyFn = httpsCallable(functions, 'escrowMasterKey');
-        await escrowMasterKeyFn({ masterKey: masterKeyHex });
-    } catch (e) {
-        console.error("Failed to escrow master key during signup", e);
-    }
 
     // Send verification email before allowing vault access
     await sendEmailVerification(userCredential.user);
@@ -74,6 +80,8 @@ export async function signUp(email: string, password: string, fullName: string):
     // Sign out immediately — user must verify email before logging in
     await firebaseSignOut(auth);
     encryptionKey = null;
+
+    return recoveryKey;
 }
 
 export async function signIn(email: string, password: string): Promise<void> {
@@ -110,22 +118,26 @@ export async function signIn(email: string, password: string): Promise<void> {
     const salt = userDoc.data().salt as string;
     const pdk = await deriveKey(password, salt);
     // signIn already validated the password via Firebase Auth, so escrow recovery is safe.
-    await initializeMasterKey(uid, pdk, userDoc.data(), password, true);
+    try {
+        await initializeMasterKey(uid, pdk, userDoc.data(), password);
+    } catch (e: any) {
+        if (e.message === "Invalid vault password") {
+            pendingSyncPassword = password;
+        }
+        throw e;
+    }
 }
 
 /**
  * @param rawPassword - The plaintext password for re-authentication verification.
- * @param passwordVerified - If true, skip Firebase re-auth (caller already verified via signIn).
  */
 async function initializeMasterKey(
     uid: string,
     pdk: CryptoKey,
     userDocData: any,
-    rawPassword?: string,
-    passwordVerified = false
+    rawPassword?: string
 ): Promise<void> {
     const encryptedMasterKey = userDocData.encryptedMasterKey;
-    const functions = getFunctions();
 
     if (encryptedMasterKey) {
         try {
@@ -133,59 +145,16 @@ async function initializeMasterKey(
             encryptionKey = await importKeyFromHex(masterKeyHex);
         } catch (e) {
             // PDK failed to decrypt the Master Key.
-            // This could mean: (a) wrong password, or (b) a Firebase password reset occurred.
-            // We MUST verify the password is correct before attempting escrow recovery,
-            // otherwise any random password would unlock the vault via escrow.
-
-            const user = auth.currentUser;
-            const isEmailUser = user?.providerData.some(p => p.providerId === 'password');
-
-            if (passwordVerified) {
-                // Caller already authenticated via Firebase (e.g. signIn flow) — safe to recover.
-            } else if (isEmailUser && rawPassword && user?.email) {
-                // Re-authenticate against Firebase Auth to confirm this is the user's real password.
-                // If Firebase rejects it → wrong password → reject immediately.
-                // If Firebase accepts it but MK decryption failed → password was reset → allow escrow recovery.
-                try {
-                    const credential = EmailAuthProvider.credential(user.email, rawPassword);
-                    await reauthenticateWithCredential(user, credential);
-                    // Firebase accepted the password — this is a genuine password-reset scenario.
-                } catch {
-                    throw new Error("Invalid vault password");
-                }
-            } else {
-                // Google user or unknown provider — vault password is independent of Firebase auth.
-                // No escrow recovery path here; the password is simply wrong.
-                throw new Error("Invalid vault password");
+            if (pendingSyncPassword && pendingSyncPassword === rawPassword) {
+                 throw new Error("vault-out-of-sync");
             }
-
-            // Password verified — attempt escrow recovery.
-            try {
-                const recoverMasterKeyFn = httpsCallable(functions, 'recoverMasterKey');
-                const result = await recoverMasterKeyFn();
-                const masterKeyHex = (result.data as any).masterKey;
-
-                // Re-encrypt the Master Key with the new PDK and save it.
-                const newEncryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
-                await setDoc(doc(db, "users", uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
-
-                encryptionKey = await importKeyFromHex(masterKeyHex);
-            } catch (recoverErr) {
-                throw new Error("Unable to recover vault. Please contact support.");
-            }
+            // Strict zero-knowledge means we just throw an error. There is no server backup.
+            throw new Error("Invalid vault password");
         }
     } else {
         // MIGRATION: Existing user without a master key
         const mk = await generateMasterKey();
         const masterKeyHex = await exportKeyToHex(mk);
-
-        // Escrow MK
-        try {
-            const escrowMasterKeyFn = httpsCallable(functions, 'escrowMasterKey');
-            await escrowMasterKeyFn({ masterKey: masterKeyHex });
-        } catch (e) {
-            console.error("Failed to escrow master key during migration", e);
-        }
 
         // Encrypt MK with PDK
         const newEncryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
@@ -248,7 +217,7 @@ export async function signInWithGoogle(): Promise<
     return { status: "existing", uid };
 }
 
-export async function setupGoogleVault(password: string): Promise<void> {
+export async function setupGoogleVault(password: string): Promise<string> {
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error("Not authenticated");
 
@@ -258,15 +227,11 @@ export async function setupGoogleVault(password: string): Promise<void> {
     const mk = await generateMasterKey();
     const masterKeyHex = await exportKeyToHex(mk);
     const encryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
-    
-    try {
-        const functions = getFunctions();
-        const escrowMasterKeyFn = httpsCallable(functions, 'escrowMasterKey');
-        await escrowMasterKeyFn({ masterKey: masterKeyHex });
-    } catch (e) {
-        console.error("Failed to escrow master key during Google setup", e);
-    }
 
+    const recoveryKey = generateRecoveryKey();
+    const recoveryPdk = await deriveKey(recoveryKey, salt);
+    const encryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
+    
     await setDoc(doc(db, "users", uid), {
         salt,
         fullName:
@@ -275,9 +240,11 @@ export async function setupGoogleVault(password: string): Promise<void> {
             "User",
         createdAt: new Date(),
         encryptedMasterKey,
+        encryptedMasterKeyRecovery,
     });
 
     encryptionKey = mk;
+    return recoveryKey;
 }
 
 export async function unlockVaultWithPassword(password: string): Promise<void> {
@@ -293,64 +260,167 @@ export async function unlockVaultWithPassword(password: string): Promise<void> {
     // Pass rawPassword so initializeMasterKey can re-authenticate with Firebase
     // if MK decryption fails, to confirm it's a password reset and not a wrong password.
     await initializeMasterKey(uid, pdk, userDoc.data(), password);
+
+    if (pendingSyncPassword && pendingSyncPassword !== password) {
+        try {
+            const newPdk = await deriveKey(pendingSyncPassword, salt);
+            const masterKeyHex = await exportKeyToHex(encryptionKey!);
+            const newEncryptedMasterKey = await encryptPassword(masterKeyHex, newPdk);
+            await setDoc(doc(db, "users", uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
+        } catch (err) {
+            console.error("Failed to auto-sync vault password", err);
+        } finally {
+            pendingSyncPassword = null;
+        }
+    }
 }
 
 /**
- * Resets the vault password for a Google-authenticated user.
- *
- * Security model: The caller must already have a valid Firebase session
- * (enforced by the VaultUnlockGate rendering only for signed-in users).
- * The Cloud Function `recoverMasterKey` independently verifies Firebase auth
- * before returning the escrowed key, so no additional re-auth popup is needed.
- * (Popup re-authentication is also broken in this environment due to
- *  Cross-Origin-Opener-Policy headers blocking window.closed communication.)
+ * Resets the vault password. Requires the user's offline Recovery Key.
  *
  * Flow:
- *   1. Recover the escrowed Master Key via Cloud Function (requires Firebase auth).
+ *   1. Decrypt the `encryptedMasterKeyRecovery` using the Recovery Key.
  *   2. Derive a new PDK from newPassword + the user's existing salt.
  *   3. Re-encrypt the MK with the new PDK and save to Firestore.
  *   4. Set the in-memory encryption key so the vault unlocks immediately.
  */
-export async function resetGoogleVaultPassword(newPassword: string): Promise<void> {
+export async function resetGoogleVaultPassword(newPassword: string, recoveryKey: string): Promise<void> {
     const user = auth.currentUser;
     if (!user) throw new Error("Not authenticated");
 
-    const functions = getFunctions();
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    if (!userDoc.exists()) throw new Error("User profile not found.");
 
-    // Step 1: Recover the escrowed Master Key AND the user's salt via Cloud Function.
-    // Using admin SDK server-side bypasses any client-side Firestore network blocks.
+    const salt = userDoc.data().salt as string;
+    const encryptedMasterKeyRecovery = userDoc.data().encryptedMasterKeyRecovery as string;
+
+    if (!encryptedMasterKeyRecovery) {
+        throw new Error("No recovery key on file. Vault cannot be recovered.");
+    }
+
     let masterKeyHex: string;
-    let salt: string;
     try {
-        const recoverMasterKeyFn = httpsCallable(functions, "recoverMasterKey");
-        const result = await recoverMasterKeyFn();
-        masterKeyHex = (result.data as any).masterKey;
-        salt = (result.data as any).salt;
-        if (!masterKeyHex || !salt) throw new Error("Incomplete recovery data.");
-    } catch {
-        throw new Error("Unable to recover vault key. Please contact support.");
+        // Step 1: Recover the Master Key using the Recovery Key
+        const recoveryPdk = await deriveKey(recoveryKey, salt);
+        masterKeyHex = await decryptPassword(encryptedMasterKeyRecovery, recoveryPdk);
+    } catch (e) {
+        throw new Error("Invalid Recovery Key. Please try again.");
     }
 
     // Step 2: Derive a new PDK from the new password + salt (all local crypto)
     const newPdk = await deriveKey(newPassword, salt);
     const newEncryptedMasterKey = await encryptPassword(masterKeyHex, newPdk);
 
-    // Step 3: Save the new encryptedMasterKey via Cloud Function (admin SDK write,
-    // bypasses client-side Firestore channel blocks).
+    // Sync Firebase Auth password if not a Google user
+    const isGoogleUser = user.providerData.some((p) => p.providerId === "google.com");
+    if (!isGoogleUser) {
+        try {
+            const { updatePassword } = await import("firebase/auth");
+            await updatePassword(user, newPassword);
+        } catch (e: any) {
+            if (e.code === "auth/requires-recent-login") {
+                throw new Error("Please sign out and sign back in before changing your password.");
+            }
+            throw new Error("Failed to sync login password: " + e.message);
+        }
+    }
+
+    // Step 3: Save the new encryptedMasterKey to Firestore
     try {
-        const saveEncryptedMasterKeyFn = httpsCallable(functions, "saveEncryptedMasterKey");
-        await saveEncryptedMasterKeyFn({ encryptedMasterKey: newEncryptedMasterKey });
+        await setDoc(doc(db, "users", user.uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
     } catch {
-        throw new Error("Unable to save new vault key. Please contact support.");
+        throw new Error("Unable to save new vault password.");
     }
 
     // Step 4: Set the in-memory encryption key so the vault unlocks immediately
     encryptionKey = await importKeyFromHex(masterKeyHex);
+    pendingSyncPassword = null;
+}
+
+/**
+ * Changes the vault password while already unlocked.
+ * Requires the current password to prove ownership.
+ */
+export async function changeVaultPassword(currentPassword: string, newPassword: string): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Not authenticated");
+
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    if (!userDoc.exists()) throw new Error("User profile not found.");
+
+    const salt = userDoc.data().salt as string;
+    const encryptedMasterKey = userDoc.data().encryptedMasterKey as string;
+
+    let masterKeyHex: string;
+    try {
+        const currentPdk = await deriveKey(currentPassword, salt);
+        masterKeyHex = await decryptPassword(encryptedMasterKey, currentPdk);
+    } catch (e) {
+        throw new Error("Incorrect current password.");
+    }
+
+    const newPdk = await deriveKey(newPassword, salt);
+    const newEncryptedMasterKey = await encryptPassword(masterKeyHex, newPdk);
+
+    // Sync Firebase Auth password if not a Google user
+    const isGoogleUser = user.providerData.some((p) => p.providerId === "google.com");
+    if (!isGoogleUser) {
+        try {
+            const { updatePassword } = await import("firebase/auth");
+            await updatePassword(user, newPassword);
+        } catch (e: any) {
+            if (e.code === "auth/requires-recent-login") {
+                throw new Error("Please sign out and sign back in before changing your password.");
+            }
+            throw new Error("Failed to sync login password: " + e.message);
+        }
+    }
+
+    try {
+        await setDoc(doc(db, "users", user.uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
+    } catch {
+        throw new Error("Unable to save new vault password.");
+    }
+}
+
+/**
+ * Generates a new Recovery Key for the user.
+ * Requires the current vault password to prove ownership.
+ */
+export async function generateNewRecoveryKey(currentPassword: string): Promise<string> {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Not authenticated");
+
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    if (!userDoc.exists()) throw new Error("User profile not found.");
+
+    const salt = userDoc.data().salt as string;
+    const encryptedMasterKey = userDoc.data().encryptedMasterKey as string;
+
+    let masterKeyHex: string;
+    try {
+        const currentPdk = await deriveKey(currentPassword, salt);
+        masterKeyHex = await decryptPassword(encryptedMasterKey, currentPdk);
+    } catch (e) {
+        throw new Error("Incorrect current password.");
+    }
+
+    const recoveryKey = generateRecoveryKey();
+    const recoveryPdk = await deriveKey(recoveryKey, salt);
+    const newEncryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
+
+    try {
+        await setDoc(doc(db, "users", user.uid), { encryptedMasterKeyRecovery: newEncryptedMasterKeyRecovery }, { merge: true });
+        return recoveryKey;
+    } catch {
+        throw new Error("Unable to save new recovery key.");
+    }
 }
 
 export async function signOutUser(): Promise<void> {
     await firebaseSignOut(auth);
     encryptionKey = null;
+    pendingSyncPassword = null;
 }
 
 export function onAuthChange(callback: (user: User | null) => void) {
@@ -364,3 +434,17 @@ export function clearEncryptionKey() {
 export function hasEncryptionKey(): boolean {
     return encryptionKey !== null;
 }
+
+export async function checkSecurityTerms(): Promise<boolean> {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return true;
+    const userDoc = await getDoc(doc(db, "users", uid));
+    if (!userDoc.exists()) return true;
+    return userDoc.data().hasAgreedToSecurityTerms === true;
+}
+
+export async function agreeSecurityTerms(): Promise<void> {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    await setDoc(doc(db, "users", uid), { hasAgreedToSecurityTerms: true }, { merge: true });
+}

@@ -21,6 +21,11 @@ export function generateSalt(): string {
     return bufferToHex(salt.buffer);
 }
 
+export function generateRecoveryKey(): string {
+    const random = crypto.getRandomValues(new Uint8Array(16));
+    return bufferToHex(random.buffer);
+}
+
 export async function generateMasterKey(): Promise<CryptoKey> {
     return await crypto.subtle.generateKey(
         { name: "AES-GCM", length: 256 },
