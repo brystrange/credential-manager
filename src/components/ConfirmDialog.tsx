@@ -24,9 +24,6 @@ export default function ConfirmDialog({
     return (
         <div className="modal-overlay" onClick={onCancel}>
             <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-                <div className="confirm-icon">
-                    <FiAlertTriangle size={32} />
-                </div>
                 <h3>{title}</h3>
                 <p>{message}</p>
                 <div className="confirm-actions">

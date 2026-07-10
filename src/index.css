@@ -1451,7 +1451,7 @@ button {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: 24px;
-  text-align: center;
+  text-align: left;
   box-shadow: var(--shadow-lg);
   animation: slideUp 0.3s var(--transition-slow);
 }
@@ -1491,7 +1491,7 @@ button {
   /* ... */
   /* ... */
   flex: 1;
-  padding: 9px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   border: 1px solid var(--border-color);
@@ -1509,7 +1509,7 @@ button {
   /* ... */
   /* ... */
   flex: 1;
-  padding: 9px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   background: var(--danger);
   color: white;
