@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router-dom";
 import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, setupGoogleVault, resetGoogleVaultPassword, checkSecurityTerms, agreeSecurityTerms, validatePassword } from "./services/authService";
 import type { Credential, CredentialInput } from "./services/credentialService";
@@ -467,7 +467,7 @@ function VaultUnlockGate({
                     style={{background: "#f5f5f521", border: "1px solid var(--border)", color: "var(--text-muted)" }}
                     onClick={() => signOutUser()}
                     >
-                    Sign out &amp; Reset Password
+                    Sign out
                     </button>
 
                     <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
@@ -544,6 +544,11 @@ function AppInner({
     // Delete confirm
     const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null);
 
+    const currentUserRef = useRef(user);
+    useEffect(() => {
+        currentUserRef.current = user;
+    }, [user]);
+
     useEffect(() => {
         const unsub = onAuthChange((u) => {
             // Block unverified users
@@ -557,10 +562,14 @@ function AppInner({
                 setCredentials([]);
                 setVaultUnlocked(false);
                 clearEncryptionKey();
+                
+                if (currentUserRef.current) {
+                    navigate("/login");
+                }
             }
         });
         return unsub;
-    }, [onUidChange]);
+    }, [onUidChange, navigate]);
 
     // Load platforms from Firestore (shared collection, no auth required to read)
     const loadPlatforms = useCallback(async () => {
@@ -594,6 +603,7 @@ function AppInner({
 
     // Called after a successful login OR after vault unlock on page reload
     const handleAuthSuccess = async () => {
+        setShowWelcome(true);
         setLoginInProgress(false);
         setVaultUnlocked(true);
         try {
@@ -602,7 +612,6 @@ function AppInner({
         } catch (err) {
             console.error("Failed to check security terms:", err);
         }
-        setShowWelcome(true);
         loadCredentials();
     };
 
@@ -762,6 +771,9 @@ function AppInner({
                     onNewGoogleUser={handleNewGoogleUser}
                 />
             );
+        }
+        if (currentUserRef.current) {
+            return null;
         }
         if (location.pathname !== "/") {
             return <Navigate to="/" replace />;

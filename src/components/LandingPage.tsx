@@ -25,12 +25,12 @@ export default function LandingPage() {
                 {/* Hero */}
                 <section style={{ padding: "120px 24px 80px", textAlign: "center", maxWidth: "900px", margin: "0 auto", position: "relative" }}>
                     <h1 style={{ fontSize: "4.5rem", fontWeight: "800", marginBottom: "24px", lineHeight: "1.1", letterSpacing: "-0.04em" }}>
-                        The zero knowledge <br />
+                        The zero knowledge<br />
                         <span style={{ color: "var(--text-secondary)" }}>credential manager</span>
                     </h1>
-                    <p style={{ fontSize: "1.25rem", color: "var(--text-secondary)", marginBottom: "48px", maxWidth: "700px", margin: "0 auto 48px", lineHeight: "1.6" }}>
-                        Secure your digital life with a vault that only you can access. Client-side encryption ensures that not even we can see your passwords.
-                    </p>
+                    <p style={{ fontSize: "1.25rem", color: "var(--text-secondary)", maxWidth: "700px", margin: "0 auto 16px", lineHeight: "1.6" }}>
+                        Keep your passwords secure and instantly accessible with Fort Sterling, no more hunting through your notes. Client-side encryption ensures that not even we can see your passwords.
+                    </p><br />
                     <div style={{ display: "flex", justifyContent: "center", gap: "16px" }}>
                         <button className="admin-btn-primary" style={{ padding: "16px 32px", fontSize: "1.1rem", borderRadius: "var(--radius-md)" }} onClick={() => navigate("/login")}>
                             Create Your Vault <FiArrowRight style={{ marginLeft: 8 }} />
@@ -109,7 +109,7 @@ await sendToServer(encrypted, iv);`}
                     </div>
 
                     {/* Feature 3 */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "64px", marginBottom: "80px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "64px", marginBottom: "0px", flexWrap: "wrap" }}>
                         <div style={{ flex: "1 1 400px", paddingRight: "40px" }} className="feature-text">
                             <FiSmartphone size={32} color="var(--text-primary)" style={{ marginBottom: "24px" }} />
                             <h3 style={{ fontSize: "1.75rem", marginBottom: "16px", fontWeight: "600" }}>Cross-Device Sync</h3>
