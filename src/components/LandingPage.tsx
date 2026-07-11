@@ -60,7 +60,7 @@ export default function LandingPage() {
                                 Your vault is encrypted locally on your device using AES-GCM before any data is sent to our servers. We never have the key to decrypt your data.
                             </p>
                         </div>
-                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "24px", boxShadow: "var(--shadow-lg)" }}>
+                        <div className="feature-card" style={{ flex: "1 1 400px", minWidth: 0, maxWidth: "100%", background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "24px", boxShadow: "var(--shadow-lg)" }}>
                             <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-color)", paddingBottom: "16px", marginBottom: "16px" }}>
                                 <div style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--danger)" }} />
                                 <div style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--warning)" }} />
@@ -94,7 +94,7 @@ await sendToServer(encrypted, iv);`}
                                 We believe security requires transparency. The mechanisms we use to protect your data are industry standards and clearly explained. No hidden backdoors.
                             </p>
                         </div>
-                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "32px", boxShadow: "var(--shadow-lg)", position: "relative", overflow: "hidden" }}>
+                        <div className="feature-card" style={{ flex: "1 1 400px", minWidth: 0, maxWidth: "100%", background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "32px", boxShadow: "var(--shadow-lg)", position: "relative", overflow: "hidden" }}>
                             <div style={{ display: "flex", flexDirection: "column", gap: "16px", position: "relative", zIndex: 1 }}>
                                 <div style={{ background: "var(--bg-input)", padding: "16px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
                                     <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "4px" }}>PBKDF2</div>
@@ -117,8 +117,8 @@ await sendToServer(encrypted, iv);`}
                                 Access your secure vault from anywhere. Your encrypted data safely syncs across all your devices, so you always have your passwords when you need them.
                             </p>
                         </div>
-                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, position: "relative", display: "flex", justifyContent: "center" }}>
-                            <div style={{ width: "240px", height: "480px", background: "var(--bg-secondary)", borderRadius: "32px", border: "8px solid var(--border-color)", padding: "16px", boxShadow: "var(--shadow-lg)", position: "relative" }}>
+                        <div className="feature-card" style={{ flex: "1 1 400px", minWidth: 0, maxWidth: "100%", position: "relative", display: "flex", justifyContent: "center" }}>
+                            <div style={{ width: "240px", height: "480px", maxWidth: "100%", background: "var(--bg-secondary)", borderRadius: "32px", border: "8px solid var(--border-color)", padding: "16px", boxShadow: "var(--shadow-lg)", position: "relative" }}>
                                 <div style={{ width: "40%", height: "4px", background: "var(--border-color)", borderRadius: "2px", margin: "0 auto 24px" }} />
                                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                                     {[1, 2, 3, 4].map(i => (
@@ -141,9 +141,9 @@ await sendToServer(encrypted, iv);`}
                             Start for free, upgrade when you need more.
                         </p>
                         
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 350px), 1fr))", gap: "32px", textAlign: "left" }}>
+                        <div className="pricing-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))", gap: "32px", textAlign: "left" }}>
                             {/* Free Tier */}
-                            <div style={{ padding: "40px", background: "var(--bg-card)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column" }}>
+                            <div className="pricing-card" style={{ padding: "40px", background: "var(--bg-card)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column" }}>
                                 <h3 style={{ fontSize: "1.5rem", marginBottom: "8px" }}>Free</h3>
                                 <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>For individuals getting started.</p>
                                 <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$0<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
@@ -156,7 +156,7 @@ await sendToServer(encrypted, iv);`}
                             </div>
 
                             {/* Pro Tier */}
-                            <div style={{ padding: "40px", background: "linear-gradient(145deg, rgba(88, 166, 255, 0.05), transparent)", borderRadius: "var(--radius-lg)", border: "1px solid var(--accent)", position: "relative", display: "flex", flexDirection: "column", boxShadow: "0 0 40px var(--accent-glow)" }}>
+                            <div className="pricing-card" style={{ padding: "40px", background: "linear-gradient(145deg, rgba(88, 166, 255, 0.05), transparent)", borderRadius: "var(--radius-lg)", border: "1px solid var(--accent)", position: "relative", display: "flex", flexDirection: "column", boxShadow: "0 0 40px var(--accent-glow)" }}>
                                 <div style={{ position: "absolute", top: "-14px", left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#000", padding: "4px 16px", borderRadius: "999px", fontSize: "0.85rem", fontWeight: "600" }}>Most Popular</div>
                                 <h3 style={{ fontSize: "1.5rem", marginBottom: "8px" }}>Pro</h3>
                                 <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>For power users and professionals.</p>
@@ -208,6 +208,9 @@ await sendToServer(encrypted, iv);`}
                 @media (max-width: 768px) {
                     .hide-on-mobile { display: none !important; }
                     .feature-text { padding: 0 !important; text-align: center; }
+                    .pricing-grid { grid-template-columns: 1fr !important; }
+                    .pricing-card { padding: 24px !important; }
+                    .feature-card { padding: 16px !important; flex-basis: 100% !important; }
                 }
             `}</style>
         </div>
