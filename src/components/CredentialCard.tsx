@@ -181,7 +181,7 @@ export default function CredentialCard({
                     <FiEye size={14} className="field-icon" />
                     <span className="field-label">Password</span>
                     <span className="field-value mono">
-                        {showPassword ? credential.password : "••••••••••••"}
+                        {showPassword ? credential.password : "•".repeat(credential.password?.length || 0)}
                     </span>
                     <button
                         className="copy-btn"
@@ -207,7 +207,7 @@ export default function CredentialCard({
                         <FiHash size={14} className="field-icon" />
                         <span className="field-label">Pin</span>
                         <span className="field-value mono">
-                            {showPin ? credential.pin : "••••"}
+                            {showPin ? credential.pin : "•".repeat(credential.pin?.length || 0)}
                         </span>
                         <button
                             className="copy-btn"

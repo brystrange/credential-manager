@@ -7,6 +7,8 @@ import {
     FiPlus,
     FiEdit,
     FiClock,
+    FiEye,
+    FiEyeOff,
 } from "react-icons/fi";
 
 interface HistoryPanelProps {
@@ -24,6 +26,19 @@ export default function HistoryPanel({
 }: HistoryPanelProps) {
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [loading, setLoading] = useState(false);
+    const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
+
+    const togglePasswordVisibility = (id: string) => {
+        setVisiblePasswords((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
 
     useEffect(() => {
         if (isOpen && credentialId) {
@@ -137,15 +152,26 @@ export default function HistoryPanel({
                                             )}
                                             <div className="snapshot-row">
                                                 <span className="snapshot-label">Password</span>
-                                                <span className="snapshot-value mono">
-                                                    {entry.password}
+                                                <span className="snapshot-value mono" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                    {visiblePasswords.has(entry.id) ? entry.password : "•".repeat(entry.password?.length || 0)}
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            togglePasswordVisibility(entry.id);
+                                                        }}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'inherit' }}
+                                                        aria-label={visiblePasswords.has(entry.id) ? "Hide password" : "Show password"}
+                                                    >
+                                                        {visiblePasswords.has(entry.id) ? <FiEyeOff size={14} /> : <FiEye size={14} />}
+                                                    </button>
                                                 </span>
                                             </div>
                                             {entry.pin && (
                                                 <div className="snapshot-row">
                                                     <span className="snapshot-label">Pin</span>
                                                     <span className="snapshot-value mono">
-                                                        {entry.pin}
+                                                        {visiblePasswords.has(entry.id) ? entry.pin : "•".repeat(entry.pin?.length || 0)}
                                                     </span>
                                                 </div>
                                             )}

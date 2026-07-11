@@ -197,6 +197,8 @@ export async function deleteCredential(id: string): Promise<void> {
 export async function getHistory(id: string): Promise<HistoryEntry[]> {
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error("Not authenticated");
+    
+    const key = getEncryptionKey();
 
     const historyRef = collection(
         db,
@@ -209,20 +211,35 @@ export async function getHistory(id: string): Promise<HistoryEntry[]> {
     const q = query(historyRef, orderBy("timestamp", "desc"));
     const snapshot = await getDocs(q);
 
-    return snapshot.docs.map((d) => {
+    return Promise.all(snapshot.docs.map(async (d) => {
         const data = d.data();
+        let decryptedPassword = "";
+        try {
+            decryptedPassword = await decryptPassword(data.password, key);
+        } catch {
+            decryptedPassword = "[decryption failed]";
+        }
+        let decryptedPin = "";
+        if (data.pin) {
+            try {
+                decryptedPin = await decryptPassword(data.pin, key);
+            } catch {
+                decryptedPin = "[decryption failed]";
+            }
+        }
+        
         return {
             id: d.id,
             platform: data.platform,
             email: data.email,
             username: data.username || "",
-            password: "••••••••",
-            pin: data.pin ? "••••" : "",
+            password: decryptedPassword,
+            pin: decryptedPin,
             accountName: data.accountName || "",
             comment: data.comment || "",
             action: data.action,
             timestamp: (data.timestamp as Timestamp).toDate(),
             changes: data.changes || [],
         };
-    });
+    }));
 }

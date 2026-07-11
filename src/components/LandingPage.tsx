@@ -53,14 +53,14 @@ export default function LandingPage() {
 
                     {/* Feature 1 */}
                     <div style={{ display: "flex", alignItems: "center", gap: "64px", marginBottom: "120px", flexWrap: "wrap" }}>
-                        <div style={{ flex: "1 1 400px", paddingRight: "40px" }} className="feature-text">
+                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, paddingRight: "40px" }} className="feature-text">
                             <FiLock size={32} color="var(--accent)" style={{ marginBottom: "24px" }} />
                             <h3 style={{ fontSize: "1.75rem", marginBottom: "16px", fontWeight: "600" }}>Zero-Knowledge Encryption</h3>
                             <p style={{ color: "var(--text-secondary)", lineHeight: "1.6", fontSize: "1.1rem" }}>
                                 Your vault is encrypted locally on your device using AES-GCM before any data is sent to our servers. We never have the key to decrypt your data.
                             </p>
                         </div>
-                        <div style={{ flex: "1 1 400px", background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "24px", boxShadow: "var(--shadow-lg)" }}>
+                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "24px", boxShadow: "var(--shadow-lg)" }}>
                             <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-color)", paddingBottom: "16px", marginBottom: "16px" }}>
                                 <div style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--danger)" }} />
                                 <div style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--warning)" }} />
@@ -87,14 +87,14 @@ await sendToServer(encrypted, iv);`}
 
                     {/* Feature 2 */}
                     <div style={{ display: "flex", alignItems: "center", gap: "64px", marginBottom: "120px", flexWrap: "wrap", flexDirection: "row-reverse" }}>
-                        <div style={{ flex: "1 1 400px", paddingLeft: "40px" }} className="feature-text">
+                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, paddingLeft: "40px" }} className="feature-text">
                             <FiShield size={32} color="var(--green)" style={{ marginBottom: "24px" }} />
                             <h3 style={{ fontSize: "1.75rem", marginBottom: "16px", fontWeight: "600" }}>Complete Transparency</h3>
                             <p style={{ color: "var(--text-secondary)", lineHeight: "1.6", fontSize: "1.1rem" }}>
                                 We believe security requires transparency. The mechanisms we use to protect your data are industry standards and clearly explained. No hidden backdoors.
                             </p>
                         </div>
-                        <div style={{ flex: "1 1 400px", background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "32px", boxShadow: "var(--shadow-lg)", position: "relative", overflow: "hidden" }}>
+                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "32px", boxShadow: "var(--shadow-lg)", position: "relative", overflow: "hidden" }}>
                             <div style={{ display: "flex", flexDirection: "column", gap: "16px", position: "relative", zIndex: 1 }}>
                                 <div style={{ background: "var(--bg-input)", padding: "16px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
                                     <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "4px" }}>PBKDF2</div>
@@ -110,14 +110,14 @@ await sendToServer(encrypted, iv);`}
 
                     {/* Feature 3 */}
                     <div style={{ display: "flex", alignItems: "center", gap: "64px", marginBottom: "0px", flexWrap: "wrap" }}>
-                        <div style={{ flex: "1 1 400px", paddingRight: "40px" }} className="feature-text">
+                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, paddingRight: "40px" }} className="feature-text">
                             <FiSmartphone size={32} color="var(--text-primary)" style={{ marginBottom: "24px" }} />
                             <h3 style={{ fontSize: "1.75rem", marginBottom: "16px", fontWeight: "600" }}>Cross-Device Sync</h3>
                             <p style={{ color: "var(--text-secondary)", lineHeight: "1.6", fontSize: "1.1rem" }}>
                                 Access your secure vault from anywhere. Your encrypted data safely syncs across all your devices, so you always have your passwords when you need them.
                             </p>
                         </div>
-                        <div style={{ flex: "1 1 400px", position: "relative", display: "flex", justifyContent: "center" }}>
+                        <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, position: "relative", display: "flex", justifyContent: "center" }}>
                             <div style={{ width: "240px", height: "480px", background: "var(--bg-secondary)", borderRadius: "32px", border: "8px solid var(--border-color)", padding: "16px", boxShadow: "var(--shadow-lg)", position: "relative" }}>
                                 <div style={{ width: "40%", height: "4px", background: "var(--border-color)", borderRadius: "2px", margin: "0 auto 24px" }} />
                                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -141,7 +141,7 @@ await sendToServer(encrypted, iv);`}
                             Start for free, upgrade when you need more.
                         </p>
                         
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))", gap: "32px", textAlign: "left" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 350px), 1fr))", gap: "32px", textAlign: "left" }}>
                             {/* Free Tier */}
                             <div style={{ padding: "40px", background: "var(--bg-card)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column" }}>
                                 <h3 style={{ fontSize: "1.5rem", marginBottom: "8px" }}>Free</h3>
