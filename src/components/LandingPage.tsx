@@ -66,7 +66,7 @@ export default function LandingPage() {
                                 <div style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--warning)" }} />
                                 <div style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--green)" }} />
                             </div>
-                            <pre style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem", overflowX: "auto" }}>
+                            <pre className="code-block" style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem", overflowX: "auto" }}>
                                 <code>
 {`// Client-side encryption only
 const pdk = await deriveKey(password, salt);
@@ -211,6 +211,8 @@ await sendToServer(encrypted, iv);`}
                     .pricing-grid { grid-template-columns: 1fr !important; }
                     .pricing-card { padding: 24px !important; }
                     .feature-card { padding: 16px !important; flex-basis: 100% !important; }
+                    .code-block::-webkit-scrollbar { display: none; }
+                    .code-block { -ms-overflow-style: none; scrollbar-width: none; }
                 }
             `}</style>
         </div>
