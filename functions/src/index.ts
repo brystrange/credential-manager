@@ -272,7 +272,7 @@ export const lemonWebhook = onRequest(
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: String(payload.data?.id ?? ""),
-                    subscriptionStatus: "active",
+                    subscriptionStatus: attributes.status ?? "active",
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
