@@ -1082,7 +1082,7 @@ function AppInner({
                             </p>
                             <p style={{ marginBottom: '0' }}>
                                 <strong style={{ color: 'var(--text-primary)' }}>The Recovery Key</strong><br/>
-                                Because we can't access your vault, <strong>your Recovery Key is your only backup</strong> if you forget your vault password. Please store it securely—it is only shown once.
+                                Since Fort Sterling does not store your passwords, your <strong>Recovery Key</strong> is your sole backup for account access. Please store it securely, you may update it anytime using your current password.
                             </p>
                         </div>
                         <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>

@@ -25,7 +25,7 @@ export default function LandingPage() {
                 {/* Hero */}
                 <section style={{ padding: "120px 24px 80px", textAlign: "center", maxWidth: "900px", margin: "0 auto", position: "relative" }}>
                     <h1 style={{ fontSize: "4.5rem", fontWeight: "800", marginBottom: "24px", lineHeight: "1.1", letterSpacing: "-0.04em" }}>
-                        The zero knowledge<br />
+                        The zero-knowledge<br />
                         <span style={{ color: "var(--text-secondary)" }}>credential manager</span>
                     </h1>
                     <p style={{ fontSize: "1.25rem", color: "var(--text-secondary)", maxWidth: "700px", margin: "0 auto 16px", lineHeight: "1.6" }}>
@@ -160,7 +160,7 @@ await sendToServer(encrypted, iv);`}
                                 <div style={{ position: "absolute", top: "-14px", left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#000", padding: "4px 16px", borderRadius: "999px", fontSize: "0.85rem", fontWeight: "600" }}>Most Popular</div>
                                 <h3 style={{ fontSize: "1.5rem", marginBottom: "8px" }}>Pro</h3>
                                 <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>For power users and professionals.</p>
-                                <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$3.99<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
+                                <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$3.20<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
                                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 40px", display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>Up to 1,000 credentials</strong></li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> Zero-knowledge encryption</li>
@@ -183,7 +183,7 @@ await sendToServer(encrypted, iv);`}
                             Fort Sterling
                         </div>
                         <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", maxWidth: "300px" }}>
-                            The zero knowledge credential manager.
+                            The zero-knowledge credential manager.
                         </p>
                     </div>
                     <div style={{ display: "flex", gap: "48px" }}>
