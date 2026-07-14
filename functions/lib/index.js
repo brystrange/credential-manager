@@ -187,8 +187,18 @@ exports.createCheckoutSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_AP
                 },
             },
             relationships: {
-                store: { data: { type: "stores", id: storeId } },
-                variant: { data: { type: "variants", id: variantId } },
+                store: {
+                    data: {
+                        type: "stores",
+                        id: storeId.toString().trim(),
+                    },
+                },
+                variant: {
+                    data: {
+                        type: "variants",
+                        id: variantId.toString().trim(),
+                    },
+                },
             },
         },
     });

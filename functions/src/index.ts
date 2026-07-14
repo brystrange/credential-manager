@@ -193,8 +193,18 @@ export const createCheckoutSession = onCall(
                     },
                 },
                 relationships: {
-                    store: { data: { type: "stores", id: storeId } },
-                    variant: { data: { type: "variants", id: variantId } },
+                    store: {
+                        data: {
+                            type: "stores",
+                            id: storeId.toString().trim(),
+                        },
+                    },
+                    variant: {
+                        data: {
+                            type: "variants",
+                            id: variantId.toString().trim(),
+                        },
+                    },
                 },
             },
         }
