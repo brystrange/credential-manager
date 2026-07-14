@@ -84,7 +84,7 @@ export default function PricingPage({ onClose }: PricingPageProps) {
             <ul className="pricing-features">
               <li><FiCheck size={14} /> Up to 10 credentials</li>
               <li><FiCheck size={14} /> Last 3 password revisions</li>
-              <li><FiCheck size={14} /> All platforms</li>
+              <li><FiCheck size={14} /> No ads</li>
               <li><FiCheck size={14} /> End-to-end encryption</li>
             </ul>
             <div className="pricing-card-footer">
@@ -112,9 +112,9 @@ export default function PricingPage({ onClose }: PricingPageProps) {
             <ul className="pricing-features">
               <li><FiCheck size={14} /> Up to 1,000 credentials</li>
               <li><FiCheck size={14} /> Full password history</li>
-              <li><FiCheck size={14} /> All platforms</li>
+              <li><FiCheck size={14} /> No ads</li>
               <li><FiCheck size={14} /> End-to-end encryption</li>
-              <li><FiCheck size={14} /> Priority support</li>
+              <li><FiCheck size={14} /> 30-day free trial</li>
             </ul>
             <div className="pricing-card-footer">
               {isPro ? (

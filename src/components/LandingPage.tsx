@@ -149,8 +149,9 @@ await sendToServer(encrypted, iv);`}
                                 <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$0<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
                                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 40px", display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Store up to 10 credentials</li>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Zero-knowledge encryption</li>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Cross-device sync</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Last 3 password revisions</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> No ads</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> End-to-end encryption</li>
                                 </ul>
                                 <Link to="/login" style={{ display: "block", textAlign: "center", textDecoration: "none", color: "var(--text-primary)", padding: "12px", background: "var(--bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)", fontWeight: "600" }}>Get Started Free</Link>
                             </div>
@@ -163,11 +164,12 @@ await sendToServer(encrypted, iv);`}
                                 <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$3.20<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
                                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 40px", display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>Up to 1,000 credentials</strong></li>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> Zero-knowledge encryption</li>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> Cross-device sync</li>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> Priority support</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> Full password history</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> No ads</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> End-to-end encryption</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> 30-day free trial</li>
                                 </ul>
-                                <Link to="/login" style={{ display: "block", textAlign: "center", textDecoration: "none", color: "#000", padding: "12px", background: "var(--accent)", borderRadius: "var(--radius-md)", fontWeight: "600" }}>Upgrade to Pro</Link>
+                                <Link to="/login" style={{ display: "block", textAlign: "center", textDecoration: "none", color: "#000", padding: "12px", background: "var(--accent)", borderRadius: "var(--radius-md)", fontWeight: "600" }}>Sign Up to get Pro</Link>
                             </div>
                         </div>
                     </div>
