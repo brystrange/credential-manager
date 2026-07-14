@@ -105,7 +105,7 @@ export default function PricingPage({ onClose }: PricingPageProps) {
             <div className="pricing-card-header">
               <h3>Pro</h3>
               <div className="pricing-price">
-                <span className="price-amount">$3.99</span>
+                <span className="price-amount">$3.20</span>
                 <span className="price-period">/month</span>
               </div>
             </div>

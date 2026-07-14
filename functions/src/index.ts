@@ -128,7 +128,7 @@ function lsRequest<T>(
                 headers: {
                     "Accept": "application/vnd.api+json",
                     "Content-Type": "application/vnd.api+json",
-                    "Authorization": `Bearer ${apiKey}`,
+                    "Authorization": `Bearer ${apiKey.trim()}`,
                     ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {}),
                 },
             },

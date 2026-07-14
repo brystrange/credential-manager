@@ -136,7 +136,7 @@ function lsRequest(path, method, apiKey, body) {
             headers: {
                 "Accept": "application/vnd.api+json",
                 "Content-Type": "application/vnd.api+json",
-                "Authorization": `Bearer ${apiKey}`,
+                "Authorization": `Bearer ${apiKey.trim()}`,
                 ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {}),
             },
         }, (res) => {
@@ -203,7 +203,7 @@ exports.createCheckoutSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_AP
 // Public HTTPS endpoint for Lemon Squeezy to POST events to.
 // Verifies HMAC-SHA256 signature before processing.
 exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] }, async (req, res) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     if (req.method !== "POST") {
         res.status(405).send("Method Not Allowed");
         return;
@@ -252,16 +252,16 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: String((_h = (_g = payload.data) === null || _g === void 0 ? void 0 : _g.id) !== null && _h !== void 0 ? _h : ""),
-                    subscriptionStatus: "active",
+                    subscriptionStatus: (_j = attributes.status) !== null && _j !== void 0 ? _j : "active",
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
-                    lsCustomerId: String((_j = attributes.customer_id) !== null && _j !== void 0 ? _j : ""),
+                    lsCustomerId: String((_k = attributes.customer_id) !== null && _k !== void 0 ? _k : ""),
                 });
                 break;
             case "subscription_updated":
                 await userRef.update({
-                    subscriptionStatus: (_k = attributes.status) !== null && _k !== void 0 ? _k : "active",
+                    subscriptionStatus: (_l = attributes.status) !== null && _l !== void 0 ? _l : "active",
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
