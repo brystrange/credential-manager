@@ -100,7 +100,8 @@ export function SubscriptionProvider({
     return unsub;
   }, [uid]);
 
-  const isPro = (plan === "pro" && (status === "active" || status === "on_trial")) || isExempt;
+  // Some webhook events or manual entries might use a hyphen instead of an underscore
+  const isPro = (plan === "pro" && (status === "active" || status === "on_trial" || status === "on-trial")) || isExempt;
   const credentialLimit = isPro ? PRO_CREDENTIAL_LIMIT : FREE_CREDENTIAL_LIMIT;
   const isAtLimit = credentialCount >= credentialLimit;
   // Warn when 2 or fewer slots remain (only meaningful on Free)

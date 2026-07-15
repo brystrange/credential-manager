@@ -282,7 +282,7 @@ export const lemonWebhook = onRequest(
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: String(payload.data?.id ?? ""),
-                    subscriptionStatus: attributes.status ?? "active",
+                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : (attributes.status ?? "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -292,7 +292,7 @@ export const lemonWebhook = onRequest(
 
             case "subscription_updated":
                 await userRef.update({
-                    subscriptionStatus: attributes.status ?? "active",
+                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : (attributes.status ?? "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -377,11 +377,13 @@ export const createBillingPortalSession = onCall(
     if (!portalUrl && request.auth.token.email) {
         try {
             const email = request.auth.token.email;
+            console.log("Looking up by email:", email);
             const searchResponse = await lsRequest<{ data?: { id: string, attributes?: { urls?: { customer_portal?: string } } }[] }>(
                 `/v1/customers?filter[email]=${encodeURIComponent(email)}`,
                 "GET",
                 apiKey
             );
+            console.log("Search response:", JSON.stringify(searchResponse));
             
             if (searchResponse.data && searchResponse.data.length > 0) {
                 // If we found a customer by email, try to use its portal URL

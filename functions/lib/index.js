@@ -262,7 +262,7 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: String((_h = (_g = payload.data) === null || _g === void 0 ? void 0 : _g.id) !== null && _h !== void 0 ? _h : ""),
-                    subscriptionStatus: (_j = attributes.status) !== null && _j !== void 0 ? _j : "active",
+                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_j = attributes.status) !== null && _j !== void 0 ? _j : "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -271,7 +271,7 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 break;
             case "subscription_updated":
                 await userRef.update({
-                    subscriptionStatus: (_l = attributes.status) !== null && _l !== void 0 ? _l : "active",
+                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_l = attributes.status) !== null && _l !== void 0 ? _l : "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -300,21 +300,60 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
     res.status(200).send("ok");
 });
 // ─── createBillingPortalSession ──────────────────────────────────────────────
-// Returns the Lemon Squeezy customer portal URL for a given subscription.
+// Returns the Lemon Squeezy customer portal URL for a given subscription or customer.
 exports.createBillingPortalSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_API_KEY"] }, async (request) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
-    const subscriptionId = (_a = request.data) === null || _a === void 0 ? void 0 : _a.subscriptionId;
-    if (!subscriptionId || typeof subscriptionId !== "string") {
-        throw new https_1.HttpsError("invalid-argument", "subscriptionId is required.");
-    }
     const apiKey = process.env.LEMONSQUEEZY_API_KEY;
     if (!apiKey) {
         throw new https_1.HttpsError("failed-precondition", "Lemon Squeezy not configured.");
     }
-    const response = await lsRequest(`/v1/subscriptions/${subscriptionId}`, "GET", apiKey);
-    const portalUrl = (_d = (_c = (_b = response.data) === null || _b === void 0 ? void 0 : _b.attributes) === null || _c === void 0 ? void 0 : _c.urls) === null || _d === void 0 ? void 0 : _d.customer_portal;
+    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    const subId = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.subscriptionId;
+    const custId = (_b = userDoc.data()) === null || _b === void 0 ? void 0 : _b.lsCustomerId;
+    let portalUrl;
+    if (subId && typeof subId === "string" && subId.trim() !== "") {
+        try {
+            const response = await lsRequest(`/v1/subscriptions/${subId.trim()}`, "GET", apiKey);
+            portalUrl = (_e = (_d = (_c = response.data) === null || _c === void 0 ? void 0 : _c.attributes) === null || _d === void 0 ? void 0 : _d.urls) === null || _e === void 0 ? void 0 : _e.customer_portal;
+        }
+        catch (err) {
+            console.warn(`Failed to fetch portal via subscription ${subId}`, err);
+        }
+    }
+    // Fallback to customer endpoint if subscription fails or is missing
+    if (!portalUrl && custId && typeof custId === "string" && custId.trim() !== "") {
+        try {
+            const response = await lsRequest(`/v1/customers/${custId.trim()}`, "GET", apiKey);
+            portalUrl = (_h = (_g = (_f = response.data) === null || _f === void 0 ? void 0 : _f.attributes) === null || _g === void 0 ? void 0 : _g.urls) === null || _h === void 0 ? void 0 : _h.customer_portal;
+        }
+        catch (err) {
+            console.warn(`Failed to fetch portal via customer ${custId}`, err);
+        }
+    }
+    // Fallback to searching customer by email if we don't have custId in db or it failed
+    if (!portalUrl && request.auth.token.email) {
+        try {
+            const email = request.auth.token.email;
+            console.log("Looking up by email:", email);
+            const searchResponse = await lsRequest(`/v1/customers?filter[email]=${encodeURIComponent(email)}`, "GET", apiKey);
+            console.log("Search response:", JSON.stringify(searchResponse));
+            if (searchResponse.data && searchResponse.data.length > 0) {
+                // If we found a customer by email, try to use its portal URL
+                portalUrl = (_k = (_j = searchResponse.data[0].attributes) === null || _j === void 0 ? void 0 : _j.urls) === null || _k === void 0 ? void 0 : _k.customer_portal;
+                // Save it back to db for future use if we found it
+                if (portalUrl) {
+                    await admin.firestore().collection("users").doc(request.auth.uid).update({
+                        lsCustomerId: searchResponse.data[0].id
+                    });
+                }
+            }
+        }
+        catch (err) {
+            console.warn(`Failed to fetch portal via email search`, err);
+        }
+    }
     if (!portalUrl) {
         throw new https_1.HttpsError("not-found", "Could not retrieve billing portal URL.");
     }
