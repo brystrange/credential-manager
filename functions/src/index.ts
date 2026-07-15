@@ -325,33 +325,54 @@ export const lemonWebhook = onRequest(
 });
 
 // ─── createBillingPortalSession ──────────────────────────────────────────────
-// Returns the Lemon Squeezy customer portal URL for a given subscription.
+// Returns the Lemon Squeezy customer portal URL for a given subscription or customer.
 export const createBillingPortalSession = onCall(
     { secrets: ["LEMONSQUEEZY_API_KEY"] },
     async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
-
-    const subscriptionId = request.data?.subscriptionId;
-    if (!subscriptionId || typeof subscriptionId !== "string") {
-        throw new HttpsError("invalid-argument", "subscriptionId is required.");
-    }
 
     const apiKey = process.env.LEMONSQUEEZY_API_KEY;
     if (!apiKey) {
         throw new HttpsError("failed-precondition", "Lemon Squeezy not configured.");
     }
 
+    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    const subId = userDoc.data()?.subscriptionId;
+    const custId = userDoc.data()?.lsCustomerId;
+
     interface SubResponse {
         data?: { attributes?: { urls?: { customer_portal?: string } } };
     }
 
-    const response = await lsRequest<SubResponse>(
-        `/v1/subscriptions/${subscriptionId}`,
-        "GET",
-        apiKey
-    );
+    let portalUrl: string | undefined;
 
-    const portalUrl = response.data?.attributes?.urls?.customer_portal;
+    if (subId && typeof subId === "string" && subId.trim() !== "") {
+        try {
+            const response = await lsRequest<SubResponse>(
+                `/v1/subscriptions/${subId.trim()}`,
+                "GET",
+                apiKey
+            );
+            portalUrl = response.data?.attributes?.urls?.customer_portal;
+        } catch (err) {
+            console.warn(`Failed to fetch portal via subscription ${subId}`, err);
+        }
+    }
+
+    // Fallback to customer endpoint if subscription fails or is missing
+    if (!portalUrl && custId && typeof custId === "string" && custId.trim() !== "") {
+        try {
+            const response = await lsRequest<SubResponse>(
+                `/v1/customers/${custId.trim()}`,
+                "GET",
+                apiKey
+            );
+            portalUrl = response.data?.attributes?.urls?.customer_portal;
+        } catch (err) {
+            console.warn(`Failed to fetch portal via customer ${custId}`, err);
+        }
+    }
+
     if (!portalUrl) {
         throw new HttpsError("not-found", "Could not retrieve billing portal URL.");
     }

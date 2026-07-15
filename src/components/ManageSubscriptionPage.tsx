@@ -4,12 +4,12 @@ import { openBillingPortal } from "../services/subscriptionService";
 import { FiLoader, FiCheck } from "react-icons/fi";
 
 export default function ManageSubscriptionPage() {
-    const { isPro, subscriptionId } = useSubscription();
+    const { isPro, subscriptionId, lsCustomerId } = useSubscription();
     const [portalLoading, setPortalLoading] = useState(false);
     const [error, setError] = useState("");
 
     const handleManage = async () => {
-        if (!subscriptionId) {
+        if (!subscriptionId && !lsCustomerId) {
             setError("No active billing subscription found. You may be on an admin or exempt plan.");
             return;
         }
@@ -62,7 +62,7 @@ export default function ManageSubscriptionPage() {
                     <li><FiCheck size={14} /> Full password history</li>
                     <li><FiCheck size={14} /> All platforms</li>
                     <li><FiCheck size={14} /> End-to-end encryption</li>
-                    <li><FiCheck size={14} /> Priority support</li>
+                    <li><FiCheck size={14} /> No ads</li>
                 </ul>
 
                 {error && <div className="auth-error" style={{ marginBottom: "16px" }}>{error}</div>}

@@ -10,7 +10,7 @@ interface PricingPageProps {
 const PRO_MONTHLY_VARIANT_ID = import.meta.env.VITE_LS_PRO_MONTHLY_VARIANT_ID ?? "";
 
 export default function PricingPage({ onClose }: PricingPageProps) {
-  const { plan, isPro, subscriptionId } = useSubscription();
+  const { plan, isPro, subscriptionId, lsCustomerId } = useSubscription();
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState("");
@@ -32,11 +32,12 @@ export default function PricingPage({ onClose }: PricingPageProps) {
   };
 
   const handleManage = async () => {
-    if (!subscriptionId) return;
+    if (!subscriptionId && !lsCustomerId) return;
+
     setPortalLoading(true);
     setError("");
     try {
-      await openBillingPortal(subscriptionId);
+      await openBillingPortal(subscriptionId || "");
     } catch (e) {
       console.error(e);
       setError("Failed to open billing portal. Please try again.");
