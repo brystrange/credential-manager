@@ -9,10 +9,6 @@ export default function ManageSubscriptionPage() {
     const [error, setError] = useState("");
 
     const handleManage = async () => {
-        if (!subscriptionId && !lsCustomerId) {
-            setError("No active billing subscription found. You may be on an admin or exempt plan.");
-            return;
-        }
         setPortalLoading(true);
         setError("");
         try {

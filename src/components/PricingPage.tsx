@@ -32,8 +32,6 @@ export default function PricingPage({ onClose }: PricingPageProps) {
   };
 
   const handleManage = async () => {
-    if (!subscriptionId && !lsCustomerId) return;
-
     setPortalLoading(true);
     setError("");
     try {

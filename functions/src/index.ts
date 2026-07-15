@@ -373,6 +373,32 @@ export const createBillingPortalSession = onCall(
         }
     }
 
+    // Fallback to searching customer by email if we don't have custId in db or it failed
+    if (!portalUrl && request.auth.token.email) {
+        try {
+            const email = request.auth.token.email;
+            const searchResponse = await lsRequest<{ data?: { id: string, attributes?: { urls?: { customer_portal?: string } } }[] }>(
+                `/v1/customers?filter[email]=${encodeURIComponent(email)}`,
+                "GET",
+                apiKey
+            );
+            
+            if (searchResponse.data && searchResponse.data.length > 0) {
+                // If we found a customer by email, try to use its portal URL
+                portalUrl = searchResponse.data[0].attributes?.urls?.customer_portal;
+                
+                // Save it back to db for future use if we found it
+                if (portalUrl) {
+                    await admin.firestore().collection("users").doc(request.auth.uid).update({
+                        lsCustomerId: searchResponse.data[0].id
+                    });
+                }
+            }
+        } catch (err) {
+            console.warn(`Failed to fetch portal via email search`, err);
+        }
+    }
+
     if (!portalUrl) {
         throw new HttpsError("not-found", "Could not retrieve billing portal URL.");
     }
