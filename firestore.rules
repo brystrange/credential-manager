@@ -71,7 +71,7 @@ service cloud.firestore {
       // For Google users who haven't verified email yet, allow auth'd owner only
       allow create: if isOwner(userId)
         && !exists(/databases/$(database)/documents/users/$(userId))
-        && hasMaxFields(10)
+        && hasMaxFields(20)
         && isValidString(request.resource.data.salt, 64)
         && isValidString(request.resource.data.fullName, 200)
         && request.resource.data.createdAt is timestamp
@@ -83,7 +83,7 @@ service cloud.firestore {
       // currentPeriodEnd, lsCustomerId) are written ONLY by Cloud Functions
       // via Admin SDK, which bypasses these rules entirely.
       allow update: if isVerifiedOwner(userId)
-        && hasMaxFields(10)
+        && hasMaxFields(20)
         // Cannot change the salt after creation (would break all encryption)
         && request.resource.data.salt == resource.data.salt
         // Cannot change createdAt
