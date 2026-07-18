@@ -137,7 +137,7 @@ export default function FileExplorer() {
     };
 
     // Image Viewer
-    const [selectedImage, setSelectedImage] = useState<{ file: VaultFile, url: string, dataUrl?: string, pdfData?: Uint8Array } | null>(null);
+    const [selectedImage, setSelectedImage] = useState<{ file: VaultFile, url: string, pdfData?: Uint8Array } | null>(null);
     const [imageCache, setImageCache] = useState<Record<string, string>>({});
     const [imageMenuOpen, setImageMenuOpen] = useState(false);
     const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
@@ -455,13 +455,6 @@ export default function FileExplorer() {
                 // Pass raw data to react-pdf instead of blob URL (fixes mobile)
                 const arrayBuffer = await blob.arrayBuffer();
                 setSelectedImage({ file, url, pdfData: new Uint8Array(arrayBuffer) });
-            } else if (file.type.startsWith("video/") || file.type.startsWith("audio/")) {
-                // Convert to data URL for mobile compatibility (blob URLs lack range-request support)
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    setSelectedImage({ file, url, dataUrl: reader.result as string });
-                };
-                reader.readAsDataURL(blob);
             } else {
                 setSelectedImage({ file, url });
             }
@@ -1006,12 +999,12 @@ export default function FileExplorer() {
                                 onContainerClick={() => { if (imageMenuOpen) setImageMenuOpen(false); }}
                             />
                         ) : selectedImage.file.type.startsWith('video/') ? (
-                            <video src={selectedImage.dataUrl || selectedImage.url} controls playsInline style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                            <video src={selectedImage.url} controls playsInline style={{ maxWidth: '100%', maxHeight: '100%' }} />
                         ) : selectedImage.file.type.startsWith('audio/') ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', width: '100%' }}>
                                 <FiMusic size={48} style={{ color: 'var(--text-secondary)' }} />
                                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{selectedImage.file.name}</p>
-                                <audio src={selectedImage.dataUrl || selectedImage.url} controls style={{ maxWidth: '100%', width: '320px' }} />
+                                <audio src={selectedImage.url} controls style={{ maxWidth: '100%', width: '320px' }} />
                             </div>
                         ) : (
                             <div style={{ width: '100%', height: '100%', overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
