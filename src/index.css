@@ -3106,13 +3106,15 @@ button {
 }
 
 .platform-name {
-  /* ... */
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.01em;
   line-height: 1.2;
   margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .platform-subtitle {
@@ -3120,6 +3122,9 @@ button {
   color: var(--text-muted);
   font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Email verification additions ─────────────────────────────────── */
