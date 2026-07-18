@@ -118,6 +118,13 @@
     position: relative;
 }
 
+/* The react-pdf Document wrapper must mirror the layout flex */
+.pdf-document-root {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
 /* Sidebar */
 .pdf-sidebar {
     width: 240px;
