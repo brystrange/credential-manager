@@ -117,36 +117,35 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
       )}
 
       <div className="pdf-layout">
+        <Document
+          file={documentFile}
+          onLoadSuccess={onDocumentLoadSuccess}
+          className="pdf-document-root"
+        >
           {showSidebar && (
               <div className="pdf-sidebar">
-                  <Document file={documentFile}>
-                          {Array.from(new Array(numPages || 0), (_, index) => (
-                              <div 
-                                key={`thumb_${index}`} 
-                                className={`pdf-sidebar-item ${activePage === index + 1 ? 'active' : ''}`}
-                                onClick={() => handleScrollToPage(index + 1)}
-                              >
-                                  <div className="pdf-sidebar-thumb">
-                                      <Page 
-                                        pageNumber={index + 1} 
-                                        scale={0.15} 
-                                        renderTextLayer={false}
-                                        renderAnnotationLayer={false}
-                                      />
-                                  </div>
-                                  <span className="pdf-sidebar-label">{index + 1}</span>
+                      {Array.from(new Array(numPages || 0), (_, index) => (
+                          <div 
+                            key={`thumb_${index}`} 
+                            className={`pdf-sidebar-item ${activePage === index + 1 ? 'active' : ''}`}
+                            onClick={() => handleScrollToPage(index + 1)}
+                          >
+                              <div className="pdf-sidebar-thumb">
+                                  <Page 
+                                    pageNumber={index + 1} 
+                                    scale={0.15} 
+                                    renderTextLayer={false}
+                                    renderAnnotationLayer={false}
+                                  />
                               </div>
-                          ))}
-                  </Document>
+                              <span className="pdf-sidebar-label">{index + 1}</span>
+                          </div>
+                      ))}
               </div>
           )}
 
           <div className="pdf-document-wrapper" ref={wrapperRef}>
-            <Document
-                file={documentFile}
-                onLoadSuccess={onDocumentLoadSuccess}
-                className="pdf-document"
-            >
+            <div className="pdf-document">
                   {Array.from(new Array(numPages || 0), (_, index) => (
                     <div 
                       key={`page_${index + 1}`} 
@@ -162,8 +161,9 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
                       />
                     </div>
                   ))}
-            </Document>
+            </div>
           </div>
+        </Document>
       </div>
     </div>
   );
