@@ -40,8 +40,8 @@ function friendlyError(msg: string): string {
         return "Please enter a valid email address.";
     if (msg.includes("auth/email-not-verified"))
         return "__email_not_verified__";
-    if (msg.includes("auth/popup-closed-by-user") || msg.includes("auth/cancelled-popup-request"))
-        return "Sign-in popup was closed. Please try again.";
+    if (msg.includes("auth/popup-closed-by-user") || msg.includes("auth/cancelled-popup-request") || msg.includes("IdP denied access"))
+        return "Sign-in has been cancelled.";
     if (msg.includes("auth/popup-blocked"))
         return "Popup was blocked by your browser. Please allow popups for this site and try again.";
     if (msg.includes("auth/too-many-requests"))
@@ -259,7 +259,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo" style={{ color: "var(--accent)" }}>
-                            <FiMail size={32} />
+                            <FiMail size={64} />
                         </div>
                         <h1>Check your email</h1>
                         <p className="auth-subtitle">
@@ -339,7 +339,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo">
-                            <img src="/logo.png" alt="Logo" style={{ width: 32, height: 32 }} />
+                            <img src="/logo.png" alt="Logo" />
                         </div>
                         <h1>Fort Sterling</h1>
                         <p className="auth-subtitle">Secure credential management</p>
@@ -395,7 +395,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <img src="/logo.png" alt="Logo" style={{ width: 40, height: 40 }} />
+                        <img src="/logo.png" alt="Logo" />
                     </div>
                     <h1>Fort Sterling</h1>
                     <p className="auth-subtitle">Secure credential management</p>
@@ -421,7 +421,6 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 {/* Email-not-verified gets a special banner with resend button */}
                 {isEmailNotVerified ? (
                     <div className="auth-verify-banner">
-                        <FiAlertCircle size={16} className="banner-icon" />
                         <div className="banner-body">
                             <strong>Email not verified</strong>
                             <p>

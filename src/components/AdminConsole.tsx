@@ -71,9 +71,6 @@ export default function AdminConsole() {
     const [logoToDelete, setLogoToDelete] = useState<string>("");
     const [originalLogoUrl, setOriginalLogoUrl] = useState<string>("");
 
-    // The sole admin email — also checked as a fallback before custom claims are set
-    const ADMIN_EMAIL = "bryankeithmayor1@gmail.com";
-
     // ─── Admin authentication via Firebase custom claims ─────────────────────
     useEffect(() => {
         const checkAdmin = async () => {
@@ -89,24 +86,7 @@ export default function AdminConsole() {
                 // Force refresh to get latest claims
                 const tokenResult = await getIdTokenResult(user, true);
 
-                // Grant access if the user has the admin custom claim OR matches the known admin email
-                if (tokenResult.claims.admin === true || user.email === ADMIN_EMAIL) {
-
-                    // Auto-bootstrap the custom claim if the user doesn't have it yet
-                    // This fixes the 403 Forbidden errors when calling the Cloud Functions
-                    if (tokenResult.claims.admin !== true && user.email === ADMIN_EMAIL) {
-                        try {
-                            const { httpsCallable } = await import("firebase/functions");
-                            const { functions } = await import("../firebaseConfig");
-                            const fn = httpsCallable(functions, "setAdminClaim");
-                            await fn();
-                            // Force refresh the token immediately so the new claim is attached
-                            await user.getIdToken(true);
-                        } catch (bootstrapErr) {
-                            console.warn("Failed to auto-bootstrap admin claim:", bootstrapErr);
-                        }
-                    }
-
+                if (tokenResult.claims.admin === true) {
                     setAuthenticated(true);
                     setAccessDenied(false);
                 } else {
@@ -114,13 +94,7 @@ export default function AdminConsole() {
                 }
             } catch (err) {
                 console.error("Failed to check admin claims:", err);
-                // Still allow the known admin email even if token refresh fails
-                if (user.email === ADMIN_EMAIL) {
-                    setAuthenticated(true);
-                    setAccessDenied(false);
-                } else {
-                    setAccessDenied(true);
-                }
+                setAccessDenied(true);
             } finally {
                 setCheckingAuth(false);
             }
@@ -191,7 +165,7 @@ export default function AdminConsole() {
 
             await setDoc(doc(db, "exemptions", email), {
                 exempt: true,
-                addedBy: auth.currentUser?.email || ADMIN_EMAIL,
+                addedBy: auth.currentUser?.email || "admin",
                 addedAt: new Date()
             });
             setExemptEmail("");

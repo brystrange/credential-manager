@@ -10,7 +10,7 @@ interface PricingPageProps {
 const PRO_MONTHLY_VARIANT_ID = import.meta.env.VITE_LS_PRO_MONTHLY_VARIANT_ID ?? "";
 
 export default function PricingPage({ onClose }: PricingPageProps) {
-  const { plan, isPro, subscriptionId, lsCustomerId } = useSubscription();
+  const { plan, isPro, subscriptionId } = useSubscription();
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState("");
@@ -82,7 +82,9 @@ export default function PricingPage({ onClose }: PricingPageProps) {
             </div>
             <ul className="pricing-features">
               <li><FiCheck size={14} /> Up to 10 credentials</li>
-              <li><FiCheck size={14} /> Last 3 password revisions</li>
+              <li><FiCheck size={14} /> Last 3 password history</li>
+              <li><FiCheck size={14} /> 500MB storage</li>
+              <li><FiCheck size={14} /> 20MB upload limit</li>
               <li><FiCheck size={14} /> No ads</li>
               <li><FiCheck size={14} /> End-to-end encryption</li>
             </ul>
@@ -111,6 +113,8 @@ export default function PricingPage({ onClose }: PricingPageProps) {
             <ul className="pricing-features">
               <li><FiCheck size={14} /> Up to 1,000 credentials</li>
               <li><FiCheck size={14} /> Full password history</li>
+              <li><FiCheck size={14} /> 5GB storage</li>
+              <li><FiCheck size={14} /> No upload limit</li>
               <li><FiCheck size={14} /> No ads</li>
               <li><FiCheck size={14} /> End-to-end encryption</li>
               <li><FiCheck size={14} /> 30-day free trial</li>

@@ -109,3 +109,36 @@ export async function decryptPassword(
 
     return new TextDecoder().decode(plaintext);
 }
+
+export async function encryptFile(
+    fileBuffer: ArrayBuffer,
+    key: CryptoKey
+): Promise<Blob> {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        fileBuffer
+    );
+    // Prepend the 12-byte IV to the ciphertext
+    return new Blob([iv, ciphertext], { type: "application/octet-stream" });
+}
+
+export async function decryptFile(
+    encryptedBlob: Blob,
+    key: CryptoKey,
+    mimeType: string = "application/octet-stream"
+): Promise<Blob> {
+    const buffer = await encryptedBlob.arrayBuffer();
+    // Extract the 12-byte IV from the beginning
+    const iv = buffer.slice(0, 12);
+    const ciphertext = buffer.slice(12);
+
+    const plaintext = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: new Uint8Array(iv) },
+        key,
+        ciphertext
+    );
+
+    return new Blob([plaintext], { type: mimeType });
+}

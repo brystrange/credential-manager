@@ -80,7 +80,7 @@ service firebase.storage {
     // ══════════════════════════════════════════════════════════════════════════
     //  USER-SPECIFIC FILES — /users/{userId}/{allPaths=**}
     //
-    //  Reserved for future per-user file storage (profile pics, exports, etc).
+    //  Reserved for per-user file storage (vault files, exports, etc).
     //  Only the verified owner can read/write their own files.
     // ══════════════════════════════════════════════════════════════════════════
     match /users/{userId}/{allPaths=**} {
@@ -90,12 +90,11 @@ service firebase.storage {
         && isEmailVerified()
         && request.auth.uid == userId;
 
-      // Create: verified owner, images only, under 5 MB
+      // Create: verified owner, any content type (since it's encrypted client-side), under 20 MB
       allow create: if isAuthenticated()
         && isEmailVerified()
         && request.auth.uid == userId
-        && isSafeImageType()
-        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.size < 20 * 1024 * 1024
         && resource == null;  // prevent overwrites
 
       // Update: blocked (upload new file instead)

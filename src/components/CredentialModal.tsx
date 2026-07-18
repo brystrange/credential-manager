@@ -13,6 +13,7 @@ import {
     FiTag,
     FiHash,
 } from "react-icons/fi";
+import { checkPwnedPassword } from "../services/pwnedService";
 
 interface CredentialModalProps {
     isOpen: boolean;
@@ -62,6 +63,20 @@ export default function CredentialModal({
     const [comment, setComment] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [showPin, setShowPin] = useState(false);
+    const [pwnedCount, setPwnedCount] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (!password) {
+            setPwnedCount(null);
+            return;
+        }
+        const timeoutId = setTimeout(async () => {
+            const count = await checkPwnedPassword(password);
+            setPwnedCount(count);
+        }, 500); // 500ms debounce
+        
+        return () => clearTimeout(timeoutId);
+    }, [password]);
 
     useEffect(() => {
         if (initialData) {
@@ -83,6 +98,7 @@ export default function CredentialModal({
         }
         setShowPassword(false);
         setShowPin(false);
+        setPwnedCount(null);
     }, [initialData, isOpen]);
 
     // Disable body scroll when modal is open
@@ -194,6 +210,11 @@ export default function CredentialModal({
                             {showPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                         </button>
                     </div>
+                    {pwnedCount !== null && pwnedCount > 0 && (
+                        <div style={{ color: "var(--danger)", fontSize: "0.80rem", fontWeight: "600", marginTop: "0px", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
+                            This password has appeared in a data breach {pwnedCount.toLocaleString()} times.
+                        </div>
+                    )}
 
                     <div className="form-group">
                         <div className="input-icon">

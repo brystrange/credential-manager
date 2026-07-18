@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { FiShield, FiLock, FiSmartphone, FiArrowRight, FiCheck } from "react-icons/fi";
+import { FiShield, FiLock, FiFolder, FiArrowRight, FiCheck } from "react-icons/fi";
 
 export default function LandingPage() {
     const navigate = useNavigate();
@@ -24,12 +24,17 @@ export default function LandingPage() {
             <main style={{ flex: 1, position: "relative", zIndex: 1 }}>
                 {/* Hero */}
                 <section style={{ padding: "120px 24px 80px", textAlign: "center", maxWidth: "900px", margin: "0 auto", position: "relative" }}>
+                    <div style={{ display: "flex", justifyContent: "center", marginBottom: "24px" }}>
+                    </div>
+                    <div style={{ display: "inline-block", padding: "6px 16px", borderRadius: "999px", background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)", fontSize: "0.95rem", fontWeight: "600", marginBottom: "24px", letterSpacing: "0.02em", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
+                        Fort Sterling
+                    </div>
                     <h1 style={{ fontSize: "4.5rem", fontWeight: "800", marginBottom: "24px", lineHeight: "1.1", letterSpacing: "-0.04em" }}>
                         The zero-knowledge<br />
                         <span style={{ color: "var(--text-secondary)" }}>credential manager</span>
                     </h1>
                     <p style={{ fontSize: "1.25rem", color: "var(--text-secondary)", maxWidth: "700px", margin: "0 auto 16px", lineHeight: "1.6" }}>
-                        Keep your passwords secure and instantly accessible with Fort Sterling, no more hunting through your notes. Client-side encryption ensures that not even we can see your passwords.
+                        Fort Sterling is a secure application designed to help you manage your credentials, passwords, and sensitive documents. Keep your data secure and instantly accessible in a single platform. Client-side encryption ensures that not even we can see your data.
                     </p><br />
                     <div style={{ display: "flex", justifyContent: "center", gap: "16px" }}>
                         <button className="admin-btn-primary" style={{ padding: "16px 32px", fontSize: "1.1rem", borderRadius: "var(--radius-md)" }} onClick={() => navigate("/login")}>
@@ -57,7 +62,7 @@ export default function LandingPage() {
                             <FiLock size={32} color="var(--accent)" style={{ marginBottom: "24px" }} />
                             <h3 style={{ fontSize: "1.75rem", marginBottom: "16px", fontWeight: "600" }}>Zero-Knowledge Encryption</h3>
                             <p style={{ color: "var(--text-secondary)", lineHeight: "1.6", fontSize: "1.1rem" }}>
-                                Your vault is encrypted locally on your device using AES-GCM before any data is sent to our servers. We never have the key to decrypt your data.
+                                Your vault is encrypted locally on your device using AES-GCM before any data is sent to our servers. This protects both your credentials and uploaded files. We never have the key to decrypt your data.
                             </p>
                         </div>
                         <div className="feature-card" style={{ flex: "1 1 400px", minWidth: 0, maxWidth: "100%", background: "var(--bg-secondary)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", padding: "24px", boxShadow: "var(--shadow-lg)" }}>
@@ -111,10 +116,10 @@ await sendToServer(encrypted, iv);`}
                     {/* Feature 3 */}
                     <div style={{ display: "flex", alignItems: "center", gap: "64px", marginBottom: "0px", flexWrap: "wrap" }}>
                         <div style={{ flex: "1 1 min(100%, 400px)", minWidth: 0, paddingRight: "40px" }} className="feature-text">
-                            <FiSmartphone size={32} color="var(--text-primary)" style={{ marginBottom: "24px" }} />
-                            <h3 style={{ fontSize: "1.75rem", marginBottom: "16px", fontWeight: "600" }}>Cross-Device Sync</h3>
+                            <FiFolder size={32} color="var(--text-primary)" style={{ marginBottom: "24px" }} />
+                            <h3 style={{ fontSize: "1.75rem", marginBottom: "16px", fontWeight: "600" }}>All-in-One Secure Platform</h3>
                             <p style={{ color: "var(--text-secondary)", lineHeight: "1.6", fontSize: "1.1rem" }}>
-                                Access your secure vault from anywhere. Your encrypted data safely syncs across all your devices, so you always have your passwords when you need them.
+                                Why manage separate apps for passwords and sensitive documents? Fort Sterling lets you store credentials alongside small, important files such as IDs, financial records, and medical documents, with a unified zero-knowledge architecture.
                             </p>
                         </div>
                         <div className="feature-card" style={{ flex: "1 1 400px", minWidth: 0, maxWidth: "100%", position: "relative", display: "flex", justifyContent: "center" }}>
@@ -148,8 +153,10 @@ await sendToServer(encrypted, iv);`}
                                 <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>For individuals getting started.</p>
                                 <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$0<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
                                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 40px", display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Store up to 10 credentials</li>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Last 3 password revisions</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Up to 10 credentials</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> Last 3 password history</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> 500MB storage</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> 20MB upload limit</li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> No ads</li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--text-primary)" /> End-to-end encryption</li>
                                 </ul>
@@ -164,7 +171,9 @@ await sendToServer(encrypted, iv);`}
                                 <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$3.20<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
                                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 40px", display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>Up to 1,000 credentials</strong></li>
-                                    <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> Full password history</li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>Full password history</strong></li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>5GB storage</strong></li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>No upload limit</strong></li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> No ads</li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> End-to-end encryption</li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> 30-day free trial</li>

@@ -13,6 +13,7 @@ import { getPlatforms } from "./services/platformService";
 import AuthPage from "./components/AuthPage";
 import LandingPage from "./components/LandingPage";
 import CredentialModal from "./components/CredentialModal";
+import FileExplorer from "./components/FileExplorer";
 import HistoryPanel from "./components/HistoryPanel";
 import FAB from "./components/FAB";
 import SearchBar from "./components/SearchBar";
@@ -30,6 +31,7 @@ import {
     FiX,
     FiMoon,
     FiSun,
+    FiFolder,
     FiLock,
     FiEye,
     FiEyeOff,
@@ -58,7 +60,7 @@ function WelcomeSplash({
     return (
         <div className="welcome-splash">
             <div className="welcome-splash-icon">
-                <img src="/logo.png" alt="Logo" style={{ width: 52, height: 52 }} />
+                <img src="/logo.png" alt="Logo" />
             </div>
             <h1 className="welcome-splash-title">Welcome back</h1>
             <p className="welcome-splash-name">{displayName}</p>
@@ -124,7 +126,7 @@ function GoogleVaultSetup({
                 <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo">
-                            <img src="/logo.png" alt="Logo" style={{ width: 32, height: 32 }} />
+                            <img src="/logo.png" alt="Logo" />
                         </div>
                         <h1>Save Your Recovery Key</h1>
                         <p className="auth-subtitle">
@@ -154,7 +156,7 @@ function GoogleVaultSetup({
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <img src="/logo.png" alt="Logo" style={{ width: 32, height: 32 }} />
+                        <img src="/logo.png" alt="Logo" />
                     </div>
                     <h1>Set up your vault</h1>
                     <p className="auth-subtitle">
@@ -330,7 +332,7 @@ function VaultUnlockGate({
                 <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo">
-                            <img src="/logo.png" alt="Logo" style={{ width: 32, height: 32 }} />
+                            <img src="/logo.png" alt="Logo" />
                         </div>
                         <h1>Reset Vault Password</h1>
                         <p className="auth-subtitle">
@@ -425,7 +427,7 @@ function VaultUnlockGate({
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <img src="/logo.png" alt="Logo" style={{ width: 32, height: 32 }} />
+                        <img src="/logo.png" alt="Logo" />
                     </div>
                     <h1>Welcome back</h1>
                     <p className="auth-subtitle">
@@ -502,6 +504,7 @@ function AppInner({
     const navigate = useNavigate();
     const isSettingsRoute = location.pathname === "/settings";
     const isManageSubscriptionRoute = location.pathname === "/subscription";
+    const isFilesRoute = location.pathname === "/files";
 
     // Tracks whether the in-memory encryption key is ready.
     // Stays false until a fresh login OR a successful VaultUnlockGate entry.
@@ -785,7 +788,8 @@ function AppInner({
     if (
         location.pathname !== "/" &&
         location.pathname !== "/settings" &&
-        location.pathname !== "/subscription"
+        location.pathname !== "/subscription" &&
+        location.pathname !== "/files"
     ) {
         return <Navigate to="/" replace />;
     }
@@ -873,10 +877,14 @@ function AppInner({
                 </div>
 
                 <nav className="sidebar-nav">
-                    <a className={`nav-item ${!isSettingsRoute && !isManageSubscriptionRoute ? "active" : ""}`} href="#" onClick={(e) => { e.preventDefault(); navigate('/'); setSidebarOpen(false); }}>
+                    <a className={`nav-item ${!isSettingsRoute && !isManageSubscriptionRoute && !isFilesRoute ? "active" : ""}`} href="#" onClick={(e) => { e.preventDefault(); navigate('/'); setSidebarOpen(false); }}>
                         <FiKey size={15} />
                         <span>Credentials</span>
                         <span className="nav-badge">{totalCredentials}</span>
+                    </a>
+                    <a className={`nav-item ${isFilesRoute ? "active" : ""}`} href="#" onClick={(e) => { e.preventDefault(); navigate('/files'); setSidebarOpen(false); }}>
+                        <FiFolder size={15} />
+                        <span>Files</span>
                     </a>
                     {isPro && (
                         <a className={`nav-item ${isManageSubscriptionRoute ? "active" : ""}`} href="#" id="sidebar-manage-plan-btn" onClick={(e) => { e.preventDefault(); navigate('/subscription'); setSidebarOpen(false); }}>
@@ -936,6 +944,8 @@ function AppInner({
                     <SettingsPage />
                 ) : isManageSubscriptionRoute ? (
                     <ManageSubscriptionPage />
+                ) : isFilesRoute ? (
+                    <FileExplorer />
                 ) : (
                     <>
                         <div className="content-header">
@@ -1011,7 +1021,7 @@ function AppInner({
                 )}
             </main>
 
-            {!isSettingsRoute && !isManageSubscriptionRoute && (
+            {!isSettingsRoute && !isManageSubscriptionRoute && !isFilesRoute && (
                 <FAB
                     onClick={handleAdd}
                     disabled={isAtLimit}

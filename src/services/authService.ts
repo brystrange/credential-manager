@@ -65,10 +65,12 @@ export async function signUp(email: string, password: string, fullName: string):
     const recoveryPdk = await deriveKey(recoveryKey, salt);
     const encryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
 
+    const encryptedFullName = await encryptPassword(fullName, mk);
+
     await setDoc(doc(db, "users", uid), {
         salt,
         email,
-        fullName,
+        fullName: encryptedFullName,
         createdAt: new Date(),
         encryptedMasterKey,
         encryptedMasterKeyRecovery,
@@ -143,6 +145,12 @@ async function initializeMasterKey(
         try {
             const masterKeyHex = await decryptPassword(encryptedMasterKey, pdk);
             encryptionKey = await importKeyFromHex(masterKeyHex);
+            
+            // Check if fullName is still plaintext (doesn't contain our iv separator ":")
+            if (userDocData.fullName && !userDocData.fullName.includes(":")) {
+                const encryptedFullName = await encryptPassword(userDocData.fullName, encryptionKey);
+                await setDoc(doc(db, "users", uid), { fullName: encryptedFullName }, { merge: true });
+            }
         } catch (e) {
             // PDK failed to decrypt the Master Key.
             if (pendingSyncPassword && pendingSyncPassword === rawPassword) {
@@ -158,7 +166,13 @@ async function initializeMasterKey(
 
         // Encrypt MK with PDK
         const newEncryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
-        await setDoc(doc(db, "users", uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
+        
+        const updateData: any = { encryptedMasterKey: newEncryptedMasterKey };
+        if (userDocData.fullName && !userDocData.fullName.includes(":")) {
+            updateData.fullName = await encryptPassword(userDocData.fullName, mk);
+        }
+
+        await setDoc(doc(db, "users", uid), updateData, { merge: true });
 
         // Re-encrypt all existing credentials (currently encrypted with PDK)
         const credsRef = collection(db, "users", uid, "credentials");
@@ -232,12 +246,12 @@ export async function setupGoogleVault(password: string): Promise<string> {
     const recoveryPdk = await deriveKey(recoveryKey, salt);
     const encryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
     
+    const rawFullName = auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0] || "User";
+    const encryptedFullName = await encryptPassword(rawFullName, mk);
+    
     await setDoc(doc(db, "users", uid), {
         salt,
-        fullName:
-            auth.currentUser?.displayName ||
-            auth.currentUser?.email?.split("@")[0] ||
-            "User",
+        fullName: encryptedFullName,
         createdAt: new Date(),
         encryptedMasterKey,
         encryptedMasterKeyRecovery,

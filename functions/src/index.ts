@@ -87,19 +87,17 @@ export const deletePlatform = onCall(async (request) => {
 // One-time setup function. Grant admin privileges to the hard-coded email.
 // This can be called once and then removed or left disabled.
 export const setAdminClaim = onCall(async (request) => {
-    // Only allow the specific admin email to bootstrap themselves
-    const ADMIN_EMAIL = "bryankeithmayor1@gmail.com";
+    assertAdmin(request.auth);
 
-    if (!request.auth) {
-        throw new HttpsError("unauthenticated", "You must be signed in.");
+    const uid = request.data?.uid;
+    const revoke = request.data?.revoke === true;
+
+    if (!uid || typeof uid !== "string") {
+        throw new HttpsError("invalid-argument", "Target UID is required.");
     }
 
-    if (request.auth.token.email !== ADMIN_EMAIL) {
-        throw new HttpsError("permission-denied", "Not authorised to set admin claims.");
-    }
-
-    await admin.auth().setCustomUserClaims(request.auth.uid, { admin: true });
-    return { success: true, message: "Admin claim set. Sign out and back in for it to take effect." };
+    await admin.auth().setCustomUserClaims(uid, revoke ? { admin: false } : { admin: true });
+    return { success: true, message: `Admin claim ${revoke ? 'revoked from' : 'granted to'} user ${uid}.` };
 });
 
 // Removed escrow functionality for true zero-knowledge security.
@@ -282,7 +280,7 @@ export const lemonWebhook = onRequest(
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: String(payload.data?.id ?? ""),
-                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : (attributes.status ?? "active"),
+                    subscriptionStatus: attributes.status === "on_trial" ? "active" : (attributes.status ?? "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -292,7 +290,7 @@ export const lemonWebhook = onRequest(
 
             case "subscription_updated":
                 await userRef.update({
-                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : (attributes.status ?? "active"),
+                    subscriptionStatus: attributes.status === "on_trial" ? "active" : (attributes.status ?? "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,

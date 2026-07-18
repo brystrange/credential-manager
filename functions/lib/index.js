@@ -262,7 +262,7 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: String((_h = (_g = payload.data) === null || _g === void 0 ? void 0 : _g.id) !== null && _h !== void 0 ? _h : ""),
-                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_j = attributes.status) !== null && _j !== void 0 ? _j : "active"),
+                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : ((_j = attributes.status) !== null && _j !== void 0 ? _j : "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -271,7 +271,7 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 break;
             case "subscription_updated":
                 await userRef.update({
-                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_l = attributes.status) !== null && _l !== void 0 ? _l : "active"),
+                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : ((_l = attributes.status) !== null && _l !== void 0 ? _l : "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,

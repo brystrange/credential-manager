@@ -65,7 +65,7 @@ service cloud.firestore {
     match /users/{userId} {
 
       // Read: owner only (verified) OR admin
-      allow read: if isVerifiedOwner(userId) || (isAuthenticated() && (request.auth.token.admin == true || request.auth.token.email == "bryankeithmayor1@gmail.com"));
+      allow read: if isVerifiedOwner(userId) || (isAuthenticated() && request.auth.token.admin == true);
 
       // Create: only during sign-up (owner, first time)
       // For Google users who haven't verified email yet, allow auth'd owner only
@@ -73,7 +73,7 @@ service cloud.firestore {
         && !exists(/databases/$(database)/documents/users/$(userId))
         && hasMaxFields(20)
         && isValidString(request.resource.data.salt, 64)
-        && isValidString(request.resource.data.fullName, 200)
+        && isValidString(request.resource.data.fullName, 1000)
         && request.resource.data.createdAt is timestamp
           || request.resource.data.createdAt is map; // Firestore Timestamp or JS Date
 
@@ -89,7 +89,7 @@ service cloud.firestore {
         // Cannot change createdAt
         && request.resource.data.createdAt == resource.data.createdAt
         // fullName can be updated but must remain valid (optional for backward compatibility)
-        && (!request.resource.data.keys().hasAll(['fullName']) || isValidString(request.resource.data.fullName, 200));
+        && (!request.resource.data.keys().hasAll(['fullName']) || isValidString(request.resource.data.fullName, 1000));
 
       // Delete: NEVER — prevents accidental/malicious profile deletion
       allow delete: if false;
@@ -165,6 +165,20 @@ service cloud.firestore {
           allow delete: if isVerifiedOwner(userId);
         }
       }
+
+      // ════════════════════════════════════════════════════════════════════════
+      //  USER FOLDERS — /users/{userId}/folders/{folderId}
+      // ════════════════════════════════════════════════════════════════════════
+      match /folders/{folderId} {
+        allow read, write: if isVerifiedOwner(userId);
+      }
+
+      // ════════════════════════════════════════════════════════════════════════
+      //  USER FILES — /users/{userId}/files/{fileId}
+      // ════════════════════════════════════════════════════════════════════════
+      match /files/{fileId} {
+        allow read, write: if isVerifiedOwner(userId);
+      }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -198,8 +212,8 @@ service cloud.firestore {
     //  Write: allowed only for admins.
     // ══════════════════════════════════════════════════════════════════════════
     match /exemptions/{email} {
-      allow read: if isAuthenticated() && (request.auth.token.email == email || request.auth.token.admin == true || request.auth.token.email == "bryankeithmayor1@gmail.com");
-      allow write: if isAuthenticated() && (request.auth.token.admin == true || request.auth.token.email == "bryankeithmayor1@gmail.com");
+      allow read: if isAuthenticated() && (request.auth.token.email == email || request.auth.token.admin == true);
+      allow write: if isAuthenticated() && request.auth.token.admin == true;
     }
   }
 }

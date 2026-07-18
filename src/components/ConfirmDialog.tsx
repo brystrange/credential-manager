@@ -1,8 +1,9 @@
+import { FiLoader } from "react-icons/fi";
 
 interface ConfirmDialogProps {
     isOpen: boolean;
     title: string;
-    message: string;
+    message: React.ReactNode;
     confirmLabel?: string;
     onConfirm: () => void;
     onCancel: () => void;
@@ -33,8 +34,9 @@ export default function ConfirmDialog({
                         className="btn-danger"
                         onClick={onConfirm}
                         disabled={loading}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
-                        {loading ? "Deleting..." : confirmLabel}
+                        {loading ? <><FiLoader size={16} className="spin" /> Deleting...</> : confirmLabel}
                     </button>
                 </div>
             </div>

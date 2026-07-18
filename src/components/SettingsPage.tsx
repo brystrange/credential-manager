@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { FiLock, FiEye, FiEyeOff } from "react-icons/fi";
 import { changeVaultPassword, generateNewRecoveryKey, validatePassword } from "../services/authService";
+import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
 
 export default function SettingsPage() {
     const [currentPw, setCurrentPw] = useState("");
@@ -20,6 +21,30 @@ export default function SettingsPage() {
     const [generatedRecoveryKey, setGeneratedRecoveryKey] = useState("");
     const [recoveryError, setRecoveryError] = useState("");
     const [recoveryBusy, setRecoveryBusy] = useState(false);
+
+    const [migrationBusy, setMigrationBusy] = useState(false);
+    const [migrationError, setMigrationError] = useState("");
+    const [migrationSuccess, setMigrationSuccess] = useState("");
+    const [showMigration, setShowMigration] = useState(false);
+
+    useEffect(() => {
+        hasLegacyCredentials().then(setShowMigration).catch(console.error);
+    }, []);
+
+    const handleMigrate = async () => {
+        setMigrationError("");
+        setMigrationSuccess("");
+        setMigrationBusy(true);
+        try {
+            await migrateLegacyData();
+            setShowMigration(false);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to migrate data.";
+            setMigrationError(msg);
+        } finally {
+            setMigrationBusy(false);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -192,6 +217,27 @@ export default function SettingsPage() {
                     </form>
                 )}
             </div>
+
+            {showMigration && (
+                <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
+                    <h3 style={{ marginBottom: "8px" }}>Data Privacy Migration</h3>
+                    <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                        We recently introduced Zero-Knowledge Metadata Encryption. Click below to scan and encrypt all your legacy credentials.
+                    </p>
+
+                    {migrationError && <div className="auth-error" style={{ marginBottom: "16px" }}>{migrationError}</div>}
+                    {migrationSuccess && <div className="auth-success" style={{ marginBottom: "16px", color: "var(--success)" }}>{migrationSuccess}</div>}
+
+                    <button 
+                        onClick={handleMigrate}
+                        className="auth-submit" 
+                        disabled={migrationBusy} 
+                        style={{ maxWidth: "250px" }}
+                    >
+                        {migrationBusy ? "Encrypting..." : "Migrate / Encrypt All"}
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

@@ -4,7 +4,7 @@ import { openBillingPortal } from "../services/subscriptionService";
 import { FiLoader, FiCheck } from "react-icons/fi";
 
 export default function ManageSubscriptionPage() {
-    const { isPro, subscriptionId, lsCustomerId } = useSubscription();
+    const { isPro, subscriptionId, isExempt } = useSubscription();
     const [portalLoading, setPortalLoading] = useState(false);
     const [error, setError] = useState("");
 
@@ -12,7 +12,7 @@ export default function ManageSubscriptionPage() {
         setPortalLoading(true);
         setError("");
         try {
-            await openBillingPortal(subscriptionId);
+            await openBillingPortal(subscriptionId!);
         } catch (e) {
             console.error(e);
             setError("Failed to open billing portal. Please try again.");
@@ -53,12 +53,14 @@ export default function ManageSubscriptionPage() {
                     </div>
                 </div>
 
-                <ul className="pricing-features" style={{ marginBottom: "24px", background: "var(--bg-glass)", padding: "16px", borderRadius: "var(--radius-md)" }}>
+                <ul className="pricing-features" style={{ marginBottom: "24px", padding: "16px", borderRadius: "var(--radius-md)" }}>
                     <li><FiCheck size={14} /> Up to 1,000 credentials</li>
                     <li><FiCheck size={14} /> Full password history</li>
-                    <li><FiCheck size={14} /> All platforms</li>
-                    <li><FiCheck size={14} /> End-to-end encryption</li>
+                    <li><FiCheck size={14} /> 5GB storage</li>
+                    <li><FiCheck size={14} /> No upload limit</li>
                     <li><FiCheck size={14} /> No ads</li>
+                    <li><FiCheck size={14} /> End-to-end encryption</li>
+                    <li><FiCheck size={14} /> 30-day free trial</li>
                 </ul>
 
                 {error && <div className="auth-error" style={{ marginBottom: "16px" }}>{error}</div>}
@@ -70,11 +72,13 @@ export default function ManageSubscriptionPage() {
                 <button 
                     className="auth-submit" 
                     onClick={handleManage} 
-                    disabled={portalLoading}
+                    disabled={portalLoading || isExempt}
                     style={{ maxWidth: "250px", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}
                 >
                     {portalLoading ? (
                         <><FiLoader size={16} className="spin" /> Opening Portal...</>
+                    ) : isExempt ? (
+                        "Managed by Admin"
                     ) : (
                         "Open Billing Portal"
                     )}

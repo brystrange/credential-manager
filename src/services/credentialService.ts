@@ -16,7 +16,7 @@ import { encryptPassword, decryptPassword } from "./crypto";
 
 export interface Credential {
     id: string;
-    platform: string;
+    platform: string; // Keep platform plaintext as per user choice
     email: string;
     username: string;
     password: string; // decrypted in memory
@@ -42,7 +42,7 @@ export interface HistoryEntry {
     platform: string;
     email: string;
     username: string;
-    password: string; // kept encrypted in history display
+    password: string; // decrypted in memory
     pin?: string;
     accountName?: string;
     comment: string;
@@ -57,7 +57,38 @@ function getUserCredentialsRef() {
     return collection(db, "users", uid, "credentials");
 }
 
+let credentialsCache: { data: Credential[], timestamp: number } | null = null;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+export function clearCredentialsCache() {
+    credentialsCache = null;
+}
+
+// Helper function for trying to decrypt metadata fields
+export async function tryDecrypt(value: string | undefined, key: CryptoKey): Promise<string> {
+    if (!value) return "";
+    try {
+        // Our encryption format is "ivHex:ciphertextHex". IV is 12 bytes = 24 hex characters.
+        if (value.includes(":") && value.split(":")[0].length === 24) {
+            return await decryptPassword(value, key);
+        }
+        return value;
+    } catch {
+        return value;
+    }
+}
+
+// Helper to encrypt conditionally based on presence
+export async function tryEncrypt(value: string | undefined, key: CryptoKey): Promise<string> {
+    if (!value) return "";
+    return await encryptPassword(value, key);
+}
+
 export async function getCredentials(): Promise<Credential[]> {
+    if (credentialsCache && Date.now() - credentialsCache.timestamp < CACHE_TTL_MS) {
+        return credentialsCache.data;
+    }
+
     const key = getEncryptionKey();
     const q = query(getUserCredentialsRef(), orderBy("updatedAt", "desc"));
     const snapshot = await getDocs(q);
@@ -71,44 +102,52 @@ export async function getCredentials(): Promise<Credential[]> {
         } catch {
             decryptedPassword = "[decryption failed]";
         }
-        let decryptedPin = "";
-        if (data.pin) {
-            try {
-                decryptedPin = await decryptPassword(data.pin, key);
-            } catch {
-                decryptedPin = "[decryption failed]";
-            }
-        }
+        
+        const decryptedPin = await tryDecrypt(data.pin, key);
+        const decryptedEmail = await tryDecrypt(data.email, key);
+        const decryptedUsername = await tryDecrypt(data.username, key);
+        const decryptedAccountName = await tryDecrypt(data.accountName, key);
+        const decryptedComment = await tryDecrypt(data.comment, key);
+
         credentials.push({
             id: docSnap.id,
             platform: data.platform,
-            email: data.email,
-            username: data.username || "",
+            email: decryptedEmail,
+            username: decryptedUsername,
             password: decryptedPassword,
             pin: decryptedPin,
-            accountName: data.accountName || "",
-            comment: data.comment || "",
+            accountName: decryptedAccountName,
+            comment: decryptedComment,
             createdAt: (data.createdAt as Timestamp).toDate(),
             updatedAt: (data.updatedAt as Timestamp).toDate(),
         });
     }
+    
+    credentialsCache = { data: credentials, timestamp: Date.now() };
     return credentials;
 }
 
 export async function addCredential(input: CredentialInput): Promise<string> {
     const key = getEncryptionKey();
-    const encryptedPw = await encryptPassword(input.password, key);
-    const encryptedPin = input.pin ? await encryptPassword(input.pin, key) : "";
+    
+    // Encrypt fields
+    const encryptedPw = await tryEncrypt(input.password, key);
+    const encryptedPin = await tryEncrypt(input.pin, key);
+    const encryptedEmail = await tryEncrypt(input.email, key);
+    const encryptedUsername = await tryEncrypt(input.username, key);
+    const encryptedAccountName = await tryEncrypt(input.accountName, key);
+    const encryptedComment = await tryEncrypt(input.comment, key);
+
     const now = Timestamp.now();
 
     const credRef = await addDoc(getUserCredentialsRef(), {
         platform: input.platform,
-        email: input.email,
-        username: input.username,
+        email: encryptedEmail,
+        username: encryptedUsername,
         password: encryptedPw,
         pin: encryptedPin,
-        accountName: input.accountName || "",
-        comment: input.comment,
+        accountName: encryptedAccountName,
+        comment: encryptedComment,
         createdAt: now,
         updatedAt: now,
     });
@@ -116,16 +155,17 @@ export async function addCredential(input: CredentialInput): Promise<string> {
     // Add initial history entry
     await addDoc(collection(credRef, "history"), {
         platform: input.platform,
-        email: input.email,
-        username: input.username,
+        email: encryptedEmail,
+        username: encryptedUsername,
         password: encryptedPw,
         pin: encryptedPin,
-        accountName: input.accountName || "",
-        comment: input.comment,
+        accountName: encryptedAccountName,
+        comment: encryptedComment,
         action: "created",
         timestamp: now,
     });
 
+    clearCredentialsCache();
     return credRef.id;
 }
 
@@ -135,8 +175,15 @@ export async function updateCredential(
     oldCredential: Credential
 ): Promise<void> {
     const key = getEncryptionKey();
-    const encryptedPw = await encryptPassword(input.password, key);
-    const encryptedPin = input.pin ? await encryptPassword(input.pin, key) : "";
+    
+    // Encrypt fields
+    const encryptedPw = await tryEncrypt(input.password, key);
+    const encryptedPin = await tryEncrypt(input.pin, key);
+    const encryptedEmail = await tryEncrypt(input.email, key);
+    const encryptedUsername = await tryEncrypt(input.username, key);
+    const encryptedAccountName = await tryEncrypt(input.accountName, key);
+    const encryptedComment = await tryEncrypt(input.comment, key);
+    
     const now = Timestamp.now();
 
     const uid = auth.currentUser?.uid;
@@ -145,16 +192,16 @@ export async function updateCredential(
     const credDocRef = doc(db, "users", uid, "credentials", id);
     await updateDoc(credDocRef, {
         platform: input.platform,
-        email: input.email,
-        username: input.username,
+        email: encryptedEmail,
+        username: encryptedUsername,
         password: encryptedPw,
         pin: encryptedPin,
-        accountName: input.accountName || "",
-        comment: input.comment,
+        accountName: encryptedAccountName,
+        comment: encryptedComment,
         updatedAt: now,
     });
 
-    // Compute changed fields
+    // Compute changed fields based on plaintext
     const changes: string[] = [];
     if (oldCredential.platform !== input.platform) changes.push("platform");
     if (oldCredential.email !== input.email) changes.push("email");
@@ -166,16 +213,18 @@ export async function updateCredential(
 
     await addDoc(collection(credDocRef, "history"), {
         platform: input.platform,
-        email: input.email,
-        username: input.username,
+        email: encryptedEmail,
+        username: encryptedUsername,
         password: encryptedPw,
         pin: encryptedPin,
-        accountName: input.accountName || "",
-        comment: input.comment,
+        accountName: encryptedAccountName,
+        comment: encryptedComment,
         action: "updated",
         timestamp: now,
         changes,
     });
+    
+    clearCredentialsCache();
 }
 
 export async function deleteCredential(id: string): Promise<void> {
@@ -192,6 +241,7 @@ export async function deleteCredential(id: string): Promise<void> {
     historySnap.docs.forEach((d) => batch.delete(d.ref));
     batch.delete(credDocRef);
     await batch.commit();
+    clearCredentialsCache();
 }
 
 export async function getHistory(id: string): Promise<HistoryEntry[]> {
@@ -219,27 +269,96 @@ export async function getHistory(id: string): Promise<HistoryEntry[]> {
         } catch {
             decryptedPassword = "[decryption failed]";
         }
-        let decryptedPin = "";
-        if (data.pin) {
-            try {
-                decryptedPin = await decryptPassword(data.pin, key);
-            } catch {
-                decryptedPin = "[decryption failed]";
-            }
-        }
+        
+        const decryptedPin = await tryDecrypt(data.pin, key);
+        const decryptedEmail = await tryDecrypt(data.email, key);
+        const decryptedUsername = await tryDecrypt(data.username, key);
+        const decryptedAccountName = await tryDecrypt(data.accountName, key);
+        const decryptedComment = await tryDecrypt(data.comment, key);
         
         return {
             id: d.id,
             platform: data.platform,
-            email: data.email,
-            username: data.username || "",
+            email: decryptedEmail,
+            username: decryptedUsername,
             password: decryptedPassword,
             pin: decryptedPin,
-            accountName: data.accountName || "",
-            comment: data.comment || "",
+            accountName: decryptedAccountName,
+            comment: decryptedComment,
             action: data.action,
             timestamp: (data.timestamp as Timestamp).toDate(),
             changes: data.changes || [],
         };
     }));
+}
+
+export async function hasLegacyCredentials(): Promise<boolean> {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return false;
+
+    const q = query(getUserCredentialsRef());
+    const snapshot = await getDocs(q);
+
+    for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        if (data.email && (!data.email.includes(":") || data.email.split(":")[0].length !== 24)) return true;
+        if (data.username && (!data.username.includes(":") || data.username.split(":")[0].length !== 24)) return true;
+        if (data.pin && (!data.pin.includes(":") || data.pin.split(":")[0].length !== 24)) return true;
+        if (data.accountName && (!data.accountName.includes(":") || data.accountName.split(":")[0].length !== 24)) return true;
+        if (data.comment && (!data.comment.includes(":") || data.comment.split(":")[0].length !== 24)) return true;
+    }
+    return false;
+}
+
+export async function migrateLegacyData(): Promise<number> {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error("Not authenticated");
+
+    const key = getEncryptionKey();
+    const q = query(getUserCredentialsRef());
+    const snapshot = await getDocs(q);
+    
+    let migratedCount = 0;
+    
+    for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        
+        const isLegacy = 
+            (data.email && (!data.email.includes(":") || data.email.split(":")[0].length !== 24)) ||
+            (data.username && (!data.username.includes(":") || data.username.split(":")[0].length !== 24)) ||
+            (data.pin && (!data.pin.includes(":") || data.pin.split(":")[0].length !== 24)) ||
+            (data.accountName && (!data.accountName.includes(":") || data.accountName.split(":")[0].length !== 24)) ||
+            (data.comment && (!data.comment.includes(":") || data.comment.split(":")[0].length !== 24));
+            
+        if (isLegacy) {
+            let decryptedPassword = "";
+            try {
+                decryptedPassword = await decryptPassword(data.password, key);
+            } catch {
+                decryptedPassword = "[decryption failed]";
+            }
+            
+            const decryptedEmail = await tryDecrypt(data.email, key);
+            const decryptedUsername = await tryDecrypt(data.username, key);
+            const decryptedPin = await tryDecrypt(data.pin, key);
+            const decryptedAccountName = await tryDecrypt(data.accountName, key);
+            const decryptedComment = await tryDecrypt(data.comment, key);
+
+            const input: CredentialInput = {
+                platform: data.platform,
+                email: decryptedEmail,
+                username: decryptedUsername,
+                password: decryptedPassword,
+                pin: decryptedPin,
+                accountName: decryptedAccountName,
+                comment: decryptedComment,
+            };
+            
+            await addCredential(input);
+            await deleteCredential(docSnap.id);
+            migratedCount++;
+        }
+    }
+    
+    return migratedCount;
 }
