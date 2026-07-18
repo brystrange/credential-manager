@@ -477,17 +477,35 @@ export default function FileExplorer() {
         if (previewable) {
             handleFileViewClick(file);
         } else {
-            // For unsupported file types, open in a new tab so the browser/OS
-            // prompts the user to choose a local application
+            // For unsupported file types, attempt to use the native Web Share API
+            // which brings up the OS "Open with..." or share sheet.
             setActionLoading(true);
             setLoadingFileId(file.id);
             try {
                 const blob = await downloadVaultFile(file);
-                const url = URL.createObjectURL(blob);
-                window.open(url, '_blank');
-            } catch (err) {
-                console.error("Failed to open file", err);
-                alert("Failed to open file.");
+                const fileObj = new File([blob], file.name, { type: file.type || 'application/octet-stream' });
+                
+                if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+                    await navigator.share({
+                        files: [fileObj],
+                        title: file.name
+                    });
+                } else {
+                    // Fallback to regular download if Web Share is not supported
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = file.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
+            } catch (err: any) {
+                if (err.name !== 'AbortError') {
+                    console.error("Failed to share or download file", err);
+                    alert("Failed to share or download file.");
+                }
             } finally {
                 setActionLoading(false);
                 setLoadingFileId(null);
