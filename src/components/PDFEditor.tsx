@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { FiZoomIn, FiZoomOut, FiSidebar, FiSearch, FiChevronDown, FiChevronUp, FiX } from 'react-icons/fi';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -20,6 +20,11 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
   const [findText, setFindText] = useState("");
   const [activePage, setActivePage] = useState(1);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const documentFile = useMemo(() => {
+    if (typeof url === 'string') return url;
+    return { data: url.data };
+  }, [typeof url === 'string' ? url : url.data]);
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
@@ -114,7 +119,7 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
       <div className="pdf-layout">
           {showSidebar && (
               <div className="pdf-sidebar">
-                  <Document file={url}>
+                  <Document file={documentFile}>
                           {Array.from(new Array(numPages || 0), (_, index) => (
                               <div 
                                 key={`thumb_${index}`} 
@@ -138,7 +143,7 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
 
           <div className="pdf-document-wrapper" ref={wrapperRef}>
             <Document
-                file={url}
+                file={documentFile}
                 onLoadSuccess={onDocumentLoadSuccess}
                 className="pdf-document"
             >
