@@ -1006,7 +1006,6 @@ export default function FileExplorer() {
                         ) : selectedImage.file.type === 'application/pdf' ? (
                             <PDFEditor 
                                 url={selectedImage.pdfData ? { data: selectedImage.pdfData } : selectedImage.url}
-                                blobUrl={selectedImage.url}
                                 onContainerClick={() => { if (imageMenuOpen) setImageMenuOpen(false); }}
                             />
                         ) : selectedImage.file.type.startsWith('video/') ? (
