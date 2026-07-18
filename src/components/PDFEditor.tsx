@@ -11,7 +11,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 ).toString();
 
 interface PDFEditorProps {
-  url: string;
+  url: string | { data: Uint8Array };
   onContainerClick?: () => void;
 }
 
