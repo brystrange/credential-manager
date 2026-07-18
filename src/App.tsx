@@ -3,7 +3,7 @@ import { useLocation, useNavigate, Navigate } from "react-router-dom";
 import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, setupGoogleVault, resetGoogleVaultPassword, checkSecurityTerms, agreeSecurityTerms, validatePassword } from "./services/authService";
 import type { Credential, CredentialInput } from "./services/credentialService";
 import {
-    getCredentials,
+    subscribeToCredentials,
     addCredential,
     updateCredential,
     deleteCredential,
@@ -590,19 +590,20 @@ function AppInner({
         }
     }, [loadPlatforms, user]);
 
-    const loadCredentials = useCallback(async () => {
-        if (!hasEncryptionKey()) return;
-        setLoading(true);
-        try {
-            const creds = await getCredentials();
-            setCredentials(creds);
-            onCredentialCountChange(creds.length);
-        } catch (err) {
-            console.error("Failed to load credentials:", err);
-        } finally {
-            setLoading(false);
+    useEffect(() => {
+        if (vaultUnlocked && user && hasEncryptionKey()) {
+            setLoading(true);
+            const unsub = subscribeToCredentials((creds) => {
+                setCredentials(creds);
+                onCredentialCountChange(creds.length);
+                setLoading(false);
+            });
+            return () => unsub();
+        } else {
+            setCredentials([]);
+            onCredentialCountChange(0);
         }
-    }, [onCredentialCountChange]);
+    }, [vaultUnlocked, user, onCredentialCountChange]);
 
     // Called after a successful login OR after vault unlock on page reload
     const handleAuthSuccess = async () => {
@@ -615,7 +616,7 @@ function AppInner({
         } catch (err) {
             console.error("Failed to check security terms:", err);
         }
-        loadCredentials();
+
     };
 
     // Called by AuthPage just before it starts the async sign-in.
@@ -673,7 +674,7 @@ function AppInner({
             }
             setModalOpen(false);
             setEditingCredential(null);
-            await loadCredentials();
+
         } catch (err) {
             console.error("Failed to save credential:", err);
         } finally {
@@ -687,7 +688,7 @@ function AppInner({
         try {
             await deleteCredential(deleteTarget.id);
             setDeleteTarget(null);
-            await loadCredentials();
+
         } catch (err) {
             console.error("Failed to delete credential:", err);
         } finally {

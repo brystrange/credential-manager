@@ -8,6 +8,7 @@ import {
     orderBy,
     Timestamp,
     writeBatch,
+    onSnapshot,
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { auth } from "../firebaseConfig";
@@ -57,13 +58,6 @@ function getUserCredentialsRef() {
     return collection(db, "users", uid, "credentials");
 }
 
-let credentialsCache: { data: Credential[], timestamp: number } | null = null;
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
-export function clearCredentialsCache() {
-    credentialsCache = null;
-}
-
 // Helper function for trying to decrypt metadata fields
 export async function tryDecrypt(value: string | undefined, key: CryptoKey): Promise<string> {
     if (!value) return "";
@@ -84,47 +78,45 @@ export async function tryEncrypt(value: string | undefined, key: CryptoKey): Pro
     return await encryptPassword(value, key);
 }
 
-export async function getCredentials(): Promise<Credential[]> {
-    if (credentialsCache && Date.now() - credentialsCache.timestamp < CACHE_TTL_MS) {
-        return credentialsCache.data;
-    }
-
+export function subscribeToCredentials(callback: (credentials: Credential[]) => void): () => void {
     const key = getEncryptionKey();
+    if (!key) return () => {};
+
     const q = query(getUserCredentialsRef(), orderBy("updatedAt", "desc"));
-    const snapshot = await getDocs(q);
+    return onSnapshot(q, async (snapshot) => {
+        const credentials: Credential[] = [];
+        for (const docSnap of snapshot.docs) {
+            const data = docSnap.data();
+            let decryptedPassword = "";
+            try {
+                decryptedPassword = await decryptPassword(data.password, key);
+            } catch {
+                decryptedPassword = "[decryption failed]";
+            }
+            
+            const decryptedPin = await tryDecrypt(data.pin, key);
+            const decryptedEmail = await tryDecrypt(data.email, key);
+            const decryptedUsername = await tryDecrypt(data.username, key);
+            const decryptedAccountName = await tryDecrypt(data.accountName, key);
+            const decryptedComment = await tryDecrypt(data.comment, key);
 
-    const credentials: Credential[] = [];
-    for (const docSnap of snapshot.docs) {
-        const data = docSnap.data();
-        let decryptedPassword = "";
-        try {
-            decryptedPassword = await decryptPassword(data.password, key);
-        } catch {
-            decryptedPassword = "[decryption failed]";
+            credentials.push({
+                id: docSnap.id,
+                platform: data.platform,
+                email: decryptedEmail,
+                username: decryptedUsername,
+                password: decryptedPassword,
+                pin: decryptedPin,
+                accountName: decryptedAccountName,
+                comment: decryptedComment,
+                createdAt: (data.createdAt as Timestamp).toDate(),
+                updatedAt: (data.updatedAt as Timestamp).toDate(),
+            });
         }
-        
-        const decryptedPin = await tryDecrypt(data.pin, key);
-        const decryptedEmail = await tryDecrypt(data.email, key);
-        const decryptedUsername = await tryDecrypt(data.username, key);
-        const decryptedAccountName = await tryDecrypt(data.accountName, key);
-        const decryptedComment = await tryDecrypt(data.comment, key);
-
-        credentials.push({
-            id: docSnap.id,
-            platform: data.platform,
-            email: decryptedEmail,
-            username: decryptedUsername,
-            password: decryptedPassword,
-            pin: decryptedPin,
-            accountName: decryptedAccountName,
-            comment: decryptedComment,
-            createdAt: (data.createdAt as Timestamp).toDate(),
-            updatedAt: (data.updatedAt as Timestamp).toDate(),
-        });
-    }
-    
-    credentialsCache = { data: credentials, timestamp: Date.now() };
-    return credentials;
+        callback(credentials);
+    }, (error) => {
+        console.error("Credentials subscription error:", error);
+    });
 }
 
 export async function addCredential(input: CredentialInput): Promise<string> {
@@ -165,7 +157,6 @@ export async function addCredential(input: CredentialInput): Promise<string> {
         timestamp: now,
     });
 
-    clearCredentialsCache();
     return credRef.id;
 }
 
@@ -223,8 +214,6 @@ export async function updateCredential(
         timestamp: now,
         changes,
     });
-    
-    clearCredentialsCache();
 }
 
 export async function deleteCredential(id: string): Promise<void> {
@@ -241,7 +230,6 @@ export async function deleteCredential(id: string): Promise<void> {
     historySnap.docs.forEach((d) => batch.delete(d.ref));
     batch.delete(credDocRef);
     await batch.commit();
-    clearCredentialsCache();
 }
 
 export async function getHistory(id: string): Promise<HistoryEntry[]> {

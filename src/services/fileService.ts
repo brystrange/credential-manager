@@ -48,115 +48,45 @@ function getUserFilesRef() {
     return collection(db, "users", uid, "files");
 }
 
-const foldersCache = new Map<string, { data: VaultFolder[], timestamp: number }>();
-const filesCache = new Map<string, { data: VaultFile[], timestamp: number }>();
-const countsCache = new Map<string, { data: number, timestamp: number }>();
-let allFoldersCache: { data: VaultFolder[], timestamp: number } | null = null;
-const CACHE_TTL_MS = 5 * 60 * 1000;
+import { onSnapshot } from "firebase/firestore";
 
-function updateCachedFolder(id: string, updates: Partial<VaultFolder>) {
-    for (const cached of foldersCache.values()) {
-        const idx = cached.data.findIndex(f => f.id === id);
-        if (idx !== -1) {
-            cached.data[idx] = { ...cached.data[idx], ...updates, updatedAt: new Date() };
-            if (updates.name) cached.data.sort((a, b) => a.name.localeCompare(b.name));
-        }
-    }
-    if (allFoldersCache) {
-        const idx = allFoldersCache.data.findIndex(f => f.id === id);
-        if (idx !== -1) {
-            allFoldersCache.data[idx] = { ...allFoldersCache.data[idx], ...updates, updatedAt: new Date() };
-        }
-    }
-}
-
-function updateCachedFile(id: string, updates: Partial<VaultFile>) {
-    for (const cached of filesCache.values()) {
-        const idx = cached.data.findIndex(f => f.id === id);
-        if (idx !== -1) {
-            cached.data[idx] = { ...cached.data[idx], ...updates, updatedAt: new Date() };
-            if (updates.name) cached.data.sort((a, b) => a.name.localeCompare(b.name));
-        }
-    }
-}
-
-function invalidateFolderRelations(id: string) {
-    let parentId: string | null | undefined = undefined;
-    for (const cached of foldersCache.values()) {
-        const found = cached.data.find(f => f.id === id);
-        if (found) {
-            parentId = found.parentId;
-            break;
-        }
-    }
-    if (parentId !== undefined) {
-        foldersCache.delete(String(parentId));
-        countsCache.delete(String(parentId));
-    }
-    foldersCache.delete(String(id));
-    filesCache.delete(String(id));
-    countsCache.delete(String(id));
-    allFoldersCache = null;
-}
-
-function invalidateFileRelations(id: string) {
-    let folderId: string | null | undefined = undefined;
-    for (const cached of filesCache.values()) {
-        const found = cached.data.find(f => f.id === id);
-        if (found) {
-            folderId = found.folderId;
-            break;
-        }
-    }
-    if (folderId !== undefined) {
-        filesCache.delete(String(folderId));
-        countsCache.delete(String(folderId));
+// Helper function to try decrypting names
+async function tryDecryptName(encryptedName: string, key: CryptoKey): Promise<string> {
+    try {
+        return await decryptPassword(encryptedName, key);
+    } catch {
+        return "[Encrypted]";
     }
 }
 
 // ─── Folders ─────────────────────────────────────────────────────────────
 
-export async function getFolders(parentId: string | null = null): Promise<VaultFolder[]> {
-    const cacheKey = String(parentId);
-    const cached = foldersCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-        return cached.data;
-    }
-
+export function subscribeToFolders(parentId: string | null = null, callback: (folders: VaultFolder[]) => void): () => void {
     const key = getEncryptionKey();
-    const q = query(getUserFoldersRef(), where("parentId", "==", parentId));
-    const snapshot = await getDocs(q);
+    if (!key) return () => {};
 
-    const folders: VaultFolder[] = [];
-    for (const docSnap of snapshot.docs) {
-        const data = docSnap.data();
-        let decryptedName = "";
-        try {
-            decryptedName = await decryptPassword(data.name, key);
-        } catch (e) {
-            decryptedName = "[Encrypted]";
+    const q = query(getUserFoldersRef(), where("parentId", "==", parentId));
+    return onSnapshot(q, async (snapshot) => {
+        const folders: VaultFolder[] = [];
+        for (const docSnap of snapshot.docs) {
+            const data = docSnap.data();
+            const decryptedName = await tryDecryptName(data.name, key);
+            folders.push({
+                id: docSnap.id,
+                name: decryptedName,
+                parentId: data.parentId,
+                color: data.color || undefined,
+                createdAt: (data.createdAt as Timestamp).toDate(),
+                updatedAt: (data.updatedAt as Timestamp).toDate(),
+            });
         }
-        folders.push({
-            id: docSnap.id,
-            name: decryptedName,
-            parentId: data.parentId,
-            color: data.color || undefined,
-            createdAt: (data.createdAt as Timestamp).toDate(),
-            updatedAt: (data.updatedAt as Timestamp).toDate(),
-        });
-    }
-    const result = folders.sort((a, b) => a.name.localeCompare(b.name));
-    foldersCache.set(cacheKey, { data: result, timestamp: Date.now() });
-    return result;
+        callback(folders.sort((a, b) => a.name.localeCompare(b.name)));
+    }, (error) => {
+        console.error("Folders subscription error:", error);
+    });
 }
 
 export async function getFolderItemCount(folderId: string): Promise<number> {
-    const cacheKey = String(folderId);
-    const cached = countsCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-        return cached.data;
-    }
-
     const folderCountQuery = query(getUserFoldersRef(), where("parentId", "==", folderId));
     const fileCountQuery = query(getUserFilesRef(), where("folderId", "==", folderId));
     
@@ -164,28 +94,19 @@ export async function getFolderItemCount(folderId: string): Promise<number> {
         getCountFromServer(folderCountQuery),
         getCountFromServer(fileCountQuery)
     ]);
-    const count = folderSnap.data().count + fileSnap.data().count;
-    countsCache.set(cacheKey, { data: count, timestamp: Date.now() });
-    return count;
+    return folderSnap.data().count + fileSnap.data().count;
 }
 
 export async function getAllFolders(): Promise<VaultFolder[]> {
-    if (allFoldersCache && Date.now() - allFoldersCache.timestamp < CACHE_TTL_MS) {
-        return allFoldersCache.data;
-    }
-
     const key = getEncryptionKey();
+    if (!key) return [];
+    
     const snapshot = await getDocs(getUserFoldersRef());
 
     const folders: VaultFolder[] = [];
     for (const docSnap of snapshot.docs) {
         const data = docSnap.data();
-        let decryptedName = "";
-        try {
-            decryptedName = await decryptPassword(data.name, key);
-        } catch (e) {
-            decryptedName = "[Encrypted]";
-        }
+        const decryptedName = await tryDecryptName(data.name, key);
         folders.push({
             id: docSnap.id,
             name: decryptedName,
@@ -196,7 +117,6 @@ export async function getAllFolders(): Promise<VaultFolder[]> {
         });
     }
     
-    allFoldersCache = { data: folders, timestamp: Date.now() };
     return folders;
 }
 
@@ -211,9 +131,6 @@ export async function createFolder(name: string, parentId: string | null = null)
         createdAt: now,
         updatedAt: now,
     });
-    foldersCache.delete(String(parentId));
-    countsCache.delete(String(parentId));
-    allFoldersCache = null;
     return docRef.id;
 }
 
@@ -228,7 +145,6 @@ export async function renameFolder(id: string, newName: string): Promise<void> {
         name: encryptedName,
         updatedAt: Timestamp.now(),
     });
-    updateCachedFolder(id, { name: newName });
 }
 
 export async function updateFolderColor(id: string, color: string): Promise<void> {
@@ -240,7 +156,6 @@ export async function updateFolderColor(id: string, color: string): Promise<void
         color: color,
         updatedAt: Timestamp.now(),
     });
-    updateCachedFolder(id, { color });
 }
 
 export async function deleteFolder(id: string): Promise<void> {
@@ -250,48 +165,43 @@ export async function deleteFolder(id: string): Promise<void> {
     if (!uid) throw new Error("Not authenticated");
     const docRef = doc(db, "users", uid, "folders", id);
     await deleteDoc(docRef);
-    invalidateFolderRelations(id);
 }
 
 // ─── Files ───────────────────────────────────────────────────────────────
 
-export async function getFiles(folderId: string | null = null): Promise<VaultFile[]> {
-    const cacheKey = String(folderId);
-    const cached = filesCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-        return cached.data;
-    }
-
+export function subscribeToFiles(folderId: string | null = null, callback: (files: VaultFile[]) => void): () => void {
     const key = getEncryptionKey();
-    const q = query(getUserFilesRef(), where("folderId", "==", folderId));
-    const snapshot = await getDocs(q);
+    if (!key) return () => {};
 
-    const files: VaultFile[] = [];
-    for (const docSnap of snapshot.docs) {
-        const data = docSnap.data();
-        let decryptedName = "";
-        let decryptedType = "";
-        try {
-            decryptedName = await decryptPassword(data.name, key);
-            decryptedType = await decryptPassword(data.type, key);
-        } catch {
-            decryptedName = "[decryption failed]";
-            decryptedType = "application/octet-stream";
+    const q = query(getUserFilesRef(), where("folderId", "==", folderId));
+    return onSnapshot(q, async (snapshot) => {
+        const files: VaultFile[] = [];
+        for (const docSnap of snapshot.docs) {
+            const data = docSnap.data();
+            let decryptedName = "";
+            let decryptedType = "";
+            try {
+                decryptedName = await decryptPassword(data.name, key);
+                decryptedType = await decryptPassword(data.type, key);
+            } catch {
+                decryptedName = "[decryption failed]";
+                decryptedType = "application/octet-stream";
+            }
+            files.push({
+                id: docSnap.id,
+                name: decryptedName,
+                type: decryptedType,
+                size: data.size,
+                folderId: data.folderId,
+                storagePath: data.storagePath,
+                createdAt: (data.createdAt as Timestamp).toDate(),
+                updatedAt: (data.updatedAt as Timestamp).toDate(),
+            });
         }
-        files.push({
-            id: docSnap.id,
-            name: decryptedName,
-            type: decryptedType,
-            size: data.size,
-            folderId: data.folderId,
-            storagePath: data.storagePath,
-            createdAt: (data.createdAt as Timestamp).toDate(),
-            updatedAt: (data.updatedAt as Timestamp).toDate(),
-        });
-    }
-    const result = files.sort((a, b) => a.name.localeCompare(b.name));
-    filesCache.set(cacheKey, { data: result, timestamp: Date.now() });
-    return result;
+        callback(files.sort((a, b) => a.name.localeCompare(b.name)));
+    }, (error) => {
+        console.error("Files subscription error:", error);
+    });
 }
 
 export async function uploadVaultFile(
@@ -349,8 +259,6 @@ export async function uploadVaultFile(
                         storageUsed: increment(file.size)
                     });
                     
-                    filesCache.delete(String(folderId));
-                    countsCache.delete(String(folderId));
                     resolve(docRef.id);
                 } catch (err) {
                     reject(err);
@@ -404,7 +312,6 @@ export async function updateVaultFile(
                         updatedAt: now,
                     });
                     
-                    updateCachedFile(fileId, { size: newSize });
                     resolve();
                 } catch (error) {
                     reject(error);
@@ -441,7 +348,6 @@ export async function renameVaultFile(id: string, newName: string): Promise<void
         name: encryptedName,
         updatedAt: Timestamp.now(),
     });
-    updateCachedFile(id, { name: newName });
 }
 
 export async function deleteVaultFile(vaultFile: VaultFile): Promise<void> {
@@ -460,8 +366,6 @@ export async function deleteVaultFile(vaultFile: VaultFile): Promise<void> {
     await updateDoc(doc(db, "users", uid), {
         storageUsed: increment(-vaultFile.size)
     });
-    filesCache.delete(String(vaultFile.folderId));
-    countsCache.delete(String(vaultFile.folderId));
 }
 
 export async function moveFolder(id: string, newParentId: string | null): Promise<void> {
@@ -476,9 +380,6 @@ export async function moveFolder(id: string, newParentId: string | null): Promis
         parentId: newParentId,
         updatedAt: Timestamp.now(),
     });
-    invalidateFolderRelations(id);
-    foldersCache.delete(String(newParentId));
-    countsCache.delete(String(newParentId));
 }
 
 export async function moveVaultFile(id: string, newFolderId: string | null): Promise<void> {
@@ -490,7 +391,4 @@ export async function moveVaultFile(id: string, newFolderId: string | null): Pro
         folderId: newFolderId,
         updatedAt: Timestamp.now(),
     });
-    invalidateFileRelations(id);
-    filesCache.delete(String(newFolderId));
-    countsCache.delete(String(newFolderId));
 }

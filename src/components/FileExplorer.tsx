@@ -7,7 +7,7 @@ import {
     FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo
 } from "react-icons/fi";
 import { 
-    getFolders, getFiles, createFolder, renameFolder, deleteFolder, 
+    subscribeToFolders, subscribeToFiles, createFolder, renameFolder, deleteFolder, 
     uploadVaultFile, downloadVaultFile, renameVaultFile, deleteVaultFile,
     moveFolder, moveVaultFile, getFolderItemCount, updateFolderColor
 } from "../services/fileService";
@@ -183,30 +183,28 @@ export default function FileExplorer() {
         return () => window.removeEventListener("click", handleClick);
     }, []);
 
-    const loadContents = async () => {
-        const loadingTimeout = setTimeout(() => setLoading(true), 150);
-        try {
-            const fetchedFolders = await getFolders(currentFolderId);
-            const fetchedFiles = await getFiles(currentFolderId);
+    useEffect(() => {
+        setLoading(true);
+
+        const unsubFolders = subscribeToFolders(currentFolderId, async (fetchedFolders) => {
             setFolders(fetchedFolders);
-            setFiles(fetchedFiles);
             
             const counts: Record<string, number> = {};
             await Promise.all(fetchedFolders.map(async f => {
                 counts[f.id] = await getFolderItemCount(f.id);
             }));
             setFolderCounts(counts);
-        } catch (error) {
-            console.error("Failed to load files:", error);
-        } finally {
-            clearTimeout(loadingTimeout);
-            setLoading(false);
-        }
-    };
+        });
 
-    useEffect(() => {
-        loadContents();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        const unsubFiles = subscribeToFiles(currentFolderId, (fetchedFiles) => {
+            setFiles(fetchedFiles);
+            setLoading(false);
+        });
+
+        return () => {
+            unsubFolders();
+            unsubFiles();
+        };
     }, [currentFolderId]);
 
     const navigateToFolder = (folderId: string | null, folderName: string) => {
@@ -232,7 +230,7 @@ export default function FileExplorer() {
             await createFolder(newFolderName.trim(), currentFolderId);
             setNewFolderModalOpen(false);
             setNewFolderName("");
-            await loadContents();
+
         } catch (err) {
             console.error(err);
         } finally {
@@ -253,7 +251,7 @@ export default function FileExplorer() {
             setRenameModalOpen(false);
             setRenameTarget(null);
             setNewName("");
-            await loadContents();
+
             setSelectedImage(prev => prev && prev.file.id === renameTarget.id 
                 ? { ...prev, file: { ...prev.file, name: newName.trim() } } 
                 : prev);
@@ -274,7 +272,7 @@ export default function FileExplorer() {
                 await deleteVaultFile(deleteTarget.file);
             }
             setDeleteTarget(null);
-            await loadContents();
+
             setSelectedImage(prev => prev && prev.file.id === deleteTarget.id ? null : prev);
         } catch (err) {
             console.error(err);
@@ -293,7 +291,7 @@ export default function FileExplorer() {
                 await moveVaultFile(moveTarget.id, destinationFolderId);
             }
             setMoveTarget(null);
-            await loadContents();
+
             setSelectedImage(prev => prev && prev.file.id === moveTarget.id ? null : prev);
         } catch (err) {
             console.error(err);
@@ -309,7 +307,7 @@ export default function FileExplorer() {
         try {
             await updateFolderColor(colorPickerTarget.id, color);
             setColorPickerTarget(null);
-            await loadContents();
+
         } catch (err) {
             console.error(err);
             alert("Failed to update color.");
@@ -423,7 +421,7 @@ export default function FileExplorer() {
             }
             
             setUploadProgress(100);
-            await loadContents();
+
             if (fileInputRef.current) fileInputRef.current.value = "";
         } catch (err) {
             console.error("Upload failed", err);
