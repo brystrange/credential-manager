@@ -31,7 +31,7 @@
                 },
                 {
                     "key": "Content-Security-Policy",
-                    "value": "default-src 'self'; script-src 'self' https://www.google.com https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.firebasestorage.app https://*.googleapis.com https://lh3.googleusercontent.com; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.firebaseio.com https://*.cloudfunctions.net; frame-src blob: https://www.google.com https://fort-knox-6978d.firebaseapp.com; media-src 'self' blob:; worker-src 'self' blob:;"
+                    "value": "default-src 'self'; script-src 'self' https://www.google.com https://www.gstatic.com https://apis.google.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.firebasestorage.app https://*.googleapis.com https://lh3.googleusercontent.com; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.firebaseio.com https://*.cloudfunctions.net; frame-src blob: https://www.google.com https://fort-knox-6978d.firebaseapp.com; media-src 'self' blob:; worker-src 'self' blob: https://unpkg.com;"
                 }
             ]
         }
