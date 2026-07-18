@@ -477,7 +477,21 @@ export default function FileExplorer() {
         if (previewable) {
             handleFileViewClick(file);
         } else {
-            handleDownload(file);
+            // For unsupported file types, open in a new tab so the browser/OS
+            // prompts the user to choose a local application
+            setActionLoading(true);
+            setLoadingFileId(file.id);
+            try {
+                const blob = await downloadVaultFile(file);
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+            } catch (err) {
+                console.error("Failed to open file", err);
+                alert("Failed to open file.");
+            } finally {
+                setActionLoading(false);
+                setLoadingFileId(null);
+            }
         }
     };
 
