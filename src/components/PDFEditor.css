@@ -77,9 +77,6 @@
 .pdf-document-wrapper {
     flex: 1;
     overflow: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     padding: 24px;
 }
 
@@ -88,6 +85,8 @@
     flex-direction: column;
     align-items: center;
     gap: 24px;
+    width: fit-content;
+    margin: 0 auto;
 }
 
 .pdf-page-container {
@@ -130,6 +129,17 @@
     padding: 16px;
     gap: 16px;
     flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .pdf-sidebar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 1000;
+        box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
 }
 
 .pdf-sidebar-item {
