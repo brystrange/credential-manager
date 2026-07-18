@@ -998,7 +998,6 @@ export default function FileExplorer() {
                             style={{ 
                                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`,
                                 transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                                touchAction: "none",
                                 cursor: zoomLevel > 1 ? (isDragging ? "grabbing" : "grab") : "default"
                             }}
                             draggable={false}

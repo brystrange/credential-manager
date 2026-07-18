@@ -14,7 +14,7 @@ interface PDFEditorProps {
 
 export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
-  const [scale, setScale] = useState(1.2);
+  const [scale, setScale] = useState(window.innerWidth <= 768 ? 0.6 : 1.2);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");

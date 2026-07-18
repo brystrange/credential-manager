@@ -234,6 +234,16 @@ export default function CredentialCard({
                         <FiMessageSquare size={14} className="field-icon" />
                         <span className="field-label">Note</span>
                         <span className="field-value comment">{credential.comment}</span>
+                        <button
+                            className={`copy-btn ${copied === "comment" ? "copied" : ""}`}
+                            onClick={() => copyToClipboard(credential.comment, "comment")}
+                            title="Copy"
+                        >
+                            <FiCopy size={12} />
+                            {copied === "comment" && (
+                                <span className="copy-toast">Copied!</span>
+                            )}
+                        </button>
                     </div>
                 )}
             </div>
