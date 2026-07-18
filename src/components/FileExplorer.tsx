@@ -995,15 +995,17 @@ export default function FileExplorer() {
                                 onContainerClick={() => { if (imageMenuOpen) setImageMenuOpen(false); }}
                             />
                         ) : selectedImage.file.type.startsWith('video/') ? (
-                            <video src={selectedImage.url} controls style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                            <video src={selectedImage.url} controls playsInline style={{ maxWidth: '100%', maxHeight: '100%' }} />
                         ) : selectedImage.file.type.startsWith('audio/') ? (
-                            <audio src={selectedImage.url} controls />
+                            <audio src={selectedImage.url} controls style={{ maxWidth: '100%' }} />
                         ) : (
-                            <iframe 
-                                src={selectedImage.url} 
-                                style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-md)', background: '#fff' }}
-                                title={selectedImage.file.name}
-                            />
+                            <div style={{ width: '100%', height: '100%', overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                                <iframe 
+                                    src={selectedImage.url} 
+                                    style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-md)', background: '#fff' }}
+                                    title={selectedImage.file.name}
+                                />
+                            </div>
                         )}
                     </div>
                 </div>
