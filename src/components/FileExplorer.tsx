@@ -4,7 +4,7 @@ import {
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
     FiChevronRight, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
-    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo
+    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2
 } from "react-icons/fi";
 import { 
     subscribeToFolders, subscribeToFiles, createFolder, renameFolder, deleteFolder, 
@@ -97,8 +97,8 @@ export default function FileExplorer() {
     // Modals
     const [newFolderModalOpen, setNewFolderModalOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState("");
-    
     const [renameModalOpen, setRenameModalOpen] = useState(false);
+    const [readyFile, setReadyFile] = useState<{ file: VaultFile, url: string, blob: Blob } | null>(null);
     const [renameTarget, setRenameTarget] = useState<{id: string, name: string, isFolder: boolean} | null>(null);
     const [newName, setNewName] = useState("");
 
@@ -477,35 +477,18 @@ export default function FileExplorer() {
         if (previewable) {
             handleFileViewClick(file);
         } else {
-            // For unsupported file types, attempt to use the native Web Share API
-            // which brings up the OS "Open with..." or share sheet.
+            // For unsupported files, we must fetch and decrypt FIRST, then wait for a 
+            // synchronous user click to trigger navigator.share() or window.open().
+            // Otherwise, we get "NotAllowedError: Permission denied" due to the async delay.
             setActionLoading(true);
             setLoadingFileId(file.id);
             try {
                 const blob = await downloadVaultFile(file);
-                const fileObj = new File([blob], file.name, { type: file.type || 'application/octet-stream' });
-                
-                if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
-                    await navigator.share({
-                        files: [fileObj],
-                        title: file.name
-                    });
-                } else {
-                    // Fallback to regular download if Web Share is not supported
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = file.name;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }
-            } catch (err: any) {
-                if (err.name !== 'AbortError') {
-                    console.error("Failed to share or download file", err);
-                    alert("Failed to share or download file.");
-                }
+                const url = URL.createObjectURL(blob);
+                setReadyFile({ file, url, blob });
+            } catch (err) {
+                console.error("Failed to prepare file", err);
+                alert("Failed to prepare file.");
             } finally {
                 setActionLoading(false);
                 setLoadingFileId(null);
@@ -1047,6 +1030,73 @@ export default function FileExplorer() {
                                 />
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+            {readyFile && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ maxWidth: '400px' }}>
+                        <h3 style={{ marginTop: 0 }}>File Ready</h3>
+                        <p style={{ color: 'var(--text-secondary)' }}>
+                            How would you like to handle <strong>{readyFile.file.name}</strong>?
+                        </p>
+                        
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                            <button 
+                                className="auth-submit" 
+                                style={{ flex: 1, margin: 0 }}
+                                onClick={async () => {
+                                    const { file, url, blob } = readyFile;
+                                    setReadyFile(null); // Close modal immediately
+                                    
+                                    const fileObj = new File([blob], file.name, { type: file.type || 'application/octet-stream' });
+                                    
+                                    if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+                                        try {
+                                            await navigator.share({
+                                                files: [fileObj],
+                                                title: file.name
+                                            });
+                                        } catch (err: any) {
+                                            if (err.name !== 'AbortError') {
+                                                console.error("Share failed", err);
+                                            }
+                                        }
+                                    } else {
+                                        // Fallback if share is not supported by browser
+                                        window.open(url, '_blank');
+                                    }
+                                }}
+                            >
+                                <FiShare2 style={{ marginRight: '6px' }} /> View / Share
+                            </button>
+                            
+                            <button 
+                                className="auth-submit" 
+                                style={{ flex: 1, margin: 0, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                                onClick={() => {
+                                    const { file, url } = readyFile;
+                                    setReadyFile(null);
+                                    
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    a.download = file.name;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                }}
+                            >
+                                <FiDownload style={{ marginRight: '6px' }} /> Download
+                            </button>
+                        </div>
+                        
+                        <button 
+                            className="auth-submit" 
+                            style={{ width: '100%', marginTop: '12px', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                            onClick={() => setReadyFile(null)}
+                        >
+                            Cancel
+                        </button>
                     </div>
                 </div>
             )}
