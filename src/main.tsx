@@ -5,6 +5,7 @@ import App from './App.tsx'
 import AdminConsole from './components/AdminConsole.tsx'
 import TermsOfService from './components/TermsOfService.tsx'
 import PrivacyPolicy from './components/PrivacyPolicy.tsx'
+import TransparencyPage from './components/TransparencyPage.tsx'
 import { ThemeProvider } from './context/ThemeContext.tsx'
 
 if ('serviceWorker' in navigator) {
@@ -21,6 +22,7 @@ const router = createBrowserRouter([
   { path: "/*", element: <App /> },
   { path: "/terms", element: <TermsOfService /> },
   { path: "/privacy", element: <PrivacyPolicy /> },
+  { path: "/transparency", element: <TransparencyPage /> },
   { path: "/admin", element: <AdminConsole /> }
 ]);
 

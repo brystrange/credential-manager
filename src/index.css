@@ -45,6 +45,12 @@
   --danger-hover: #f1453c;
   --warning: #d29922;
   --gold: #e3b341;
+  --yellow: #f1c40f;
+  --yellow-muted: rgba(241, 196, 15, 0.12);
+  --red-accent: #FDBF01;
+  --red-accent-hover: #4b3c04;
+  --blue: #3b82f6;
+  --ivory: #FFFFF0;
 
   --radius-lg: 12px;
   --radius-xl: 16px;
@@ -89,6 +95,12 @@
   --danger-hover: #da2c23;
   --warning: #f59e0b;
   --gold: #eab308;
+  --yellow: #eab308;
+  --yellow-muted: rgba(234, 179, 8, 0.12);
+  --red-accent: #eab308;
+  --red-accent-hover: #ca8a04;
+  --blue: #2563eb;
+  --ivory: #FFFFF0;
 
   --radius-lg: 12px;
   --radius-xl: 16px;
@@ -4026,8 +4038,9 @@ option {
 .image-viewer-content {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
   padding: 24px;
   overflow: hidden;
 }
@@ -4040,6 +4053,42 @@ option {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
+/* Office preview styling isolation — override dark theme inheritance */
+.docx-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  width: max-content !important;
+}
+.docx-wrapper > section.docx {
+  margin: 0 auto !important;
+}
+.docx-wrapper > section.docx:not(:first-child) {
+  display: none !important;
+}
+
+.excel-preview-wrapper {
+  color: #000 !important;
+  background: #fff !important;
+  padding: 20px;
+}
+
+.docx-preview-wrapper *,
+.excel-preview-wrapper * {
+  color: inherit;
+}
+
+.excel-preview-wrapper table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.excel-preview-wrapper table td,
+.excel-preview-wrapper table th {
+  border: 1px solid #ccc;
+  padding: 4px 8px;
+  min-width: 50px;
+}
 .image-viewer-dropdown {
   position: absolute;
   top: 60px;

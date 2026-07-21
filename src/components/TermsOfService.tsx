@@ -1,18 +1,15 @@
-import { useNavigate } from "react-router-dom";
-import { FiArrowLeft } from "react-icons/fi";
+import { useEffect } from "react";
+import MarketingLayout from "./MarketingLayout";
 
 export default function TermsOfService() {
-    const navigate = useNavigate();
+    useEffect(() => {
+        window.scrollTo(0, 0);
+    }, []);
 
     return (
-        <div style={{ minHeight: "100vh", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "48px 24px" }}>
-            <div style={{ maxWidth: "800px", margin: "0 auto" }}>
-                <button 
-                    onClick={() => navigate("/")}
-                    style={{ background: "none", border: "none", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", marginBottom: "32px", fontSize: "1rem" }}
-                >
-                    <FiArrowLeft /> Back to Home
-                </button>
+        <MarketingLayout>
+            <div style={{ padding: "48px 24px", color: "var(--text-primary)" }}>
+                <div style={{ maxWidth: "800px", margin: "0 auto" }}>
                 
                 <h1 style={{ fontSize: "2.5rem", marginBottom: "16px" }}>Terms of Service</h1>
                 <p style={{ color: "var(--text-secondary)", marginBottom: "48px" }}>Last updated: {new Date().toLocaleDateString()}</p>
@@ -48,7 +45,8 @@ export default function TermsOfService() {
                         To the maximum extent permitted by law, Fort Sterling shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data, or use, arising out of or related to your use of the Service.
                     </p>
                 </div>
+                </div>
             </div>
-        </div>
+        </MarketingLayout>
     );
 }

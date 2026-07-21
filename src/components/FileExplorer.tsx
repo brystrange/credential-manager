@@ -4,7 +4,7 @@ import {
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
     FiChevronRight, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
-    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2
+    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo
 } from "react-icons/fi";
 import { 
     subscribeToFolders, subscribeToFiles, createFolder, renameFolder, deleteFolder, 
@@ -17,6 +17,9 @@ import FolderPickerModal from "./FolderPickerModal";
 import { useSubscription } from "../context/SubscriptionContext";
 import { compressImage } from "../utils/imageCompressor";
 import PDFEditor from "./PDFEditor";
+import { renderAsync } from "docx-preview";
+import * as XLSX from "xlsx";
+import JSZip from "jszip";
 
 const gradientColorsList = [
     { id: 'sunset-glow', name: 'Sunset Glow', start: '#fb7185', end: '#fb923c' },
@@ -47,6 +50,25 @@ const gradientColors = gradientColorsList.reduce((acc, c) => {
         : `linear-gradient(135deg, ${c.start} 0%, ${c.end} 100%)`;
     return acc;
 }, {} as Record<string, string>);
+
+const MS_OFFICE_TYPES = [
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/msword',
+    'application/vnd.ms-excel',
+    'application/vnd.ms-powerpoint',
+];
+
+const isOfficeFile = (type: string) => MS_OFFICE_TYPES.includes(type);
+const isDocxFile = (type: string) =>
+    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    type === 'application/msword';
+const isExcelFile = (type: string) =>
+    type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    type === 'application/vnd.ms-excel';
+const isPptxFile = (type: string) =>
+    type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
 const globalImageCache = new Map<string, string>();
 
@@ -98,7 +120,7 @@ export default function FileExplorer() {
     const [newFolderModalOpen, setNewFolderModalOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState("");
     const [renameModalOpen, setRenameModalOpen] = useState(false);
-    const [readyFile, setReadyFile] = useState<{ file: VaultFile, url: string, blob: Blob } | null>(null);
+    const [downloadPromptFile, setDownloadPromptFile] = useState<VaultFile | null>(null);
     const [renameTarget, setRenameTarget] = useState<{id: string, name: string, isFolder: boolean} | null>(null);
     const [newName, setNewName] = useState("");
 
@@ -137,8 +159,11 @@ export default function FileExplorer() {
     };
 
     // Image Viewer
-    const [selectedImage, setSelectedImage] = useState<{ file: VaultFile, url: string, pdfData?: Uint8Array } | null>(null);
+    const [selectedImage, setSelectedImage] = useState<{ file: VaultFile, url: string, pdfData?: Uint8Array, officeData?: ArrayBuffer, excelHtml?: string, pptxThumbnailUrl?: string } | null>(null);
+    const officeContainerRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [imageCache, setImageCache] = useState<Record<string, string>>({});
+    const [officeDataCache, setOfficeDataCache] = useState<Record<string, { arrayBuffer?: ArrayBuffer, excelHtml?: string, pptxThumbnailUrl?: string }>>({});
     const [imageMenuOpen, setImageMenuOpen] = useState(false);
     const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
     const [loadingColor, setLoadingColor] = useState<string | null>(null);
@@ -151,19 +176,64 @@ export default function FileExplorer() {
     const [isDragging, setIsDragging] = useState(false);
     const lastPanPos = useRef({ x: 0, y: 0 });
     const lastDragTime = useRef(0);
-    const imageRef = useRef<HTMLImageElement>(null);
+    const imageRef = useRef<HTMLDivElement>(null);
+    const activePointers = useRef<Map<number, {x: number, y: number}>>(new Map());
+    const initialPinchDist = useRef<number | null>(null);
+    const initialPinchZoom = useRef<number>(1);
 
     // Block navigation during upload
     useBlocker(uploadProgress !== null);
 
     useEffect(() => {
         const handleResize = () => {
-            if (selectedImage) {
-                setPan({ x: 0, y: 0 });
+            if (activePointers.current.size === 0) {
+                setPan(prev => {
+                    const el = imageRef.current;
+                    if (!el) return prev;
+                    
+                    const rect = el.getBoundingClientRect();
+                    const boundaryMult = zoomLevel - 1;
+                    const w = rect.width;
+                    const h = rect.height;
+                    const maxDragX = w * boundaryMult + window.innerWidth / 2;
+                    const maxDragY = h * boundaryMult + window.innerHeight / 2;
+                    
+                    if (Math.abs(prev.x) >= maxDragX - 5 || Math.abs(prev.y) >= maxDragY - 5) {
+                        return { x: 0, y: 0 };
+                    }
+                    return prev;
+                });
             }
         };
         window.addEventListener("resize", handleResize);
         return () => window.removeEventListener("resize", handleResize);
+    }, [selectedImage]);
+
+    useEffect(() => {
+        if (scrollContainerRef.current) {
+            const el = scrollContainerRef.current;
+            if (el.scrollWidth > el.clientWidth) {
+                el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+            }
+        }
+    }, [zoomLevel]);
+
+    // Render docx files when officeContainerRef is available
+    useEffect(() => {
+        if (
+            selectedImage &&
+            selectedImage.officeData &&
+            isDocxFile(selectedImage.file.type) &&
+            officeContainerRef.current
+        ) {
+            officeContainerRef.current.innerHTML = '';
+            renderAsync(selectedImage.officeData, officeContainerRef.current, undefined, {
+                className: 'docx-preview-wrapper',
+                inWrapper: true,
+                ignoreWidth: false,
+                ignoreHeight: false,
+            }).catch((err: unknown) => console.error('Failed to render docx', err));
+        }
     }, [selectedImage]);
 
     useEffect(() => {
@@ -193,7 +263,7 @@ export default function FileExplorer() {
             await Promise.all(fetchedFolders.map(async f => {
                 counts[f.id] = await getFolderItemCount(f.id);
             }));
-            setFolderCounts(counts);
+            setFolderCounts(prev => ({ ...prev, ...counts }));
         });
 
         const unsubFiles = subscribeToFiles(currentFolderId, (fetchedFiles) => {
@@ -438,10 +508,24 @@ export default function FileExplorer() {
             setZoomLevel(1);
             setPan({ x: 0, y: 0 });
         }
-        setZoomLevel(1);
+        if (isOfficeFile(file.type) && window.innerWidth <= 768) {
+            setZoomLevel(0.5);
+        } else {
+            setZoomLevel(1);
+        }
         setPan({ x: 0, y: 0 });
         if (imageCache[file.id]) {
-            setSelectedImage({ file, url: imageCache[file.id] });
+            if (isOfficeFile(file.type) && officeDataCache[file.id]) {
+                setSelectedImage({ 
+                    file, 
+                    url: imageCache[file.id], 
+                    officeData: officeDataCache[file.id].arrayBuffer,
+                    excelHtml: officeDataCache[file.id].excelHtml,
+                    pptxThumbnailUrl: officeDataCache[file.id].pptxThumbnailUrl
+                });
+            } else {
+                setSelectedImage({ file, url: imageCache[file.id] });
+            }
             return;
         }
         setActionLoading(true);
@@ -455,6 +539,86 @@ export default function FileExplorer() {
                 // Pass raw data to react-pdf instead of blob URL (fixes mobile)
                 const arrayBuffer = await blob.arrayBuffer();
                 setSelectedImage({ file, url, pdfData: new Uint8Array(arrayBuffer) });
+            } else if (isOfficeFile(file.type)) {
+                const arrayBuffer = await blob.arrayBuffer();
+                let excelHtml = undefined;
+                let pptxThumbnailUrl = undefined;
+                
+                if (isExcelFile(file.type)) {
+                    try {
+                        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        worksheet['!ref'] = 'A1:AJ50'; // Force preview to show exactly A1 to AJ50
+                        let rawHtml = XLSX.utils.sheet_to_html(worksheet);
+                        if (worksheet['!ref']) {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(rawHtml, 'text/html');
+                            const table = doc.querySelector('table');
+                            if (table) {
+                                const range = XLSX.utils.decode_range(worksheet['!ref']);
+                                const colCount = range.e.c;
+                                
+                                const headerRow = doc.createElement('tr');
+                                const cornerTh = doc.createElement('th');
+                                cornerTh.style.background = '#f3f4f6';
+                                cornerTh.style.border = '1px solid #ccc';
+                                cornerTh.style.minWidth = '40px';
+                                headerRow.appendChild(cornerTh);
+                                
+                                for (let i = 0; i <= colCount; i++) {
+                                    const th = doc.createElement('th');
+                                    th.textContent = XLSX.utils.encode_col(i);
+                                    th.style.background = '#f3f4f6';
+                                    th.style.border = '1px solid #ccc';
+                                    th.style.padding = '4px 8px';
+                                    th.style.textAlign = 'center';
+                                    headerRow.appendChild(th);
+                                }
+                                table.prepend(headerRow);
+                                
+                                const rows = table.querySelectorAll('tr');
+                                for (let i = 1; i < rows.length; i++) {
+                                    const th = doc.createElement('th');
+                                    th.textContent = i.toString();
+                                    th.style.background = '#f3f4f6';
+                                    th.style.border = '1px solid #ccc';
+                                    th.style.padding = '4px 8px';
+                                    th.style.textAlign = 'center';
+                                    rows[i].prepend(th);
+                                }
+                                
+                                const cells = table.querySelectorAll('td, th');
+                                cells.forEach(cell => {
+                                    (cell as HTMLElement).style.border = '1px solid #ccc';
+                                });
+                                
+                                table.style.borderCollapse = 'collapse';
+                                excelHtml = table.outerHTML;
+                            } else {
+                                excelHtml = rawHtml;
+                            }
+                        } else {
+                            excelHtml = rawHtml;
+                        }
+                    } catch (e) {
+                        console.error("Excel parse failed", e);
+                    }
+                } else if (isPptxFile(file.type)) {
+                    try {
+                        const zip = await JSZip.loadAsync(arrayBuffer);
+                        const thumbnailFile = zip.file("docProps/thumbnail.jpeg");
+                        if (thumbnailFile) {
+                            const thumbBlob = await thumbnailFile.async("blob");
+                            pptxThumbnailUrl = URL.createObjectURL(thumbBlob);
+                        }
+                    } catch (e) {
+                        console.error("PPTX thumb parse failed", e);
+                    }
+                }
+
+                setOfficeDataCache(prev => ({ ...prev, [file.id]: { arrayBuffer, excelHtml, pptxThumbnailUrl } }));
+                setSelectedImage({ file, url, officeData: arrayBuffer, excelHtml, pptxThumbnailUrl });
             } else {
                 setSelectedImage({ file, url });
             }
@@ -472,27 +636,14 @@ export default function FileExplorer() {
                             file.type === "application/pdf" ||
                             file.type.startsWith("video/") ||
                             file.type.startsWith("audio/") ||
-                            file.type.startsWith("text/");
+                            file.type.startsWith("text/") ||
+                            isOfficeFile(file.type);
                             
         if (previewable) {
             handleFileViewClick(file);
         } else {
-            // For unsupported files, we must fetch and decrypt FIRST, then wait for a 
-            // synchronous user click to trigger navigator.share() or window.open().
-            // Otherwise, we get "NotAllowedError: Permission denied" due to the async delay.
-            setActionLoading(true);
-            setLoadingFileId(file.id);
-            try {
-                const blob = await downloadVaultFile(file);
-                const url = URL.createObjectURL(blob);
-                setReadyFile({ file, url, blob });
-            } catch (err) {
-                console.error("Failed to prepare file", err);
-                alert("Failed to prepare file.");
-            } finally {
-                setActionLoading(false);
-                setLoadingFileId(null);
-            }
+            // Unsupported file type — prompt user to download
+            setDownloadPromptFile(file);
         }
     };
 
@@ -517,6 +668,7 @@ export default function FileExplorer() {
             setLoadingFileId(null);
         }
     };
+
 
     const formatSize = (bytes: number) => {
         if (bytes === 0) return '0 Bytes';
@@ -870,14 +1022,11 @@ export default function FileExplorer() {
                         <div className="image-viewer-title">{selectedImage.file.name}</div>
                         
                         <div className="image-viewer-actions desktop-only">
-                            {selectedImage.file.type.startsWith('image/') && (
-                                <>
-                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In"><FiZoomIn /></button>
-                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
-                                    <button onClick={() => { setZoomLevel(1); setPan({ x: 0, y: 0 }); }} title="Reset Zoom"><FiMaximize /></button>
-                                    <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 8px" }} />
-                                </>
-                            )}
+                            <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In"><FiZoomIn /></button>
+                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
+                            <button onClick={() => { setZoomLevel(1); setPan({ x: 0, y: 0 }); }} title="Reset Zoom"><FiMaximize /></button>
+                            <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 8px" }} />
+
                             <button 
                                 onClick={() => handleDownload(selectedImage.file)}
                                 disabled={loadingFileId === selectedImage.file.id}
@@ -895,13 +1044,9 @@ export default function FileExplorer() {
                         </div>
                         
                         <div className="image-viewer-actions mobile-only">
-                            {selectedImage.file.type.startsWith('image/') && (
-                                <>
-                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
-                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
-                                    <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
-                                </>
-                            )}
+                            <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
+                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
+                            <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
                             <button className="ellipsis-btn" onClick={(e) => { e.stopPropagation(); setImageMenuOpen(!imageMenuOpen); }}>
                                 {loadingFileId === selectedImage.file.id ? <FiLoader size={24} className="spin" /> : <FiMoreHorizontal size={24} />}
                             </button>
@@ -909,6 +1054,7 @@ export default function FileExplorer() {
                             
                             {imageMenuOpen && (
                                 <div className="image-viewer-dropdown">
+
                                     <button 
                                         onClick={() => { handleDownload(selectedImage.file); setImageMenuOpen(false); }}
                                         disabled={loadingFileId === selectedImage.file.id}
@@ -930,6 +1076,7 @@ export default function FileExplorer() {
                         className="image-viewer-content" 
                         style={{ padding: selectedImage.file.type === 'application/pdf' ? 0 : undefined }}
                         onWheel={(e) => {
+                            if (!e.ctrlKey && !e.metaKey) return;
                             if (e.deltaY < 0) {
                                 setZoomLevel(prev => Math.min(prev + 0.25, 5));
                             } else {
@@ -938,23 +1085,39 @@ export default function FileExplorer() {
                             }
                         }}
                     >
-                        {selectedImage.file.type.startsWith('image/') ? (
-                            <img 
+                        <div
                             ref={imageRef}
-                            src={selectedImage.url} 
-                            alt={selectedImage.file.name} 
-                            onClick={(e) => { 
-                                e.stopPropagation(); 
-                                if (imageMenuOpen) setImageMenuOpen(false); 
-                            }} 
+                            className="image-viewer-zoom-wrapper"
                             onPointerDown={(e) => {
-                                if (zoomLevel <= 1) return;
+                                activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                                if (activePointers.current.size === 2) {
+                                    const pts = Array.from(activePointers.current.values());
+                                    initialPinchDist.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                                    initialPinchZoom.current = zoomLevel;
+                                    e.currentTarget.setPointerCapture(e.pointerId);
+                                    return;
+                                }
+
+                                if (zoomLevel <= 1 || isOfficeFile(selectedImage.file.type)) return;
                                 setIsDragging(true);
                                 lastPanPos.current = { x: e.clientX, y: e.clientY };
                                 e.currentTarget.setPointerCapture(e.pointerId);
                             }}
                             onPointerMove={(e) => {
-                                if (!isDragging) return;
+                                if (activePointers.current.has(e.pointerId)) {
+                                    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                                }
+                                if (activePointers.current.size === 2) {
+                                    const pts = Array.from(activePointers.current.values());
+                                    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                                    if (initialPinchDist.current) {
+                                        const scale = dist / initialPinchDist.current;
+                                        setZoomLevel(Math.max(0.5, Math.min(initialPinchZoom.current * scale, 5)));
+                                    }
+                                    return;
+                                }
+
+                                if (!isDragging || activePointers.current.size !== 1) return;
                                 const dx = e.clientX - lastPanPos.current.x;
                                 const dy = e.clientY - lastPanPos.current.y;
                                 if (Math.abs(dx) > 2 || Math.abs(dy) > 2) lastDragTime.current = Date.now();
@@ -980,6 +1143,11 @@ export default function FileExplorer() {
                                 lastPanPos.current = { x: e.clientX, y: e.clientY };
                             }}
                             onPointerUp={(e) => {
+                                activePointers.current.delete(e.pointerId);
+                                if (activePointers.current.size < 2) {
+                                    initialPinchDist.current = null;
+                                }
+
                                 setIsDragging(false);
                                 e.currentTarget.releasePointerCapture(e.pointerId);
                                 
@@ -998,16 +1166,39 @@ export default function FileExplorer() {
                                 });
                             }}
                             onPointerCancel={(e) => {
+                                activePointers.current.delete(e.pointerId);
+                                if (activePointers.current.size < 2) {
+                                    initialPinchDist.current = null;
+                                }
+
                                 setIsDragging(false);
                                 e.currentTarget.releasePointerCapture(e.pointerId);
                             }}
                             style={{ 
-                                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`,
-                                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                                cursor: zoomLevel > 1 ? (isDragging ? "grabbing" : "grab") : "default"
+                                transform: !isOfficeFile(selectedImage.file.type) ? `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` : undefined,
+                                transition: isDragging || activePointers.current.size === 2 ? 'none' : 'transform 0.1s ease-out',
+                                cursor: zoomLevel > 1 && !isOfficeFile(selectedImage.file.type) ? (isDragging ? "grabbing" : "grab") : "default",
+                                width: '100%',
+                                height: '100%',
+                                flex: 1,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                touchAction: zoomLevel > 1 && !isOfficeFile(selectedImage.file.type) ? 'none' : 'pan-x pan-y'
                             }}
-                            draggable={false}
-                        />
+                        >
+                            {selectedImage.file.type.startsWith('image/') ? (
+                                <img 
+                                    src={selectedImage.url} 
+                                    alt={selectedImage.file.name} 
+                                    onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        if (imageMenuOpen) setImageMenuOpen(false); 
+                                    }} 
+                                    draggable={false}
+                                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                />
                         ) : selectedImage.file.type === 'application/pdf' ? (
                             <PDFEditor 
                                 url={selectedImage.pdfData ? { data: selectedImage.pdfData } : selectedImage.url}
@@ -1021,6 +1212,87 @@ export default function FileExplorer() {
                                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{selectedImage.file.name}</p>
                                 <audio src={selectedImage.url} controls style={{ maxWidth: '100%', width: '320px' }} />
                             </div>
+                        ) : isOfficeFile(selectedImage.file.type) ? (
+                            isDocxFile(selectedImage.file.type) ? (
+                                <div
+                                    ref={scrollContainerRef}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        flex: 1,
+                                        overflow: 'auto',
+                                        WebkitOverflowScrolling: 'touch',
+                                        background: 'transparent',
+                                        color: '#000',
+                                        borderRadius: 'var(--radius-md)',
+                                        display: 'block',
+                                    }}
+                                >
+                                    <div style={{ margin: '0 auto', width: 'max-content' }}>
+                                        <div
+                                            ref={officeContainerRef}
+                                            style={{ zoom: zoomLevel } as any}
+                                            onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                        />
+                                    </div>
+                                </div>
+                            ) : isExcelFile(selectedImage.file.type) && selectedImage.excelHtml ? (
+                                <div
+                                    ref={scrollContainerRef}
+                                    onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        flex: 1,
+                                        overflow: 'auto',
+                                        WebkitOverflowScrolling: 'touch',
+                                        background: '#fff',
+                                        color: '#000',
+                                        borderRadius: 'var(--radius-md)',
+                                        padding: '20px',
+                                        display: 'block',
+                                    }}
+                                >
+                                    <div style={{ margin: '0 auto', width: 'max-content' }}>
+                                        <div
+                                            className="excel-preview-wrapper"
+                                            style={{ zoom: zoomLevel } as any}
+                                            dangerouslySetInnerHTML={{ __html: selectedImage.excelHtml }}
+                                        />
+                                    </div>
+                                </div>
+                            ) : isPptxFile(selectedImage.file.type) && selectedImage.pptxThumbnailUrl ? (
+                                <img
+                                    src={selectedImage.pptxThumbnailUrl}
+                                    alt="Presentation Thumbnail"
+                                    onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                    style={{
+                                        maxWidth: '100%',
+                                        maxHeight: '100%',
+                                        objectFit: 'contain',
+                                        borderRadius: 'var(--radius-md)',
+                                        boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                                    }}
+                                />
+                            ) : (
+                                <div onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', width: '100%', padding: '32px' }}>
+                                    <FiFileText size={64} style={{ color: 'var(--text-secondary)' }} />
+                                    <p style={{ color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 500, textAlign: 'center' }}>{selectedImage.file.name}</p>
+                                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Preview is not available for this file type.</p>
+                                    <button
+                                        className="auth-submit"
+                                        style={{ width: 'auto', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}
+                                        onClick={() => handleDownload(selectedImage.file)}
+                                        disabled={loadingFileId === selectedImage.file.id}
+                                    >
+                                        {loadingFileId === selectedImage.file.id ? (
+                                            <><FiLoader className="spin" /> Downloading...</>
+                                        ) : (
+                                            <><FiDownload /> Download File</>
+                                        )}
+                                    </button>
+                                </div>
+                            )
                         ) : (
                             <div style={{ width: '100%', height: '100%', overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
                                 <iframe 
@@ -1030,73 +1302,39 @@ export default function FileExplorer() {
                                 />
                             </div>
                         )}
+                        </div>
                     </div>
                 </div>
             )}
-            {readyFile && (
+            {downloadPromptFile && (
                 <div className="modal-overlay">
                     <div className="modal-content" style={{ maxWidth: '400px' }}>
-                        <h3 style={{ marginTop: 0 }}>File Ready</h3>
+                        <h3 style={{ marginTop: 0 }}>Download File</h3>
                         <p style={{ color: 'var(--text-secondary)' }}>
-                            How would you like to handle <strong>{readyFile.file.name}</strong>?
+                            Preview is not available for <strong>{downloadPromptFile.name}</strong>. Would you like to download it?
                         </p>
                         
                         <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
                             <button 
                                 className="auth-submit" 
                                 style={{ flex: 1, margin: 0 }}
-                                onClick={async () => {
-                                    const { file, url, blob } = readyFile;
-                                    setReadyFile(null); // Close modal immediately
-                                    
-                                    const fileObj = new File([blob], file.name, { type: file.type || 'application/octet-stream' });
-                                    
-                                    if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
-                                        try {
-                                            await navigator.share({
-                                                files: [fileObj],
-                                                title: file.name
-                                            });
-                                        } catch (err: any) {
-                                            if (err.name !== 'AbortError') {
-                                                console.error("Share failed", err);
-                                            }
-                                        }
-                                    } else {
-                                        // Fallback if share is not supported by browser
-                                        window.open(url, '_blank');
-                                    }
-                                }}
-                            >
-                                <FiShare2 style={{ marginRight: '6px' }} /> View / Share
-                            </button>
-                            
-                            <button 
-                                className="auth-submit" 
-                                style={{ flex: 1, margin: 0, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                                 onClick={() => {
-                                    const { file, url } = readyFile;
-                                    setReadyFile(null);
-                                    
-                                    const a = document.createElement("a");
-                                    a.href = url;
-                                    a.download = file.name;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    document.body.removeChild(a);
+                                    const file = downloadPromptFile;
+                                    setDownloadPromptFile(null);
+                                    handleDownload(file);
                                 }}
                             >
                                 <FiDownload style={{ marginRight: '6px' }} /> Download
                             </button>
+                            
+                            <button 
+                                className="auth-submit" 
+                                style={{ flex: 1, margin: 0, background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                                onClick={() => setDownloadPromptFile(null)}
+                            >
+                                Cancel
+                            </button>
                         </div>
-                        
-                        <button 
-                            className="auth-submit" 
-                            style={{ width: '100%', marginTop: '12px', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-                            onClick={() => setReadyFile(null)}
-                        >
-                            Cancel
-                        </button>
                     </div>
                 </div>
             )}
