@@ -17,7 +17,11 @@ export default function AuthCallback() {
             const err = searchParams.get("error");
 
             if (err) {
-                setError(err === "auth_failed" ? "Authentication failed." : "An error occurred during sign in.");
+                const displayError = err === "auth_failed" ? "Authentication failed." : 
+                                     err === "no_code" ? "No authentication code received." :
+                                     err === "server_error" ? "An error occurred during sign in." :
+                                     `Authentication error: ${err}`;
+                setError(displayError);
                 return;
             }
 

@@ -511,9 +511,10 @@ export const googleAuthCallback = onRequest(
                 clientSecret: GOOGLE_CLIENT_SECRET.value(),
             });
             res.redirect(302, appendQueryParam(returnUrl, "token", customToken));
-        } catch (err) {
+        } catch (err: any) {
             console.error("Error processing OAuth callback:", err);
-            res.redirect(302, appendQueryParam(returnUrl, "error", "server_error"));
+            const errString = err.message || "server_error";
+            res.redirect(302, appendQueryParam(returnUrl, "error", errString));
         }
     }
 );

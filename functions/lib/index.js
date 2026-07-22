@@ -399,43 +399,28 @@ function getRedirectUri(req) {
     return `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/${process.env.FUNCTION_REGION || 'us-central1'}/googleAuthCallback`;
 }
 exports.googleAuthStart = (0, https_1.onRequest)({ secrets: [GOOGLE_CLIENT_ID], cors: true, invoker: "public" }, (req, res) => {
+    var _a;
     // We expect the frontend to pass the client ID as a query param, or we can use a hardcoded one if preferred.
     // For now, we will use the secret defined GOOGLE_CLIENT_ID or fallback to a query parameter.
     const clientId = GOOGLE_CLIENT_ID.value();
     const returnUrl = (0, googleOAuth_1.decodeReturnUrl)(req.query.returnUrl, req.headers.origin || "https://fortsterling.app");
     // We dynamically build the redirectUri based on the current request
-    const host = req.get("host");
-    const protocol = req.protocol === "http" && (host === null || host === void 0 ? void 0 : host.includes("localhost")) ? "http" : "https";
-    let redirectUri = "";
-    if (host === null || host === void 0 ? void 0 : host.includes("cloudfunctions.net")) {
-        redirectUri = `https://${host}/googleAuthCallback`;
-    }
-    else if (host === null || host === void 0 ? void 0 : host.includes("localhost:5001")) {
-        redirectUri = `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`;
-    }
-    else {
-        // Fallback for custom domains mapped to functions
-        redirectUri = `${protocol}://${host}/googleAuthCallback`;
-    }
+    const isLocal = (_a = req.get("host")) === null || _a === void 0 ? void 0 : _a.includes("localhost");
+    const redirectUri = isLocal
+        ? `http://${req.get("host")}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`
+        : `https://us-central1-${process.env.GCLOUD_PROJECT}.cloudfunctions.net/googleAuthCallback`;
     res.redirect(302, (0, googleOAuth_1.buildGoogleAuthUrl)(clientId, returnUrl, redirectUri, req.headers.origin || "https://fortsterling.app"));
 });
 exports.googleAuthCallback = (0, https_1.onRequest)({ secrets: [GOOGLE_CLIENT_SECRET, GOOGLE_CLIENT_ID], invoker: "public" }, async (req, res) => {
+    var _a;
     const code = req.query.code;
     const state = req.query.state;
     const error = req.query.error;
     const returnUrl = (0, googleOAuth_1.parseOAuthState)(state, req.headers.origin || "https://fortsterling.app");
-    const host = req.get("host");
-    const protocol = req.protocol === "http" && (host === null || host === void 0 ? void 0 : host.includes("localhost")) ? "http" : "https";
-    let redirectUri = "";
-    if (host === null || host === void 0 ? void 0 : host.includes("cloudfunctions.net")) {
-        redirectUri = `https://${host}/googleAuthCallback`;
-    }
-    else if (host === null || host === void 0 ? void 0 : host.includes("localhost:5001")) {
-        redirectUri = `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`;
-    }
-    else {
-        redirectUri = `${protocol}://${host}/googleAuthCallback`;
-    }
+    const isLocal = (_a = req.get("host")) === null || _a === void 0 ? void 0 : _a.includes("localhost");
+    const redirectUri = isLocal
+        ? `http://${req.get("host")}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`
+        : `https://us-central1-${process.env.GCLOUD_PROJECT}.cloudfunctions.net/googleAuthCallback`;
     if (error) {
         console.error("OAuth Error:", error);
         res.redirect(302, (0, googleOAuth_1.appendQueryParam)(returnUrl, "error", "auth_failed"));
