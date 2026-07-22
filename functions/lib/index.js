@@ -407,8 +407,11 @@ exports.googleAuthStart = (0, https_1.onRequest)({ secrets: [GOOGLE_CLIENT_ID], 
     const host = req.get("host");
     const protocol = req.protocol === "http" && (host === null || host === void 0 ? void 0 : host.includes("localhost")) ? "http" : "https";
     let redirectUri = "";
-    if ((host === null || host === void 0 ? void 0 : host.includes("cloudfunctions.net")) || (host === null || host === void 0 ? void 0 : host.includes("localhost:5001"))) {
-        redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0].replace("googleAuthStart", "googleAuthCallback")}`;
+    if (host === null || host === void 0 ? void 0 : host.includes("cloudfunctions.net")) {
+        redirectUri = `https://${host}/googleAuthCallback`;
+    }
+    else if (host === null || host === void 0 ? void 0 : host.includes("localhost:5001")) {
+        redirectUri = `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`;
     }
     else {
         // Fallback for custom domains mapped to functions
@@ -423,7 +426,16 @@ exports.googleAuthCallback = (0, https_1.onRequest)({ secrets: [GOOGLE_CLIENT_SE
     const returnUrl = (0, googleOAuth_1.parseOAuthState)(state, req.headers.origin || "https://fortsterling.app");
     const host = req.get("host");
     const protocol = req.protocol === "http" && (host === null || host === void 0 ? void 0 : host.includes("localhost")) ? "http" : "https";
-    const redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0]}`;
+    let redirectUri = "";
+    if (host === null || host === void 0 ? void 0 : host.includes("cloudfunctions.net")) {
+        redirectUri = `https://${host}/googleAuthCallback`;
+    }
+    else if (host === null || host === void 0 ? void 0 : host.includes("localhost:5001")) {
+        redirectUri = `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`;
+    }
+    else {
+        redirectUri = `${protocol}://${host}/googleAuthCallback`;
+    }
     if (error) {
         console.error("OAuth Error:", error);
         res.redirect(302, (0, googleOAuth_1.appendQueryParam)(returnUrl, "error", "auth_failed"));
