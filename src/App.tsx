@@ -523,6 +523,12 @@ function AppInner({
     // Set when a Google sign-in reveals the user has no Firestore record yet.
     const [isNewGoogleUser, setIsNewGoogleUser] = useState(false);
 
+    useEffect(() => {
+        if (location.state?.isNewGoogleUser) {
+            setIsNewGoogleUser(true);
+        }
+    }, [location.state]);
+
     const [credentials, setCredentials] = useState<Credential[]>([]);
     const [platforms, setPlatforms] = useState<Platform[]>([]);
     const [search, setSearch] = useState("");

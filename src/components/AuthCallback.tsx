@@ -47,7 +47,10 @@ export default function AuthCallback() {
                 }
 
                 // Redirect back to root where App.tsx will pick up the authenticated state
-                navigate("/", { replace: true });
+                navigate("/", { 
+                    replace: true, 
+                    state: { isNewGoogleUser: !userDoc.exists() } 
+                });
             } catch (error: any) {
                 console.error("Custom token sign-in error:", error);
                 setError(error.message || "Failed to sign in with token.");
