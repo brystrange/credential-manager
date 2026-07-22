@@ -475,8 +475,10 @@ export const googleAuthStart = onRequest({ secrets: [GOOGLE_CLIENT_ID], cors: tr
     const protocol = req.protocol === "http" && host?.includes("localhost") ? "http" : "https";
     
     let redirectUri = "";
-    if (host?.includes("cloudfunctions.net") || host?.includes("localhost:5001")) {
-         redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0].replace("googleAuthStart", "googleAuthCallback")}`;
+    if (host?.includes("cloudfunctions.net")) {
+        redirectUri = `https://${host}/googleAuthCallback`;
+    } else if (host?.includes("localhost:5001")) {
+        redirectUri = `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`;
     } else {
         // Fallback for custom domains mapped to functions
         redirectUri = `${protocol}://${host}/googleAuthCallback`;
@@ -495,7 +497,15 @@ export const googleAuthCallback = onRequest(
 
         const host = req.get("host");
         const protocol = req.protocol === "http" && host?.includes("localhost") ? "http" : "https";
-        const redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0]}`;
+        
+        let redirectUri = "";
+        if (host?.includes("cloudfunctions.net")) {
+            redirectUri = `https://${host}/googleAuthCallback`;
+        } else if (host?.includes("localhost:5001")) {
+            redirectUri = `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`;
+        } else {
+            redirectUri = `${protocol}://${host}/googleAuthCallback`;
+        }
 
         if (error) {
             console.error("OAuth Error:", error);
