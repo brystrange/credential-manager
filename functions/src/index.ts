@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
 import * as crypto from "crypto";
 import { validatePlatformInput } from "./validatePlatform";
 
@@ -106,7 +107,7 @@ export const setAdminClaim = onCall(async (request) => {
 //  LEMON SQUEEZY SUBSCRIPTION INTEGRATION
 // ══════════════════════════════════════════════════════════════════════════════
 
-import { onRequest } from "firebase-functions/v2/https";
+
 import * as https from "https";
 
 /** Helper: POST to Lemon Squeezy REST API */
@@ -442,3 +443,108 @@ export const getPendingCustomPlatforms = onCall({ timeoutSeconds: 300 }, async (
 
     return { pendingPlatforms };
 });
+
+// ─── Google OAuth for In-App Browsers ────────────────────────────────────────
+
+const GOOGLE_CLIENT_SECRET = defineSecret("GOOGLE_CLIENT_SECRET");
+const GOOGLE_CLIENT_ID = defineSecret("GOOGLE_CLIENT_ID");
+
+import {
+    decodeReturnUrl,
+    parseOAuthState,
+    buildGoogleAuthUrl,
+    completeGoogleOAuth,
+    appendQueryParam,
+} from "./googleOAuth";
+
+// Helper to determine redirect URI for the callback
+function getRedirectUri(req: any): string {
+    const host = req.get("host");
+    const protocol = req.protocol === "http" && host.includes("localhost") ? "http" : "https";
+    return `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/${process.env.FUNCTION_REGION || 'us-central1'}/googleAuthCallback`;
+}
+
+export const googleAuthStart = onRequest({ cors: true, invoker: "public" }, (req, res) => {
+    // We expect the frontend to pass the client ID as a query param, or we can use a hardcoded one if preferred.
+    // For now, we will use the secret defined GOOGLE_CLIENT_ID or fallback to a query parameter.
+    const clientId = GOOGLE_CLIENT_ID.value();
+    const returnUrl = decodeReturnUrl(req.query.returnUrl as string, req.headers.origin || "https://fortsterling.app");
+    
+    // We dynamically build the redirectUri based on the current request
+    const host = req.get("host");
+    const protocol = req.protocol === "http" && host?.includes("localhost") ? "http" : "https";
+    
+    let redirectUri = "";
+    if (host?.includes("cloudfunctions.net") || host?.includes("localhost:5001")) {
+         redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0].replace("googleAuthStart", "googleAuthCallback")}`;
+    } else {
+        // Fallback for custom domains mapped to functions
+        redirectUri = `${protocol}://${host}/googleAuthCallback`;
+    }
+
+    res.redirect(302, buildGoogleAuthUrl(clientId, returnUrl, redirectUri, req.headers.origin || "https://fortsterling.app"));
+});
+
+export const googleAuthCallback = onRequest(
+    { secrets: [GOOGLE_CLIENT_SECRET, GOOGLE_CLIENT_ID], invoker: "public" },
+    async (req, res) => {
+        const code = req.query.code as string;
+        const state = req.query.state as string;
+        const error = req.query.error as string;
+        const returnUrl = parseOAuthState(state, req.headers.origin || "https://fortsterling.app");
+
+        const host = req.get("host");
+        const protocol = req.protocol === "http" && host?.includes("localhost") ? "http" : "https";
+        const redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0]}`;
+
+        if (error) {
+            console.error("OAuth Error:", error);
+            res.redirect(302, appendQueryParam(returnUrl, "error", "auth_failed"));
+            return;
+        }
+
+        if (!code) {
+            res.redirect(302, appendQueryParam(returnUrl, "error", "no_code"));
+            return;
+        }
+
+        try {
+            const { customToken } = await completeGoogleOAuth({
+                clientId: GOOGLE_CLIENT_ID.value(),
+                code,
+                redirectUri,
+                clientSecret: GOOGLE_CLIENT_SECRET.value(),
+            });
+            res.redirect(302, appendQueryParam(returnUrl, "token", customToken));
+        } catch (err) {
+            console.error("Error processing OAuth callback:", err);
+            res.redirect(302, appendQueryParam(returnUrl, "error", "server_error"));
+        }
+    }
+);
+
+export const exchangeGoogleAuthCode = onCall(
+    { secrets: [GOOGLE_CLIENT_SECRET, GOOGLE_CLIENT_ID], cors: true },
+    async (request) => {
+        const data = request.data || {};
+        const code = data.code;
+        const redirectUri = data.redirectUri;
+
+        if (!code || !redirectUri) {
+            throw new HttpsError("invalid-argument", "Missing authorization code or redirect URI.");
+        }
+
+        try {
+            const { customToken } = await completeGoogleOAuth({
+                clientId: GOOGLE_CLIENT_ID.value(),
+                code,
+                redirectUri,
+                clientSecret: GOOGLE_CLIENT_SECRET.value(),
+            });
+            return { customToken };
+        } catch (err) {
+            console.error("exchangeGoogleAuthCode failed:", err);
+            throw new HttpsError("internal", "Failed to complete Google sign-in.");
+        }
+    }
+);

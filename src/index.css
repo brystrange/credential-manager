@@ -1365,6 +1365,7 @@ button {
 }
 
 .modal-content {
+  font-size: 13px;
   width: 100%;
   max-width: 420px;
   background: var(--bg-secondary);
@@ -2325,6 +2326,7 @@ button {
   }
 
   .modal-content {
+    font-size: 11px;
     max-width: 100%;
     border-radius: var(--radius-lg);
     padding: 18px 16px;

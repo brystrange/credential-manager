@@ -28,8 +28,8 @@ export default function TransparencyPage() {
                     <div style={{ background: "var(--bg-card)", padding: "20px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", marginBottom: "32px", overflowX: "auto" }}>
                         <pre style={{ margin: 0, fontFamily: "monospace", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
 {`{
-  "id": "cred_xyz123",
-  "userId": "user_abc987",
+  "encryptedMasterKey": "a6d4a5f1fb961b0ab5328609:9dc85425b537c489b9b5ac1bf2f3452e097...",
+  "fullName": "ffdf2ff0735f1c3f3076f798:a0b1eaf4c999b757c5f08b0cb647783cc952d475b033c...",
   "createdAt": "2024-03-15T10:30:00Z",
   "updatedAt": "2024-03-15T10:30:00Z",
   

@@ -985,7 +985,7 @@ export default function FileExplorer() {
             {duplicatePrompt && (
                 <div className="modal-overlay" onClick={() => duplicatePrompt.resolve('skip')}>
                     <div className="modal-content" onClick={e => e.stopPropagation()}>
-                        <h3>File Already Exists</h3>
+                        <h3>File Already Exists</h3><br></br>
                         <p>A file named <strong>"{duplicatePrompt.fileName}"</strong> already exists in this folder.</p>
                         <p>What would you like to do?</p>
                         <div className="confirm-actions" style={{ flexDirection: 'column', gap: '8px', marginTop: '20px' }}>

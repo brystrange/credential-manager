@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getPendingCustomPlatforms = exports.createBillingPortalSession = exports.lemonWebhook = exports.createCheckoutSession = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
+exports.exchangeGoogleAuthCode = exports.googleAuthCallback = exports.googleAuthStart = exports.getPendingCustomPlatforms = exports.createBillingPortalSession = exports.lemonWebhook = exports.createCheckoutSession = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const params_1 = require("firebase-functions/params");
 const crypto = __importStar(require("crypto"));
 const validatePlatform_1 = require("./validatePlatform");
 admin.initializeApp();
@@ -108,22 +109,20 @@ exports.deletePlatform = (0, https_1.onCall)(async (request) => {
 // One-time setup function. Grant admin privileges to the hard-coded email.
 // This can be called once and then removed or left disabled.
 exports.setAdminClaim = (0, https_1.onCall)(async (request) => {
-    // Only allow the specific admin email to bootstrap themselves
-    const ADMIN_EMAIL = "bryankeithmayor1@gmail.com";
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "You must be signed in.");
+    var _a, _b;
+    assertAdmin(request.auth);
+    const uid = (_a = request.data) === null || _a === void 0 ? void 0 : _a.uid;
+    const revoke = ((_b = request.data) === null || _b === void 0 ? void 0 : _b.revoke) === true;
+    if (!uid || typeof uid !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "Target UID is required.");
     }
-    if (request.auth.token.email !== ADMIN_EMAIL) {
-        throw new https_1.HttpsError("permission-denied", "Not authorised to set admin claims.");
-    }
-    await admin.auth().setCustomUserClaims(request.auth.uid, { admin: true });
-    return { success: true, message: "Admin claim set. Sign out and back in for it to take effect." };
+    await admin.auth().setCustomUserClaims(uid, revoke ? { admin: false } : { admin: true });
+    return { success: true, message: `Admin claim ${revoke ? 'revoked from' : 'granted to'} user ${uid}.` };
 });
 // Removed escrow functionality for true zero-knowledge security.
 // ══════════════════════════════════════════════════════════════════════════════
 //  LEMON SQUEEZY SUBSCRIPTION INTEGRATION
 // ══════════════════════════════════════════════════════════════════════════════
-const https_2 = require("firebase-functions/v2/https");
 const https = __importStar(require("https"));
 /** Helper: POST to Lemon Squeezy REST API */
 function lsRequest(path, method, apiKey, body) {
@@ -212,7 +211,7 @@ exports.createCheckoutSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_AP
 // ─── lemonWebhook ────────────────────────────────────────────────────────────
 // Public HTTPS endpoint for Lemon Squeezy to POST events to.
 // Verifies HMAC-SHA256 signature before processing.
-exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] }, async (req, res) => {
+exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] }, async (req, res) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     if (req.method !== "POST") {
         res.status(405).send("Method Not Allowed");
@@ -262,7 +261,7 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: String((_h = (_g = payload.data) === null || _g === void 0 ? void 0 : _g.id) !== null && _h !== void 0 ? _h : ""),
-                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : ((_j = attributes.status) !== null && _j !== void 0 ? _j : "active"),
+                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_j = attributes.status) !== null && _j !== void 0 ? _j : "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -271,7 +270,7 @@ exports.lemonWebhook = (0, https_2.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 break;
             case "subscription_updated":
                 await userRef.update({
-                    subscriptionStatus: (attributes.status === "on_trial" || attributes.status === "on-trial") ? "active" : ((_l = attributes.status) !== null && _l !== void 0 ? _l : "active"),
+                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_l = attributes.status) !== null && _l !== void 0 ? _l : "active"),
                     currentPeriodEnd: attributes.renews_at
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
@@ -388,5 +387,85 @@ exports.getPendingCustomPlatforms = (0, https_1.onCall)({ timeoutSeconds: 300 },
     }));
     pendingPlatforms.sort((a, b) => b.count - a.count);
     return { pendingPlatforms };
+});
+// ─── Google OAuth for In-App Browsers ────────────────────────────────────────
+const GOOGLE_CLIENT_SECRET = (0, params_1.defineSecret)("GOOGLE_CLIENT_SECRET");
+const GOOGLE_CLIENT_ID = (0, params_1.defineSecret)("GOOGLE_CLIENT_ID");
+const googleOAuth_1 = require("./googleOAuth");
+// Helper to determine redirect URI for the callback
+function getRedirectUri(req) {
+    const host = req.get("host");
+    const protocol = req.protocol === "http" && host.includes("localhost") ? "http" : "https";
+    return `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/${process.env.FUNCTION_REGION || 'us-central1'}/googleAuthCallback`;
+}
+exports.googleAuthStart = (0, https_1.onRequest)({ cors: true, invoker: "public" }, (req, res) => {
+    // We expect the frontend to pass the client ID as a query param, or we can use a hardcoded one if preferred.
+    // For now, we will use the secret defined GOOGLE_CLIENT_ID or fallback to a query parameter.
+    const clientId = GOOGLE_CLIENT_ID.value();
+    const returnUrl = (0, googleOAuth_1.decodeReturnUrl)(req.query.returnUrl, req.headers.origin || "https://fortsterling.app");
+    // We dynamically build the redirectUri based on the current request
+    const host = req.get("host");
+    const protocol = req.protocol === "http" && (host === null || host === void 0 ? void 0 : host.includes("localhost")) ? "http" : "https";
+    let redirectUri = "";
+    if ((host === null || host === void 0 ? void 0 : host.includes("cloudfunctions.net")) || (host === null || host === void 0 ? void 0 : host.includes("localhost:5001"))) {
+        redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0].replace("googleAuthStart", "googleAuthCallback")}`;
+    }
+    else {
+        // Fallback for custom domains mapped to functions
+        redirectUri = `${protocol}://${host}/googleAuthCallback`;
+    }
+    res.redirect(302, (0, googleOAuth_1.buildGoogleAuthUrl)(clientId, returnUrl, redirectUri, req.headers.origin || "https://fortsterling.app"));
+});
+exports.googleAuthCallback = (0, https_1.onRequest)({ secrets: [GOOGLE_CLIENT_SECRET, GOOGLE_CLIENT_ID], invoker: "public" }, async (req, res) => {
+    const code = req.query.code;
+    const state = req.query.state;
+    const error = req.query.error;
+    const returnUrl = (0, googleOAuth_1.parseOAuthState)(state, req.headers.origin || "https://fortsterling.app");
+    const host = req.get("host");
+    const protocol = req.protocol === "http" && (host === null || host === void 0 ? void 0 : host.includes("localhost")) ? "http" : "https";
+    const redirectUri = `${protocol}://${host}${req.originalUrl.split("?")[0]}`;
+    if (error) {
+        console.error("OAuth Error:", error);
+        res.redirect(302, (0, googleOAuth_1.appendQueryParam)(returnUrl, "error", "auth_failed"));
+        return;
+    }
+    if (!code) {
+        res.redirect(302, (0, googleOAuth_1.appendQueryParam)(returnUrl, "error", "no_code"));
+        return;
+    }
+    try {
+        const { customToken } = await (0, googleOAuth_1.completeGoogleOAuth)({
+            clientId: GOOGLE_CLIENT_ID.value(),
+            code,
+            redirectUri,
+            clientSecret: GOOGLE_CLIENT_SECRET.value(),
+        });
+        res.redirect(302, (0, googleOAuth_1.appendQueryParam)(returnUrl, "token", customToken));
+    }
+    catch (err) {
+        console.error("Error processing OAuth callback:", err);
+        res.redirect(302, (0, googleOAuth_1.appendQueryParam)(returnUrl, "error", "server_error"));
+    }
+});
+exports.exchangeGoogleAuthCode = (0, https_1.onCall)({ secrets: [GOOGLE_CLIENT_SECRET, GOOGLE_CLIENT_ID], cors: true }, async (request) => {
+    const data = request.data || {};
+    const code = data.code;
+    const redirectUri = data.redirectUri;
+    if (!code || !redirectUri) {
+        throw new https_1.HttpsError("invalid-argument", "Missing authorization code or redirect URI.");
+    }
+    try {
+        const { customToken } = await (0, googleOAuth_1.completeGoogleOAuth)({
+            clientId: GOOGLE_CLIENT_ID.value(),
+            code,
+            redirectUri,
+            clientSecret: GOOGLE_CLIENT_SECRET.value(),
+        });
+        return { customToken };
+    }
+    catch (err) {
+        console.error("exchangeGoogleAuthCode failed:", err);
+        throw new https_1.HttpsError("internal", "Failed to complete Google sign-in.");
+    }
 });
 //# sourceMappingURL=index.js.map

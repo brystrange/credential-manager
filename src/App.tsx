@@ -12,6 +12,7 @@ import type { Platform } from "./services/platformService";
 import { getPlatforms } from "./services/platformService";
 import AuthPage from "./components/AuthPage";
 import LandingPage from "./components/LandingPage";
+import AuthCallback from "./components/AuthCallback";
 import CredentialModal from "./components/CredentialModal";
 import FileExplorer from "./components/FileExplorer";
 import HistoryPanel from "./components/HistoryPanel";
@@ -766,6 +767,9 @@ function AppInner({
 
     // Not signed in
     if (!user) {
+        if (location.pathname === "/auth-callback") {
+            return <AuthCallback />;
+        }
         if (location.pathname === "/login") {
             return (
                 <AuthPage

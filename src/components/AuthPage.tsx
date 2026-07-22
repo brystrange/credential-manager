@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLoginThrottle } from "../hooks/useLoginThrottle";
+import { isInAppBrowser } from "../utils/browserDetection";
 import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, resendVerificationEmail, resetPassword, validatePassword } from "../services/authService";
 import {
     FiMail,
@@ -198,6 +199,18 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         // Guard against VaultUnlockGate / dashboard flashing while Firebase
         // auth state changes during the popup flow.
         onAuthStart?.();
+
+        if (isInAppBrowser()) {
+            const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || "fort-knox-6978d";
+            const currentHost = window.location.host;
+            const functionBaseUrl = currentHost.includes("localhost")
+                ? `http://127.0.0.1:5001/${projectId}/us-central1`
+                : `https://us-central1-${projectId}.cloudfunctions.net`;
+            
+            window.location.href = `${functionBaseUrl}/googleAuthStart?returnUrl=${encodeURIComponent(window.location.origin + "/auth-callback")}`;
+            return;
+        }
+
         try {
             const result = await signInWithGoogle();
             recordSuccess();

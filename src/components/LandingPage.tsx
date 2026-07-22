@@ -50,6 +50,7 @@ export default function LandingPage() {
                 </div>
                 
                 <nav className="hide-on-mobile" style={{ display: "flex", gap: "32px", alignItems: "center" }}>
+                    <Link to="/" style={{ color: "var(--text-secondary)", textDecoration: "none", fontWeight: "500", transition: "var(--transition)" }} onMouseOver={e => e.currentTarget.style.color = "var(--text-primary)"} onMouseOut={e => e.currentTarget.style.color = "var(--text-secondary)"}>Home</Link>
                     <a href="#features" style={{ color: "var(--text-secondary)", textDecoration: "none", fontWeight: "500", transition: "var(--transition)" }} onMouseOver={e => e.currentTarget.style.color = "var(--text-primary)"} onMouseOut={e => e.currentTarget.style.color = "var(--text-secondary)"}>Features</a>
                     <a href="#pricing" style={{ color: "var(--text-secondary)", textDecoration: "none", fontWeight: "500", transition: "var(--transition)" }} onMouseOver={e => e.currentTarget.style.color = "var(--text-primary)"} onMouseOut={e => e.currentTarget.style.color = "var(--text-secondary)"}>Pricing</a>
                     <a href="#trust" style={{ color: "var(--text-secondary)", textDecoration: "none", fontWeight: "500", transition: "var(--transition)" }} onMouseOver={e => e.currentTarget.style.color = "var(--text-primary)"} onMouseOut={e => e.currentTarget.style.color = "var(--text-secondary)"}>Trust Center</a>
@@ -335,7 +336,7 @@ await sendToServer(encrypted, iv);`}
                             />
                             <FAQItem 
                                 question="Is there a mobile app available?" 
-                                answer="Our web application is fully responsive and designed to work seamlessly on mobile browsers. Native mobile apps are currently in development." 
+                                answer="Our web application is fully responsive and designed to work seamlessly on mobile browsers." 
                             />
                             <FAQItem 
                                 question="How much does Fort Sterling cost?" 
