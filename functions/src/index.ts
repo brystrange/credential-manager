@@ -464,7 +464,7 @@ function getRedirectUri(req: any): string {
     return `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/${process.env.FUNCTION_REGION || 'us-central1'}/googleAuthCallback`;
 }
 
-export const googleAuthStart = onRequest({ cors: true, invoker: "public" }, (req, res) => {
+export const googleAuthStart = onRequest({ secrets: [GOOGLE_CLIENT_ID], cors: true, invoker: "public" }, (req, res) => {
     // We expect the frontend to pass the client ID as a query param, or we can use a hardcoded one if preferred.
     // For now, we will use the secret defined GOOGLE_CLIENT_ID or fallback to a query parameter.
     const clientId = GOOGLE_CLIENT_ID.value();
