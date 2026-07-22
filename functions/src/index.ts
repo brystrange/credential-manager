@@ -457,11 +457,16 @@ import {
     appendQueryParam,
 } from "./googleOAuth";
 
+// Hardcoded redirect URI — must match exactly what is whitelisted in Google Cloud Console
+const PRODUCTION_REDIRECT_URI = "https://us-central1-fort-knox-6978d.cloudfunctions.net/googleAuthCallback";
+
 // Helper to determine redirect URI for the callback
 function getRedirectUri(req: any): string {
     const host = req.get("host");
-    const protocol = req.protocol === "http" && host.includes("localhost") ? "http" : "https";
-    return `${protocol}://${host}/${process.env.GCLOUD_PROJECT}/${process.env.FUNCTION_REGION || 'us-central1'}/googleAuthCallback`;
+    if (host?.includes("localhost")) {
+        return `http://${host}/fort-knox-6978d/us-central1/googleAuthCallback`;
+    }
+    return PRODUCTION_REDIRECT_URI;
 }
 
 export const googleAuthStart = onRequest({ secrets: [GOOGLE_CLIENT_ID], cors: true, invoker: "public" }, (req, res) => {
@@ -471,10 +476,7 @@ export const googleAuthStart = onRequest({ secrets: [GOOGLE_CLIENT_ID], cors: tr
     const returnUrl = decodeReturnUrl(req.query.returnUrl as string, req.headers.origin || "https://fortsterling.app");
     
     // We dynamically build the redirectUri based on the current request
-    const isLocal = req.get("host")?.includes("localhost");
-    const redirectUri = isLocal 
-        ? `http://${req.get("host")}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`
-        : `https://us-central1-${process.env.GCLOUD_PROJECT}.cloudfunctions.net/googleAuthCallback`;
+    const redirectUri = getRedirectUri(req);
 
     res.redirect(302, buildGoogleAuthUrl(clientId, returnUrl, redirectUri, req.headers.origin || "https://fortsterling.app"));
 });
@@ -487,10 +489,8 @@ export const googleAuthCallback = onRequest(
         const error = req.query.error as string;
         const returnUrl = parseOAuthState(state, req.headers.origin || "https://fortsterling.app");
 
-        const isLocal = req.get("host")?.includes("localhost");
-        const redirectUri = isLocal 
-            ? `http://${req.get("host")}/${process.env.GCLOUD_PROJECT}/us-central1/googleAuthCallback`
-            : `https://us-central1-${process.env.GCLOUD_PROJECT}.cloudfunctions.net/googleAuthCallback`;
+        const redirectUri = getRedirectUri(req);
+        console.log("googleAuthCallback: redirectUri =", redirectUri, "| host =", req.get("host"), "| code present =", !!code);
 
         if (error) {
             console.error("OAuth Error:", error);
