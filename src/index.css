@@ -4061,11 +4061,11 @@ option {
   flex-direction: column !important;
   align-items: center !important;
   width: 100% !important;
-  background: #ffffff !important;
-  background-color: #ffffff !important;
+  background: #e5e5e5 !important;
+  background-color: #e5e5e5 !important;
 }
 
-section.docx {
+.docx-preview-wrapper > * {
   margin: 0 auto 20px auto !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
@@ -4078,7 +4078,7 @@ section.docx {
 
 .excel-preview-wrapper {
   color: #000 !important;
-  background: #ffffff !important;
+  background: #e5e5e5 !important;
   padding: 20px;
 }
 

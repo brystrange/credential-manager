@@ -17,6 +17,9 @@ import FolderPickerModal from "./FolderPickerModal";
 import { useSubscription } from "../context/SubscriptionContext";
 import { compressImage } from "../utils/imageCompressor";
 import PDFEditor from "./PDFEditor";
+import { renderAsync } from "docx-preview";
+import * as XLSX from "xlsx";
+import JSZip from "jszip";
 
 const gradientColorsList = [
     { id: 'sunset-glow', name: 'Sunset Glow', start: '#fb7185', end: '#fb923c' },
@@ -58,6 +61,14 @@ const MS_OFFICE_TYPES = [
 ];
 
 const isOfficeFile = (type: string) => MS_OFFICE_TYPES.includes(type);
+const isDocxFile = (type: string) =>
+    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    type === 'application/msword';
+const isExcelFile = (type: string) =>
+    type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    type === 'application/vnd.ms-excel';
+const isPptxFile = (type: string) =>
+    type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
 const globalImageCache = new Map<string, string>();
 
@@ -148,8 +159,11 @@ export default function FileExplorer() {
     };
 
     // Image Viewer
-    const [selectedImage, setSelectedImage] = useState<{ file: VaultFile, url: string, pdfData?: Uint8Array } | null>(null);
+    const [selectedImage, setSelectedImage] = useState<{ file: VaultFile, url: string, pdfData?: Uint8Array, officeData?: ArrayBuffer, excelHtml?: string, pptxThumbnailUrl?: string } | null>(null);
+    const officeContainerRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [imageCache, setImageCache] = useState<Record<string, string>>({});
+    const [officeDataCache, setOfficeDataCache] = useState<Record<string, { arrayBuffer?: ArrayBuffer, excelHtml?: string, pptxThumbnailUrl?: string }>>({});
     const [imageMenuOpen, setImageMenuOpen] = useState(false);
     const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
     const [loadingColor, setLoadingColor] = useState<string | null>(null);
@@ -193,6 +207,33 @@ export default function FileExplorer() {
         };
         window.addEventListener("resize", handleResize);
         return () => window.removeEventListener("resize", handleResize);
+    }, [selectedImage]);
+
+    useEffect(() => {
+        if (scrollContainerRef.current) {
+            const el = scrollContainerRef.current;
+            if (el.scrollWidth > el.clientWidth) {
+                el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+            }
+        }
+    }, [zoomLevel]);
+
+    // Render docx files when officeContainerRef is available
+    useEffect(() => {
+        if (
+            selectedImage &&
+            selectedImage.officeData &&
+            isDocxFile(selectedImage.file.type) &&
+            officeContainerRef.current
+        ) {
+            officeContainerRef.current.innerHTML = '';
+            renderAsync(selectedImage.officeData, officeContainerRef.current, undefined, {
+                className: 'docx-preview-wrapper',
+                inWrapper: true,
+                ignoreWidth: false,
+                ignoreHeight: false,
+            }).catch((err: unknown) => console.error('Failed to render docx', err));
+        }
     }, [selectedImage]);
 
     useEffect(() => {
@@ -485,7 +526,17 @@ export default function FileExplorer() {
         setZoomLevel(1);
         setPan({ x: 0, y: 0 });
         if (imageCache[file.id]) {
-            setSelectedImage({ file, url: imageCache[file.id] });
+            if (isOfficeFile(file.type) && officeDataCache[file.id]) {
+                setSelectedImage({ 
+                    file, 
+                    url: imageCache[file.id], 
+                    officeData: officeDataCache[file.id].arrayBuffer,
+                    excelHtml: officeDataCache[file.id].excelHtml,
+                    pptxThumbnailUrl: officeDataCache[file.id].pptxThumbnailUrl
+                });
+            } else {
+                setSelectedImage({ file, url: imageCache[file.id] });
+            }
             return;
         }
         setActionLoading(true);
@@ -496,8 +547,89 @@ export default function FileExplorer() {
             setImageCache(prev => ({ ...prev, [file.id]: url }));
 
             if (file.type === "application/pdf") {
+                // Pass raw data to react-pdf instead of blob URL (fixes mobile)
                 const arrayBuffer = await blob.arrayBuffer();
                 setSelectedImage({ file, url, pdfData: new Uint8Array(arrayBuffer) });
+            } else if (isOfficeFile(file.type)) {
+                const arrayBuffer = await blob.arrayBuffer();
+                let excelHtml = undefined;
+                let pptxThumbnailUrl = undefined;
+                
+                if (isExcelFile(file.type)) {
+                    try {
+                        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        worksheet['!ref'] = 'A1:AJ50'; // Force preview to show exactly A1 to AJ50
+                        let rawHtml = XLSX.utils.sheet_to_html(worksheet);
+                        if (worksheet['!ref']) {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(rawHtml, 'text/html');
+                            const table = doc.querySelector('table');
+                            if (table) {
+                                const range = XLSX.utils.decode_range(worksheet['!ref']);
+                                const colCount = range.e.c;
+                                
+                                const headerRow = doc.createElement('tr');
+                                const cornerTh = doc.createElement('th');
+                                cornerTh.style.background = '#f3f4f6';
+                                cornerTh.style.border = '1px solid #ccc';
+                                cornerTh.style.minWidth = '40px';
+                                headerRow.appendChild(cornerTh);
+                                
+                                for (let i = 0; i <= colCount; i++) {
+                                    const th = doc.createElement('th');
+                                    th.textContent = XLSX.utils.encode_col(i);
+                                    th.style.background = '#f3f4f6';
+                                    th.style.border = '1px solid #ccc';
+                                    th.style.padding = '4px 8px';
+                                    th.style.textAlign = 'center';
+                                    headerRow.appendChild(th);
+                                }
+                                table.prepend(headerRow);
+                                
+                                const rows = table.querySelectorAll('tr');
+                                for (let i = 1; i < rows.length; i++) {
+                                    const th = doc.createElement('th');
+                                    th.textContent = i.toString();
+                                    th.style.background = '#f3f4f6';
+                                    th.style.border = '1px solid #ccc';
+                                    th.style.padding = '4px 8px';
+                                    th.style.textAlign = 'center';
+                                    rows[i].prepend(th);
+                                }
+                                
+                                const cells = table.querySelectorAll('td, th');
+                                cells.forEach(cell => {
+                                    (cell as HTMLElement).style.border = '1px solid #ccc';
+                                });
+                                
+                                table.style.borderCollapse = 'collapse';
+                                excelHtml = table.outerHTML;
+                            } else {
+                                excelHtml = rawHtml;
+                            }
+                        } else {
+                            excelHtml = rawHtml;
+                        }
+                    } catch (e) {
+                        console.error("Excel parse failed", e);
+                    }
+                } else if (isPptxFile(file.type)) {
+                    try {
+                        const zip = await JSZip.loadAsync(arrayBuffer);
+                        const thumbnailFile = zip.file("docProps/thumbnail.jpeg");
+                        if (thumbnailFile) {
+                            const thumbBlob = await thumbnailFile.async("blob");
+                            pptxThumbnailUrl = URL.createObjectURL(thumbBlob);
+                        }
+                    } catch (e) {
+                        console.error("PPTX thumb parse failed", e);
+                    }
+                }
+
+                setOfficeDataCache(prev => ({ ...prev, [file.id]: { arrayBuffer, excelHtml, pptxThumbnailUrl } }));
+                setSelectedImage({ file, url, officeData: arrayBuffer, excelHtml, pptxThumbnailUrl });
             } else {
                 setSelectedImage({ file, url });
             }
@@ -521,6 +653,7 @@ export default function FileExplorer() {
         if (previewable) {
             handleFileViewClick(file);
         } else {
+            // Unsupported file type — prompt user to download
             setDownloadPromptFile(file);
         }
     };
@@ -1137,15 +1270,86 @@ export default function FileExplorer() {
                                 <audio src={selectedImage.url} controls style={{ maxWidth: '100%', width: '320px' }} />
                             </div>
                         ) : isOfficeFile(selectedImage.file.type) ? (
-                            <div style={{ width: '100%', height: '100%', backgroundColor: '#e5e5e5', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                                <iframe
-                                    src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(selectedImage.url)}`}
-                                    width="100%"
-                                    height="100%"
-                                    frameBorder="0"
-                                    title={selectedImage.file.name}
+                            isDocxFile(selectedImage.file.type) ? (
+                                <div
+                                    ref={scrollContainerRef}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        flex: 1,
+                                        overflow: 'auto',
+                                        WebkitOverflowScrolling: 'touch',
+                                        background: '#ffffff',
+                                        color: '#000',
+                                        borderRadius: 'var(--radius-md)',
+                                        display: 'block',
+                                    }}
+                                >
+                                    <div style={{ margin: '0 auto', width: '100%' }}>
+                                        <div
+                                            ref={officeContainerRef}
+                                            onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                            className="office-document-container"
+                                        />
+                                    </div>
+                                </div>
+                            ) : isExcelFile(selectedImage.file.type) && selectedImage.excelHtml ? (
+                                <div
+                                    ref={scrollContainerRef}
+                                    onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        flex: 1,
+                                        overflow: 'auto',
+                                        WebkitOverflowScrolling: 'touch',
+                                        background: '#ffffff',
+                                        color: '#000',
+                                        borderRadius: 'var(--radius-md)',
+                                        padding: '20px',
+                                        display: 'block',
+                                    }}
+                                >
+                                    <div style={{ margin: '0 auto', width: 'max-content' }}>
+                                        <div
+                                            className="excel-preview-wrapper"
+                                            style={{ zoom: zoomLevel } as any}
+                                            dangerouslySetInnerHTML={{ __html: selectedImage.excelHtml }}
+                                        />
+                                    </div>
+                                </div>
+                            ) : isPptxFile(selectedImage.file.type) && selectedImage.pptxThumbnailUrl ? (
+                                <img
+                                    src={selectedImage.pptxThumbnailUrl}
+                                    alt="Presentation Thumbnail"
+                                    onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                    style={{
+                                        maxWidth: '100%',
+                                        maxHeight: '100%',
+                                        objectFit: 'contain',
+                                        borderRadius: 'var(--radius-md)',
+                                        boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                                    }}
                                 />
-                            </div>
+                            ) : (
+                                <div onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', width: '100%', padding: '32px' }}>
+                                    <FiFileText size={64} style={{ color: 'var(--text-secondary)' }} />
+                                    <p style={{ color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 500, textAlign: 'center' }}>{selectedImage.file.name}</p>
+                                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Preview is not available for this file type.</p>
+                                    <button
+                                        className="auth-submit"
+                                        style={{ width: 'auto', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}
+                                        onClick={() => handleDownload(selectedImage.file)}
+                                        disabled={loadingFileId === selectedImage.file.id}
+                                    >
+                                        {loadingFileId === selectedImage.file.id ? (
+                                            <><FiLoader className="spin" /> Downloading...</>
+                                        ) : (
+                                            <><FiDownload /> Download File</>
+                                        )}
+                                    </button>
+                                </div>
+                            )
                         ) : (
                             <div style={{ width: '100%', height: '100%', overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
                                 <iframe 
