@@ -1093,8 +1093,8 @@ export default function FileExplorer() {
                     <div 
                         className="image-viewer-content" 
                         style={{ 
-                            padding: selectedImage.file.type === 'application/pdf' ? 0 : undefined,
-                            background: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? '#f5f5f7' : undefined
+                            padding: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 0 : undefined,
+                            background: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? '#e5e5e5' : undefined
                         }}
                         onClick={(e) => {
                             if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) {
@@ -1279,7 +1279,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: '#f5f5f7',
+                                        background: '#e5e5e5',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         display: 'block',
@@ -1303,7 +1303,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: '#f5f5f7',
+                                        background: '#e5e5e5',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         padding: '20px',
