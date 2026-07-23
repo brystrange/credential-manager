@@ -1032,10 +1032,14 @@ export default function FileExplorer() {
                         <div className="image-viewer-title">{selectedImage.file.name}</div>
                         
                         <div className="image-viewer-actions desktop-only">
-                            <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In"><FiZoomIn /></button>
-                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
-                            <button onClick={() => { setZoomLevel(1); setPan({ x: 0, y: 0 }); }} title="Reset Zoom"><FiMaximize /></button>
-                            <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 8px" }} />
+                            {(selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type)) && (
+                                <>
+                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In"><FiZoomIn /></button>
+                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
+                                    <button onClick={() => { setZoomLevel(1); setPan({ x: 0, y: 0 }); }} title="Reset Zoom"><FiMaximize /></button>
+                                    <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 8px" }} />
+                                </>
+                            )}
 
                             <button 
                                 onClick={() => handleDownload(selectedImage.file)}
@@ -1054,9 +1058,13 @@ export default function FileExplorer() {
                         </div>
                         
                         <div className="image-viewer-actions mobile-only">
-                            <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
-                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
-                            <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
+                            {(selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type)) && (
+                                <>
+                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
+                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
+                                    <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
+                                </>
+                            )}
                             <button className="ellipsis-btn" onClick={(e) => { e.stopPropagation(); setImageMenuOpen(!imageMenuOpen); }}>
                                 {loadingFileId === selectedImage.file.id ? <FiLoader size={24} className="spin" /> : <FiMoreHorizontal size={24} />}
                             </button>
@@ -1215,9 +1223,9 @@ export default function FileExplorer() {
                                 e.currentTarget.releasePointerCapture(e.pointerId);
                             }}
                             style={{ 
-                                transform: !isOfficeFile(selectedImage.file.type) ? `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` : undefined,
+                                transform: (selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type)) ? `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` : undefined,
                                 transition: isDragging || activePointers.current.size === 2 ? 'none' : 'transform 0.1s ease-out',
-                                cursor: zoomLevel > 1 && !isOfficeFile(selectedImage.file.type) ? (isDragging ? "grabbing" : "grab") : "default",
+                                cursor: zoomLevel > 1 && selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type) ? (isDragging ? "grabbing" : "grab") : "default",
                                 width: '100%',
                                 height: '100%',
                                 flex: 1,
@@ -1225,7 +1233,7 @@ export default function FileExplorer() {
                                 flexDirection: 'column',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                touchAction: zoomLevel > 1 && !isOfficeFile(selectedImage.file.type) ? 'none' : 'pan-x pan-y'
+                                touchAction: zoomLevel > 1 && selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type) ? 'none' : 'pan-x pan-y'
                             }}
                         >
                             {selectedImage.file.type.startsWith('image/') ? (
