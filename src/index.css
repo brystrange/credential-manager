@@ -4061,6 +4061,7 @@ option {
   flex-direction: column !important;
   align-items: flex-start !important;
   width: max-content !important;
+  background: transparent !important;
 }
 .docx-wrapper > section.docx {
   margin: 0 auto !important;
