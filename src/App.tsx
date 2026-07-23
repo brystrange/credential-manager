@@ -561,9 +561,10 @@ function AppInner({
 
     useEffect(() => {
         const unsub = onAuthChange((u) => {
-            // Block unverified users
+            // Block unverified users from accessing the app state.
+            // We DO NOT sign them out here immediately because if they are in the middle 
+            // of signing up, `signUp` still needs to write their profile to Firestore.
             if (u && !u.emailVerified) {
-                signOutUser();
                 return;
             }
             setUser(u);
