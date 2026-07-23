@@ -4061,7 +4061,8 @@ option {
   flex-direction: column !important;
   align-items: flex-start !important;
   width: max-content !important;
-  background: transparent !important;
+  background: #e5e5e5 !important;
+  background-color: #e5e5e5 !important;
 }
 .docx-wrapper > section.docx {
   margin: 0 auto !important;
@@ -4072,8 +4073,13 @@ option {
 
 .excel-preview-wrapper {
   color: #000 !important;
-  background: #fff !important;
+  background: #e5e5e5 !important;
   padding: 20px;
+}
+
+.docx-preview-wrapper {
+  background: #e5e5e5 !important;
+  background-color: #e5e5e5 !important;
 }
 
 .docx-preview-wrapper *,
