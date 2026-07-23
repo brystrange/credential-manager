@@ -4056,30 +4056,26 @@ option {
 }
 
 /* Office preview styling isolation — override dark theme inheritance */
-.docx-wrapper {
+.docx-wrapper, .docx-preview-wrapper, .office-document-container > div {
   display: flex !important;
   flex-direction: column !important;
-  align-items: flex-start !important;
+  align-items: center !important;
   width: max-content !important;
   background: #e5e5e5 !important;
   background-color: #e5e5e5 !important;
 }
-.docx-wrapper > section.docx {
-  margin: 0 auto !important;
-}
-.docx-wrapper > section.docx:not(:first-child) {
-  display: none !important;
+
+section.docx {
+  margin: 0 auto 20px auto !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1) !important;
 }
 
 .excel-preview-wrapper {
   color: #000 !important;
   background: #e5e5e5 !important;
   padding: 20px;
-}
-
-.docx-preview-wrapper {
-  background: #e5e5e5 !important;
-  background-color: #e5e5e5 !important;
 }
 
 .docx-preview-wrapper *,

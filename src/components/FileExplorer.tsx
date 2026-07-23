@@ -1290,6 +1290,7 @@ export default function FileExplorer() {
                                             ref={officeContainerRef}
                                             style={{ zoom: zoomLevel } as any}
                                             onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                            className="office-document-container"
                                         />
                                     </div>
                                 </div>
