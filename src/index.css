@@ -4061,8 +4061,8 @@ option {
   flex-direction: column !important;
   align-items: center !important;
   width: 100% !important;
-  background: #e5e5e5 !important;
-  background-color: #e5e5e5 !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
 }
 
 section.docx {
@@ -4070,14 +4070,15 @@ section.docx {
   background: #ffffff !important;
   background-color: #ffffff !important;
   box-shadow: 0 2px 10px rgba(0,0,0,0.1) !important;
-  max-width: 816px !important;
-  width: 100% !important;
+  width: 816px !important;
+  max-width: 100% !important;
+  min-height: 1056px !important;
   box-sizing: border-box !important;
 }
 
 .excel-preview-wrapper {
   color: #000 !important;
-  background: #e5e5e5 !important;
+  background: #ffffff !important;
   padding: 20px;
 }
 

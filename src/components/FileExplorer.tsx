@@ -1094,7 +1094,7 @@ export default function FileExplorer() {
                         className="image-viewer-content" 
                         style={{ 
                             padding: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 0 : undefined,
-                            background: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? '#e5e5e5' : undefined
+                            background: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? '#ffffff' : undefined
                         }}
                         onClick={(e) => {
                             if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) {
@@ -1279,7 +1279,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: '#e5e5e5',
+                                        background: '#ffffff',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         display: 'block',
@@ -1288,7 +1288,6 @@ export default function FileExplorer() {
                                     <div style={{ margin: '0 auto', width: '100%' }}>
                                         <div
                                             ref={officeContainerRef}
-                                            style={{ zoom: zoomLevel } as any}
                                             onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
                                             className="office-document-container"
                                         />
@@ -1304,7 +1303,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: '#e5e5e5',
+                                        background: '#ffffff',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         padding: '20px',
