@@ -1032,7 +1032,7 @@ export default function FileExplorer() {
                         <div className="image-viewer-title">{selectedImage.file.name}</div>
                         
                         <div className="image-viewer-actions desktop-only">
-                            {(selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type)) && (
+                            {selectedImage.file.type.startsWith('image/') && (
                                 <>
                                     <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In"><FiZoomIn /></button>
                                     <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
@@ -1058,7 +1058,7 @@ export default function FileExplorer() {
                         </div>
                         
                         <div className="image-viewer-actions mobile-only">
-                            {(selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type)) && (
+                            {selectedImage.file.type.startsWith('image/') && (
                                 <>
                                     <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
                                     <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
@@ -1223,9 +1223,9 @@ export default function FileExplorer() {
                                 e.currentTarget.releasePointerCapture(e.pointerId);
                             }}
                             style={{ 
-                                transform: (selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type)) ? `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` : undefined,
+                                transform: selectedImage.file.type.startsWith('image/') ? `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` : undefined,
                                 transition: isDragging || activePointers.current.size === 2 ? 'none' : 'transform 0.1s ease-out',
-                                cursor: zoomLevel > 1 && selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type) ? (isDragging ? "grabbing" : "grab") : "default",
+                                cursor: zoomLevel > 1 && selectedImage.file.type.startsWith('image/') ? (isDragging ? "grabbing" : "grab") : "default",
                                 width: '100%',
                                 height: '100%',
                                 flex: 1,
@@ -1233,7 +1233,7 @@ export default function FileExplorer() {
                                 flexDirection: 'column',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                touchAction: zoomLevel > 1 && selectedImage.file.type !== 'application/pdf' && !isOfficeFile(selectedImage.file.type) ? 'none' : 'pan-x pan-y'
+                                touchAction: zoomLevel > 1 && selectedImage.file.type.startsWith('image/') ? 'none' : 'pan-x pan-y'
                             }}
                         >
                             {selectedImage.file.type.startsWith('image/') ? (
@@ -1270,7 +1270,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: 'transparent',
+                                        background: '#f5f5f7',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         display: 'block',
@@ -1294,7 +1294,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: '#fff',
+                                        background: '#f5f5f7',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         padding: '20px',
