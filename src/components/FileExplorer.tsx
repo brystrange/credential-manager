@@ -523,11 +523,7 @@ export default function FileExplorer() {
             setZoomLevel(1);
             setPan({ x: 0, y: 0 });
         }
-        if (isOfficeFile(file.type) && window.innerWidth <= 768) {
-            setZoomLevel(0.5);
-        } else {
-            setZoomLevel(1);
-        }
+        setZoomLevel(1);
         setPan({ x: 0, y: 0 });
         if (imageCache[file.id]) {
             if (isOfficeFile(file.type) && officeDataCache[file.id]) {
@@ -1037,7 +1033,7 @@ export default function FileExplorer() {
                         
                         <div className="image-viewer-actions desktop-only">
                             <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In"><FiZoomIn /></button>
-                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
+                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
                             <button onClick={() => { setZoomLevel(1); setPan({ x: 0, y: 0 }); }} title="Reset Zoom"><FiMaximize /></button>
                             <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 8px" }} />
 
@@ -1059,7 +1055,7 @@ export default function FileExplorer() {
                         
                         <div className="image-viewer-actions mobile-only">
                             <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
-                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
+                            <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
                             <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
                             <button className="ellipsis-btn" onClick={(e) => { e.stopPropagation(); setImageMenuOpen(!imageMenuOpen); }}>
                                 {loadingFileId === selectedImage.file.id ? <FiLoader size={24} className="spin" /> : <FiMoreHorizontal size={24} />}
@@ -1095,7 +1091,7 @@ export default function FileExplorer() {
                             if (e.deltaY < 0) {
                                 setZoomLevel(prev => Math.min(prev + 0.25, 5));
                             } else {
-                                setZoomLevel(prev => Math.max(prev - 0.25, 0.5));
+                                setZoomLevel(prev => Math.max(prev - 0.25, (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5));
                                 setPan({x: 0, y: 0});
                             }
                         }}
@@ -1129,7 +1125,7 @@ export default function FileExplorer() {
                                     const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
                                     if (initialPinchDist.current) {
                                         const scale = dist / initialPinchDist.current;
-                                        setZoomLevel(Math.max(0.5, Math.min(initialPinchZoom.current * scale, 5)));
+                                        setZoomLevel(Math.max((selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5, Math.min(initialPinchZoom.current * scale, 5)));
                                     }
                                     return;
                                 }
