@@ -149,7 +149,13 @@ export default function FileExplorer() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [duplicatePrompt, setDuplicatePrompt] = useState<{
         fileName: string;
-        resolve: (choice: 'replace' | 'keep' | 'skip') => void;
+        resolve: (action: 'replace' | 'keep' | 'skip') => void;
+    } | null>(null);
+
+    const [inboundRenamePrompt, setInboundRenamePrompt] = useState<{
+        originalName: string;
+        suggestedName: string;
+        resolve: (name: string) => void;
     } | null>(null);
 
     const askDuplicateAction = (fileName: string): Promise<'replace' | 'keep' | 'skip'> => {
@@ -452,6 +458,34 @@ export default function FileExplorer() {
                 
                 const fileToUpload = await compressImage(file);
                 let finalFile = fileToUpload;
+                
+                if (finalFile.name.toLowerCase().startsWith("inbound")) {
+                    let ext = finalFile.name.includes(".") ? `.${finalFile.name.split(".").pop()}` : "";
+                    if (!ext && finalFile.type) {
+                        ext = finalFile.type === "image/jpeg" ? ".jpg" : `.${finalFile.type.split("/").pop()}`;
+                        if (ext === ".html" || ext === ".htm") ext = ""; // Ignore weird default mime types sometimes
+                    }
+                    const today = new Date();
+                    const dateStr = `${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2,'0')}${today.getDate().toString().padStart(2,'0')}`;
+                    const timeStr = `${today.getHours().toString().padStart(2,'0')}${today.getMinutes().toString().padStart(2,'0')}`;
+                    const suggestedName = `Upload_${dateStr}_${timeStr}${ext}`;
+                    
+                    const newName = await new Promise<string>((resolve) => {
+                        setInboundRenamePrompt({
+                            originalName: finalFile.name,
+                            suggestedName: suggestedName,
+                            resolve
+                        });
+                    });
+                    
+                    setInboundRenamePrompt(null);
+                    
+                    if (newName && newName.trim()) {
+                        const finalName = newName.trim().endsWith(ext) ? newName.trim() : newName.trim() + ext;
+                        finalFile = new File([finalFile], finalName, { type: finalFile.type });
+                    }
+                }
+
                 const existingFile = files.find(f => f.name === finalFile.name);
                 if (existingFile) {
                     const choice = await askDuplicateAction(finalFile.name);
@@ -1003,6 +1037,38 @@ export default function FileExplorer() {
                 </div>
             )}
 
+            {inboundRenamePrompt && (
+                <div className="modal-overlay">
+                    <div className="modal-content" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2>Rename Uploaded File</h2>
+                        </div>
+                        <p style={{ marginBottom: "16px", color: "var(--text-secondary)", fontSize: "0.95rem" }}>
+                            Your browser gave this file an automatic name (<strong>"{inboundRenamePrompt.originalName}"</strong>). Please enter a better name for it:
+                        </p>
+                        <form onSubmit={(e) => {
+                            e.preventDefault();
+                            const input = (e.currentTarget.elements.namedItem("newName") as HTMLInputElement).value;
+                            inboundRenamePrompt.resolve(input);
+                        }}>
+                            <div className="auth-form-group">
+                                <label>File Name</label>
+                                <input
+                                    type="text"
+                                    name="newName"
+                                    defaultValue={inboundRenamePrompt.suggestedName}
+                                    autoFocus
+                                    required
+                                />
+                            </div>
+                            <div style={{ display: "flex", gap: "10px", marginTop: "24px", justifyContent: "flex-end" }}>
+                                <button type="button" className="btn-secondary" onClick={() => inboundRenamePrompt.resolve(inboundRenamePrompt.originalName)}>Keep Original</button>
+                                <button type="submit" className="btn-primary">Rename</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             {selectedImage && (
                 <div className="image-viewer-modal" onClick={() => {
