@@ -1092,7 +1092,16 @@ export default function FileExplorer() {
                     </div>
                     <div 
                         className="image-viewer-content" 
-                        style={{ padding: selectedImage.file.type === 'application/pdf' ? 0 : undefined }}
+                        style={{ 
+                            padding: selectedImage.file.type === 'application/pdf' ? 0 : undefined,
+                            background: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? '#f5f5f7' : undefined
+                        }}
+                        onClick={(e) => {
+                            if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) {
+                                e.stopPropagation();
+                                if (imageMenuOpen) setImageMenuOpen(false);
+                            }
+                        }}
                         onWheel={(e) => {
                             if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
                             if (e.ctrlKey || e.metaKey) {
