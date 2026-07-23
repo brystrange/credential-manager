@@ -4057,12 +4057,11 @@ option {
 
 /* Office preview styling isolation — override dark theme inheritance */
 .docx-wrapper, .docx-preview-wrapper, .office-document-container > div {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
+  display: block !important;
   width: 100% !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
+  overflow-x: auto !important;
 }
 
 .docx-preview-wrapper > * {
@@ -4073,7 +4072,7 @@ option {
   box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
   border: 1px solid rgba(0,0,0,0.05) !important;
   width: 816px !important;
-  max-width: 90% !important;
+  max-width: none !important;
   min-height: 1056px !important;
   box-sizing: border-box !important;
 }
