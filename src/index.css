@@ -4066,14 +4066,16 @@ option {
 }
 
 .docx-preview-wrapper > * {
-  margin: 0 auto 20px auto !important;
+  margin: 40px auto !important;
+  padding: 80px 60px !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1) !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
   width: 816px !important;
-  max-width: 100% !important;
+  max-width: 90% !important;
   min-height: 1056px !important;
   box-sizing: border-box !important;
+  border-radius: 2px !important;
 }
 
 .excel-preview-wrapper {
