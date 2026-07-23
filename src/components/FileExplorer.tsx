@@ -1279,7 +1279,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: '#e5e5e5',
+                                        background: '#ffffff',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         display: 'block',

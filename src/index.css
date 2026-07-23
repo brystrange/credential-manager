@@ -4061,8 +4061,8 @@ option {
   flex-direction: column !important;
   align-items: center !important;
   width: 100% !important;
-  background: #e5e5e5 !important;
-  background-color: #e5e5e5 !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
 }
 
 .docx-preview-wrapper > * {
@@ -4070,17 +4070,17 @@ option {
   padding: 80px 60px !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
+  box-shadow: none !important;
+  border: none !important;
   width: 816px !important;
   max-width: 90% !important;
   min-height: 1056px !important;
   box-sizing: border-box !important;
-  border-radius: 2px !important;
 }
 
 .excel-preview-wrapper {
   color: #000 !important;
-  background: #e5e5e5 !important;
+  background: #ffffff !important;
   padding: 20px;
 }
 
