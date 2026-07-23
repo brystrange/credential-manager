@@ -1090,6 +1090,7 @@ export default function FileExplorer() {
                         className="image-viewer-content" 
                         style={{ padding: selectedImage.file.type === 'application/pdf' ? 0 : undefined }}
                         onWheel={(e) => {
+                            if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
                             if (!e.ctrlKey && !e.metaKey) return;
                             if (e.deltaY < 0) {
                                 setZoomLevel(prev => Math.min(prev + 0.25, 5));
@@ -1103,6 +1104,7 @@ export default function FileExplorer() {
                             ref={imageRef}
                             className="image-viewer-zoom-wrapper"
                             onPointerDown={(e) => {
+                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
                                 activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
                                 if (activePointers.current.size === 2) {
                                     const pts = Array.from(activePointers.current.values());
@@ -1112,12 +1114,13 @@ export default function FileExplorer() {
                                     return;
                                 }
 
-                                if (zoomLevel <= 1 || isOfficeFile(selectedImage.file.type)) return;
+                                if (zoomLevel <= 1) return;
                                 setIsDragging(true);
                                 lastPanPos.current = { x: e.clientX, y: e.clientY };
                                 e.currentTarget.setPointerCapture(e.pointerId);
                             }}
                             onPointerMove={(e) => {
+                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
                                 if (activePointers.current.has(e.pointerId)) {
                                     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
                                 }
@@ -1157,6 +1160,7 @@ export default function FileExplorer() {
                                 lastPanPos.current = { x: e.clientX, y: e.clientY };
                             }}
                             onPointerUp={(e) => {
+                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
                                 activePointers.current.delete(e.pointerId);
                                 if (activePointers.current.size < 2) {
                                     initialPinchDist.current = null;
@@ -1180,6 +1184,7 @@ export default function FileExplorer() {
                                 });
                             }}
                             onPointerCancel={(e) => {
+                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
                                 activePointers.current.delete(e.pointerId);
                                 if (activePointers.current.size < 2) {
                                     initialPinchDist.current = null;
