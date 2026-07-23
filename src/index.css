@@ -4078,6 +4078,11 @@ option {
   box-sizing: border-box !important;
 }
 
+/* Forcefully remove ANY injected shadow from docx-preview library */
+.docx-wrapper, .docx-wrapper *, .docx-preview-wrapper, .docx-preview-wrapper *, section.docx, article {
+  box-shadow: none !important;
+}
+
 .excel-preview-wrapper {
   color: #000 !important;
   background: #ffffff !important;
