@@ -1087,12 +1087,37 @@ export default function FileExplorer() {
                         style={{ padding: selectedImage.file.type === 'application/pdf' ? 0 : undefined }}
                         onWheel={(e) => {
                             if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
-                            if (!e.ctrlKey && !e.metaKey) return;
-                            if (e.deltaY < 0) {
-                                setZoomLevel(prev => Math.min(prev + 0.25, 5));
+                            if (e.ctrlKey || e.metaKey) {
+                                if (e.deltaY < 0) {
+                                    setZoomLevel(prev => Math.min(prev + 0.25, 5));
+                                } else {
+                                    setZoomLevel(prev => {
+                                        const newZoom = Math.max(prev - 0.25, 0.5);
+                                        if (newZoom <= 1) setPan({x: 0, y: 0});
+                                        return newZoom;
+                                    });
+                                }
                             } else {
-                                setZoomLevel(prev => Math.max(prev - 0.25, (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5));
-                                setPan({x: 0, y: 0});
+                                if (zoomLevel > 1) {
+                                    setPan(prev => {
+                                        let newX = prev.x - e.deltaX;
+                                        let newY = prev.y - e.deltaY;
+                                        
+                                        if (imageRef.current) {
+                                            const w = imageRef.current.clientWidth * zoomLevel;
+                                            const h = imageRef.current.clientHeight * zoomLevel;
+                                            const boundaryMult = window.innerWidth <= 768 ? 0.4 : 0.2;
+                                            const maxDragX = w * boundaryMult + window.innerWidth / 2;
+                                            const maxDragY = h * boundaryMult + window.innerHeight / 2;
+                                            
+                                            if (newX > maxDragX) newX = maxDragX;
+                                            if (newX < -maxDragX) newX = -maxDragX;
+                                            if (newY > maxDragY) newY = maxDragY;
+                                            if (newY < -maxDragY) newY = -maxDragY;
+                                        }
+                                        return { x: newX, y: newY };
+                                    });
+                                }
                             }
                         }}
                     >
