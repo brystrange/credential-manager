@@ -1285,7 +1285,7 @@ export default function FileExplorer() {
                                         display: 'block',
                                     }}
                                 >
-                                    <div style={{ margin: '0 auto', width: 'max-content' }}>
+                                    <div style={{ margin: '0 auto', width: '100%' }}>
                                         <div
                                             ref={officeContainerRef}
                                             style={{ zoom: zoomLevel } as any}

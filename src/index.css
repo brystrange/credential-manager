@@ -4060,7 +4060,7 @@ option {
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
-  width: max-content !important;
+  width: 100% !important;
   background: #e5e5e5 !important;
   background-color: #e5e5e5 !important;
 }
