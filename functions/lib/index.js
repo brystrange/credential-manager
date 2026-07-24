@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.exchangeGoogleAuthCode = exports.googleAuthCallback = exports.googleAuthStart = exports.getPendingCustomPlatforms = exports.createBillingPortalSession = exports.lemonWebhook = exports.createCheckoutSession = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
+exports.autoDeleteExcessData = exports.exchangeGoogleAuthCode = exports.googleAuthCallback = exports.googleAuthStart = exports.getPendingCustomPlatforms = exports.createBillingPortalSession = exports.lemonWebhook = exports.createCheckoutSession = exports.setAdminClaim = exports.deletePlatform = exports.updatePlatform = exports.addPlatform = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 const params_1 = require("firebase-functions/params");
 const crypto = __importStar(require("crypto"));
 const validatePlatform_1 = require("./validatePlatform");
@@ -212,7 +213,7 @@ exports.createCheckoutSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_AP
 // Public HTTPS endpoint for Lemon Squeezy to POST events to.
 // Verifies HMAC-SHA256 signature before processing.
 exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] }, async (req, res) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
     if (req.method !== "POST") {
         res.status(405).send("Method Not Allowed");
         return;
@@ -266,6 +267,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
                     lsCustomerId: String((_k = attributes.customer_id) !== null && _k !== void 0 ? _k : ""),
+                    downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
                 });
                 break;
             case "subscription_updated":
@@ -282,12 +284,24 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                     // Keep plan: "pro" — user retains access until period ends
                 });
                 break;
-            case "subscription_expired":
+            case "subscription_expired": {
+                const userDoc = await userRef.get();
+                const storageUsed = ((_m = userDoc.data()) === null || _m === void 0 ? void 0 : _m.storageUsed) || 0;
+                const credsSnap = await userRef.collection("credentials").count().get();
+                const credsCount = credsSnap.data().count;
+                let gracePeriodEnd = null;
+                if (credsCount > 10 || storageUsed > 500 * 1024 * 1024) {
+                    const d = new Date();
+                    d.setDate(d.getDate() + 7);
+                    gracePeriodEnd = admin.firestore.Timestamp.fromDate(d);
+                }
                 await userRef.update({
                     plan: "free",
                     subscriptionStatus: "expired",
+                    ...(gracePeriodEnd ? { downgradeGracePeriodEnd: gracePeriodEnd } : {}),
                 });
                 break;
+            }
             default:
                 console.log(`Unhandled Lemon Squeezy event: ${eventName}`);
         }
@@ -461,6 +475,99 @@ exports.exchangeGoogleAuthCode = (0, https_1.onCall)({ secrets: [GOOGLE_CLIENT_S
     catch (err) {
         console.error("exchangeGoogleAuthCode failed:", err);
         throw new https_1.HttpsError("internal", "Failed to complete Google sign-in.");
+    }
+});
+// ─── autoDeleteExcessData ──────────────────────────────────────────────────
+// Runs daily to automatically delete data for users whose grace period has expired.
+exports.autoDeleteExcessData = (0, scheduler_1.onSchedule)("every day 00:00", async (event) => {
+    const now = admin.firestore.Timestamp.now();
+    const usersSnap = await db.collection("users")
+        .where("downgradeGracePeriodEnd", "<=", now)
+        .get();
+    for (const userDoc of usersSnap.docs) {
+        const uid = userDoc.id;
+        const userRef = db.collection("users").doc(uid);
+        console.log(`Processing auto-delete for user ${uid}`);
+        try {
+            // 1. Delete excess credentials
+            const credsSnap = await userRef.collection("credentials")
+                .orderBy("createdAt", "desc")
+                .get();
+            if (credsSnap.size > 10) {
+                const toDelete = credsSnap.docs.slice(0, credsSnap.size - 10); // Keep oldest 10, delete newest
+                console.log(`Deleting ${toDelete.length} excess credentials for user ${uid}`);
+                const batch = db.batch();
+                let batchCount = 0;
+                for (const doc of toDelete) {
+                    batch.delete(doc.ref);
+                    // Delete credential history subcollection as well
+                    const historySnap = await doc.ref.collection("history").get();
+                    for (const histDoc of historySnap.docs) {
+                        batch.delete(histDoc.ref);
+                        batchCount++;
+                    }
+                    batchCount++;
+                    if (batchCount >= 400) {
+                        await batch.commit();
+                        batchCount = 0;
+                    }
+                }
+                if (batchCount > 0) {
+                    await batch.commit();
+                }
+            }
+            // 2. Delete excess files
+            const filesSnap = await userRef.collection("files")
+                .orderBy("createdAt", "desc")
+                .get();
+            let storageUsed = userDoc.data().storageUsed || 0;
+            const LIMIT_500MB = 500 * 1024 * 1024;
+            if (storageUsed > LIMIT_500MB) {
+                const batch = db.batch();
+                let batchCount = 0;
+                for (const fileDoc of filesSnap.docs) {
+                    if (storageUsed <= LIMIT_500MB)
+                        break;
+                    const fileData = fileDoc.data();
+                    const size = fileData.size || 0;
+                    const fullPath = fileData.fullPath;
+                    if (fullPath) {
+                        // Delete from Firebase Storage
+                        try {
+                            const bucket = admin.storage().bucket();
+                            await bucket.file(fullPath).delete();
+                            console.log(`Deleted file from storage: ${fullPath}`);
+                        }
+                        catch (err) {
+                            if (err.code !== 404) {
+                                console.warn(`Failed to delete storage file ${fullPath}:`, err);
+                            }
+                        }
+                    }
+                    // Delete from Firestore
+                    batch.delete(fileDoc.ref);
+                    storageUsed -= size;
+                    batchCount++;
+                    if (batchCount >= 400) {
+                        await batch.commit();
+                        batchCount = 0;
+                    }
+                }
+                if (batchCount > 0) {
+                    await batch.commit();
+                }
+                // Update storageUsed on user document
+                await userRef.update({ storageUsed: Math.max(0, storageUsed) });
+            }
+            // 3. Clear the grace period flag so we don't process them again
+            await userRef.update({
+                downgradeGracePeriodEnd: admin.firestore.FieldValue.delete()
+            });
+            console.log(`Finished processing auto-delete for user ${uid}`);
+        }
+        catch (err) {
+            console.error(`Error auto-deleting data for user ${uid}:`, err);
+        }
     }
 });
 //# sourceMappingURL=index.js.map

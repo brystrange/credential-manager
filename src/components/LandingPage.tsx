@@ -340,7 +340,15 @@ await sendToServer(encrypted, iv);`}
                             />
                             <FAQItem 
                                 question="How much does Fort Sterling cost?" 
-                                answer="We offer a generous free tier for basic personal use. Premium features and expanded storage are available through our paid subscription plans." 
+                                answer="The Pro Plan cost $3.20 a month but we offer a generous free tier for basic personal use."
+                            />
+                            <FAQItem 
+                                question="What if I want to cancel my Pro subscription?" 
+                                answer="You can cancel your subscription any time with no additional cost. Each account has their own billing button where you can cancel the subscription before you are deducted." 
+                            />
+                            <FAQItem 
+                                question="Can I cancel my subscription before my free trial ends?"
+                                answer="Yes, absolutely. Users can cancel their Pro Tier free trial before any deduction occurs. Fort Sterling has no restrictions unlike other services. Just go to the Subscription page and open the Billing portal to cancel your monthly subscription. Take note to delete files and limit your credentials to 10 before downgrading." 
                             />
                         </div>
                     </div>

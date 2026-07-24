@@ -499,7 +499,7 @@ function AppInner({
 }) {
     const { theme, toggleTheme } = useTheme();
     const [user, setUser] = useState<User | null | undefined>(undefined);
-    const { isAtLimit, isPro } = useSubscription();
+    const { isAtLimit, isPro, downgradeGracePeriodEnd } = useSubscription();
     
     const location = useLocation();
     const navigate = useNavigate();
@@ -952,6 +952,17 @@ function AppInner({
 
             {/* Main content area */}
             <main className="main-content">
+                {downgradeGracePeriodEnd && downgradeGracePeriodEnd > new Date() && (
+                    <div className="limit-banner" style={{ background: "rgba(239, 68, 68, 0.1)", borderColor: "var(--danger)", color: "var(--danger)", marginBottom: "16px" }}>
+                        <FiInfo size={18} style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1 }}>
+                            You have exceeded the Free tier limits. Please upgrade to Pro or delete excess data by <strong>{downgradeGracePeriodEnd.toLocaleDateString()}</strong>. Otherwise, your latest data will be automatically deleted.
+                        </span>
+                        <button className="limit-banner-upgrade" onClick={handleOpenPricing}>
+                            Upgrade
+                        </button>
+                    </div>
+                )}
                 {isSettingsRoute ? (
                     <SettingsPage />
                 ) : isManageSubscriptionRoute ? (

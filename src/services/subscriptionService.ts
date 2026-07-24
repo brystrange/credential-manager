@@ -13,6 +13,7 @@ export interface Subscription {
   subscriptionId?: string;
   currentPeriodEnd?: Date | null;
   lsCustomerId?: string;
+  downgradeGracePeriodEnd?: Date | null;
 }
 
 // ─── Real-time subscription listener ────────────────────────────────────────
@@ -35,6 +36,7 @@ export function listenToSubscription(
     }
     const data = snap.data();
     const periodEnd = data.currentPeriodEnd?.toDate?.() ?? null;
+    const graceEnd = data.downgradeGracePeriodEnd?.toDate?.() ?? null;
 
     onUpdate({
       plan: (data.plan as Plan) ?? "free",
@@ -42,6 +44,7 @@ export function listenToSubscription(
       subscriptionId: data.subscriptionId ?? undefined,
       currentPeriodEnd: periodEnd,
       lsCustomerId: data.lsCustomerId ?? undefined,
+      downgradeGracePeriodEnd: graceEnd,
     });
   });
 }

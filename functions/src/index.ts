@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
 import * as crypto from "crypto";
 import { validatePlatformInput } from "./validatePlatform";
@@ -286,6 +287,7 @@ export const lemonWebhook = onRequest(
                         ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
                         : null,
                     lsCustomerId: String(attributes.customer_id ?? ""),
+                    downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
                 });
                 break;
 
@@ -305,12 +307,27 @@ export const lemonWebhook = onRequest(
                 });
                 break;
 
-            case "subscription_expired":
+            case "subscription_expired": {
+                const userDoc = await userRef.get();
+                const storageUsed = userDoc.data()?.storageUsed || 0;
+                
+                const credsSnap = await userRef.collection("credentials").count().get();
+                const credsCount = credsSnap.data().count;
+                
+                let gracePeriodEnd: admin.firestore.Timestamp | null = null;
+                if (credsCount > 10 || storageUsed > 500 * 1024 * 1024) {
+                    const d = new Date();
+                    d.setDate(d.getDate() + 7);
+                    gracePeriodEnd = admin.firestore.Timestamp.fromDate(d);
+                }
+
                 await userRef.update({
                     plan: "free",
                     subscriptionStatus: "expired",
+                    ...(gracePeriodEnd ? { downgradeGracePeriodEnd: gracePeriodEnd } : {}),
                 });
                 break;
+            }
 
             default:
                 console.log(`Unhandled Lemon Squeezy event: ${eventName}`);
@@ -544,3 +561,111 @@ export const exchangeGoogleAuthCode = onCall(
         }
     }
 );
+
+// ─── autoDeleteExcessData ──────────────────────────────────────────────────
+// Runs daily to automatically delete data for users whose grace period has expired.
+export const autoDeleteExcessData = onSchedule("every day 00:00", async (event) => {
+    const now = admin.firestore.Timestamp.now();
+    const usersSnap = await db.collection("users")
+        .where("downgradeGracePeriodEnd", "<=", now)
+        .get();
+
+    for (const userDoc of usersSnap.docs) {
+        const uid = userDoc.id;
+        const userRef = db.collection("users").doc(uid);
+        console.log(`Processing auto-delete for user ${uid}`);
+
+        try {
+            // 1. Delete excess credentials
+            const credsSnap = await userRef.collection("credentials")
+                .orderBy("createdAt", "desc")
+                .get();
+            
+            if (credsSnap.size > 10) {
+                const toDelete = credsSnap.docs.slice(0, credsSnap.size - 10); // Keep oldest 10, delete newest
+                console.log(`Deleting ${toDelete.length} excess credentials for user ${uid}`);
+                
+                const batch = db.batch();
+                let batchCount = 0;
+                for (const doc of toDelete) {
+                    batch.delete(doc.ref);
+                    
+                    // Delete credential history subcollection as well
+                    const historySnap = await doc.ref.collection("history").get();
+                    for (const histDoc of historySnap.docs) {
+                        batch.delete(histDoc.ref);
+                        batchCount++;
+                    }
+
+                    batchCount++;
+                    if (batchCount >= 400) {
+                        await batch.commit();
+                        batchCount = 0;
+                    }
+                }
+                if (batchCount > 0) {
+                    await batch.commit();
+                }
+            }
+
+            // 2. Delete excess files
+            const filesSnap = await userRef.collection("files")
+                .orderBy("createdAt", "desc")
+                .get();
+            
+            let storageUsed = userDoc.data().storageUsed || 0;
+            const LIMIT_500MB = 500 * 1024 * 1024;
+            
+            if (storageUsed > LIMIT_500MB) {
+                const batch = db.batch();
+                let batchCount = 0;
+
+                for (const fileDoc of filesSnap.docs) {
+                    if (storageUsed <= LIMIT_500MB) break;
+                    
+                    const fileData = fileDoc.data();
+                    const size = fileData.size || 0;
+                    const fullPath = fileData.fullPath;
+                    
+                    if (fullPath) {
+                        // Delete from Firebase Storage
+                        try {
+                            const bucket = admin.storage().bucket();
+                            await bucket.file(fullPath).delete();
+                            console.log(`Deleted file from storage: ${fullPath}`);
+                        } catch (err: any) {
+                            if (err.code !== 404) {
+                                console.warn(`Failed to delete storage file ${fullPath}:`, err);
+                            }
+                        }
+                    }
+                    
+                    // Delete from Firestore
+                    batch.delete(fileDoc.ref);
+                    storageUsed -= size;
+                    batchCount++;
+
+                    if (batchCount >= 400) {
+                        await batch.commit();
+                        batchCount = 0;
+                    }
+                }
+                if (batchCount > 0) {
+                    await batch.commit();
+                }
+
+                // Update storageUsed on user document
+                await userRef.update({ storageUsed: Math.max(0, storageUsed) });
+            }
+
+            // 3. Clear the grace period flag so we don't process them again
+            await userRef.update({
+                downgradeGracePeriodEnd: admin.firestore.FieldValue.delete()
+            });
+            console.log(`Finished processing auto-delete for user ${uid}`);
+
+        } catch (err) {
+            console.error(`Error auto-deleting data for user ${uid}:`, err);
+        }
+    }
+});

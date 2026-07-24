@@ -33,6 +33,7 @@ interface SubscriptionContextValue {
   isStorageAtLimit: boolean;
   subscriptionId?: string;
   currentPeriodEnd?: Date | null;
+  downgradeGracePeriodEnd?: Date | null;
   /** Whether the subscription data has been loaded from Firestore */
   loaded: boolean;
   /** Whether the user is manually exempted by an admin */
@@ -70,6 +71,7 @@ export function SubscriptionProvider({
   const [status, setStatus] = useState<SubscriptionStatus>(null);
   const [subscriptionId, setSubscriptionId] = useState<string | undefined>(undefined);
   const [currentPeriodEnd, setCurrentPeriodEnd] = useState<Date | null | undefined>(undefined);
+  const [downgradeGracePeriodEnd, setDowngradeGracePeriodEnd] = useState<Date | null | undefined>(undefined);
   const [loaded, setLoaded] = useState(false);
   const [isExempt, setIsExempt] = useState(false);
   const [storageUsed, setStorageUsed] = useState(0);
@@ -81,6 +83,7 @@ export function SubscriptionProvider({
       setStatus(null);
       setSubscriptionId(undefined);
       setCurrentPeriodEnd(undefined);
+      setDowngradeGracePeriodEnd(undefined);
       setLoaded(false);
       setIsExempt(false);
       setStorageUsed(0);
@@ -92,6 +95,7 @@ export function SubscriptionProvider({
       setStatus(sub.subscriptionStatus);
       setSubscriptionId(sub.subscriptionId);
       setCurrentPeriodEnd(sub.currentPeriodEnd);
+      setDowngradeGracePeriodEnd(sub.downgradeGracePeriodEnd);
       setLoaded(true);
     });
 
@@ -147,6 +151,7 @@ export function SubscriptionProvider({
     isStorageAtLimit,
     subscriptionId,
     currentPeriodEnd,
+    downgradeGracePeriodEnd,
     loaded,
     isExempt,
   };
