@@ -999,7 +999,13 @@ export default function FileExplorer() {
                         <div 
                             key={folder.id} 
                             className="file-card" 
-                            onClick={() => navigateToFolder(folder.id, folder.name)}
+                            onClick={() => {
+                                if (selectedFiles.size > 0 || selectedFolders.size > 0) {
+                                    handleToggleFolderSelection(folder.id);
+                                } else {
+                                    navigateToFolder(folder.id, folder.name);
+                                }
+                            }}
                             onContextMenu={(e) => handleContextMenu(e, { id: folder.id, name: folder.name, isFolder: true })}
                             onTouchStart={(e) => handleTouchStart(e, { id: folder.id, name: folder.name, isFolder: true })}
                             onTouchEnd={handleTouchEnd}
@@ -1040,7 +1046,13 @@ export default function FileExplorer() {
                         <div 
                             key={file.id} 
                             className="file-card"
-                            onClick={() => handleFileClick(file)}
+                            onClick={() => {
+                                if (selectedFiles.size > 0 || selectedFolders.size > 0) {
+                                    handleToggleFileSelection(file.id);
+                                } else {
+                                    handleFileClick(file);
+                                }
+                            }}
                             onContextMenu={(e) => handleContextMenu(e, { id: file.id, name: file.name, isFolder: false, file })}
                             onTouchStart={(e) => handleTouchStart(e, { id: file.id, name: file.name, isFolder: false, file })}
                             onTouchEnd={handleTouchEnd}
