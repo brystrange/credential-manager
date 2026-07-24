@@ -339,7 +339,7 @@ export default function SettingsPage() {
 
             <ConfirmDialog
                 isOpen={showDeleteConfirm}
-                title="Are you absolutely sure?"
+                title="Delete account?"
                 message="This will delete all your data and cannot be undone."
                 confirmLabel="Delete Account"
                 onConfirm={executeDeleteAccount}

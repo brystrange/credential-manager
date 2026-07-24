@@ -91,8 +91,8 @@ service cloud.firestore {
         // fullName can be updated but must remain valid (optional for backward compatibility)
         && (!request.resource.data.keys().hasAll(['fullName']) || isValidString(request.resource.data.fullName, 1000));
 
-      // Delete: NEVER — prevents accidental/malicious profile deletion
-      allow delete: if false;
+      // Delete: verified owner only (required for account deletion feature)
+      allow delete: if isVerifiedOwner(userId);
 
       // ════════════════════════════════════════════════════════════════════════
       //  USER CREDENTIALS — /users/{userId}/credentials/{credentialId}
