@@ -10,7 +10,8 @@ import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv } from "react-icon
 import { 
     subscribeToFolders, subscribeToFiles, createFolder, renameFolder, deleteFolder, 
     uploadVaultFile, downloadVaultFile, renameVaultFile, deleteVaultFile,
-    moveFolder, moveVaultFile, getFolderItemCount, updateFolderColor
+    moveFolder, moveVaultFile, getFolderItemCount, updateFolderColor,
+    getAllFolders, getFilesInFolder
 } from "../services/fileService";
 import type { VaultFolder, VaultFile } from "../services/fileService";
 import ConfirmDialog from "./ConfirmDialog";
@@ -772,10 +773,12 @@ export default function FileExplorer() {
     };
 
     const handleBulkDownload = async () => {
-        if (selectedFiles.size === 0) return;
+        if (selectedFiles.size === 0 && selectedFolders.size === 0) return;
         setActionLoading(true);
         try {
             const zip = new JSZip();
+            
+            // Add individually selected files to root of zip
             await Promise.all(Array.from(selectedFiles).map(async id => {
                 const f = files.find(file => file.id === id);
                 if (f) {
@@ -783,6 +786,41 @@ export default function FileExplorer() {
                     zip.file(f.name, blob);
                 }
             }));
+
+            // Handle folders recursively
+            if (selectedFolders.size > 0) {
+                const allFolders = await getAllFolders();
+                
+                const getSubfolderIds = (parentId: string): string[] => {
+                    const children = allFolders.filter(f => f.parentId === parentId).map(f => f.id);
+                    return children.reduce((acc, childId) => [...acc, childId, ...getSubfolderIds(childId)], [] as string[]);
+                };
+
+                const getFolderPath = (folderId: string, stopAtParentId: string | null): string => {
+                    const f = allFolders.find(f => f.id === folderId);
+                    if (!f) return "";
+                    if (f.parentId === stopAtParentId) return f.name;
+                    const parentPath = f.parentId ? getFolderPath(f.parentId, stopAtParentId) : "";
+                    return parentPath ? `${parentPath}/${f.name}` : f.name;
+                };
+
+                await Promise.all(Array.from(selectedFolders).map(async rootFolderId => {
+                    const folderIds = [rootFolderId, ...getSubfolderIds(rootFolderId)];
+                    
+                    await Promise.all(folderIds.map(async folderId => {
+                        const folderPath = getFolderPath(folderId, currentFolderId);
+                        if (folderPath) zip.folder(folderPath);
+
+                        const folderFiles = await getFilesInFolder(folderId);
+                        
+                        await Promise.all(folderFiles.map(async f => {
+                            const blob = await downloadVaultFile(f);
+                            zip.file(`${folderPath}/${f.name}`, blob);
+                        }));
+                    }));
+                }));
+            }
+
             const content = await zip.generateAsync({ type: 'blob' });
             const url = URL.createObjectURL(content);
             const a = document.createElement('a');

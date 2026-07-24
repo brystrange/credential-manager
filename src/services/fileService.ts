@@ -204,6 +204,39 @@ export function subscribeToFiles(folderId: string | null = null, callback: (file
     });
 }
 
+export async function getFilesInFolder(folderId: string | null): Promise<VaultFile[]> {
+    const key = getEncryptionKey();
+    if (!key) return [];
+
+    const q = query(getUserFilesRef(), where("folderId", "==", folderId));
+    const snapshot = await getDocs(q);
+
+    const files: VaultFile[] = [];
+    for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        let decryptedName = "";
+        let decryptedType = "";
+        try {
+            decryptedName = await decryptPassword(data.name, key);
+            decryptedType = await decryptPassword(data.type, key);
+        } catch {
+            decryptedName = "[decryption failed]";
+            decryptedType = "application/octet-stream";
+        }
+        files.push({
+            id: docSnap.id,
+            name: decryptedName,
+            type: decryptedType,
+            size: data.size,
+            folderId: data.folderId,
+            storagePath: data.storagePath,
+            createdAt: (data.createdAt as Timestamp).toDate(),
+            updatedAt: (data.updatedAt as Timestamp).toDate(),
+        });
+    }
+    return files;
+}
+
 export async function uploadVaultFile(
     file: File, 
     folderId: string | null = null, 
