@@ -232,6 +232,7 @@ export default function FileExplorer() {
                 ignoreWidth: false,
                 ignoreHeight: false,
                 breakPages: true,
+                ignoreLastRenderedPageBreak: false,
             }).catch((err: unknown) => console.error('Failed to render docx', err));
         }
     }, [selectedImage]);
@@ -1333,9 +1334,9 @@ export default function FileExplorer() {
                                 />
                             ) : (
                                 <div onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', width: '100%', padding: '32px' }}>
-                                    <FiFileText size={64} style={{ color: 'var(--text-secondary)' }} />
-                                    <p style={{ color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 500, textAlign: 'center' }}>{selectedImage.file.name}</p>
-                                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Preview is not available for this file type.</p>
+                                    <FiFileText size={64} style={{ color: '#666' }} />
+                                    <p style={{ color: '#222', fontSize: '1.1rem', fontWeight: 500, textAlign: 'center' }}>{selectedImage.file.name}</p>
+                                    <p style={{ color: '#666', fontSize: '0.85rem' }}>Preview is not available for this file type.</p>
                                     <button
                                         className="auth-submit"
                                         style={{ width: 'auto', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}
