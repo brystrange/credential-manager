@@ -331,22 +331,40 @@ export default function FileExplorer() {
         }
     };
 
+    const getExtension = (name: string) => {
+        const lastDot = name.lastIndexOf('.');
+        return lastDot !== -1 ? name.substring(lastDot) : '';
+    };
+
+    const getNameWithoutExtension = (name: string) => {
+        const lastDot = name.lastIndexOf('.');
+        return lastDot !== -1 ? name.substring(0, lastDot) : name;
+    };
+
     const handleRename = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!renameTarget || !newName.trim()) return;
         setActionLoading(true);
         try {
+            let finalName = newName.trim();
             if (renameTarget.isFolder) {
-                await renameFolder(renameTarget.id, newName.trim());
+                await renameFolder(renameTarget.id, finalName);
             } else {
-                await renameVaultFile(renameTarget.id, newName.trim());
+                const ext = getExtension(renameTarget.name);
+                // Ensure they didn't manually type the extension to avoid .pdf.pdf
+                if (finalName.endsWith(ext) && ext !== '') {
+                    finalName = finalName.slice(0, -ext.length);
+                }
+                finalName = finalName + ext;
+                
+                await renameVaultFile(renameTarget.id, finalName);
             }
             setRenameModalOpen(false);
             setRenameTarget(null);
             setNewName("");
 
             setSelectedImage(prev => prev && prev.file.id === renameTarget.id 
-                ? { ...prev, file: { ...prev.file, name: newName.trim() } } 
+                ? { ...prev, file: { ...prev.file, name: finalName } } 
                 : prev);
         } catch (err) {
             console.error(err);
@@ -1069,7 +1087,12 @@ export default function FileExplorer() {
                             {loadingFileId === contextMenu.target.id ? <FiLoader className="spin" /> : <FiDownload />} Download
                         </button>
                     )}
-                    <button className="context-menu-item" onClick={() => { setRenameTarget(contextMenu.target); setNewName(contextMenu.target.name); setRenameModalOpen(true); setContextMenu(null); }}>
+                    <button className="context-menu-item" onClick={() => { 
+                        setRenameTarget(contextMenu.target); 
+                        setNewName(contextMenu.target.isFolder ? contextMenu.target.name : getNameWithoutExtension(contextMenu.target.name)); 
+                        setRenameModalOpen(true); 
+                        setContextMenu(null); 
+                    }}>
                         <FiEdit2 /> Rename
                     </button>
                     <button className="context-menu-item" onClick={() => { setMoveTarget(contextMenu.target); setContextMenu(null); }}>
@@ -1108,14 +1131,14 @@ export default function FileExplorer() {
                 <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', gap: '20px', alignItems: 'center', zIndex: 100, border: '1px solid var(--border-color)' }}>
                     {selectedFiles.size > 0 && (
                         <button onClick={handleBulkDownload} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
-                            <FiDownload size={16} /> Download
+                            {actionLoading ? <FiLoader size={16} className="spin" /> : <FiDownload size={16} />} Download
                         </button>
                     )}
                     <button onClick={() => setBulkMoveModalOpen(true)} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
-                        <FiCornerUpRight size={16} /> Move
+                        {actionLoading ? <FiLoader size={16} className="spin" /> : <FiCornerUpRight size={16} />} Move
                     </button>
                     <button onClick={handleBulkDelete} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
-                        <FiTrash2 size={16} /> Delete
+                        {actionLoading ? <FiLoader size={16} className="spin" /> : <FiTrash2 size={16} />} Delete
                     </button>
                     <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
                     <button onClick={() => { setSelectedFiles(new Set()); setSelectedFolders(new Set()); }} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
@@ -1281,7 +1304,11 @@ export default function FileExplorer() {
                                     <><FiDownload /> Download</>
                                 )}
                             </button>
-                            <button onClick={() => { setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); setNewName(selectedImage.file.name); setRenameModalOpen(true); }}><FiEdit2 /> Rename</button>
+                            <button onClick={() => { 
+                                setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                setNewName(getNameWithoutExtension(selectedImage.file.name)); 
+                                setRenameModalOpen(true); 
+                            }}><FiEdit2 /> Rename</button>
                             <button onClick={() => { setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); }}><FiCornerUpRight /> Move</button>
                             <button className="danger" onClick={() => { setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); }}><FiTrash2 /> Delete</button>
                             <button className="close-btn" onClick={() => { setSelectedImage(null); setZoomLevel(1); setPan({x:0, y:0}); }}><FiX size={24} /></button>
@@ -1313,7 +1340,12 @@ export default function FileExplorer() {
                                             <><FiDownload /> Download</>
                                         )}
                                     </button>
-                                    <button onClick={() => { setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); setNewName(selectedImage.file.name); setRenameModalOpen(true); setImageMenuOpen(false); }}><FiEdit2 /> Rename</button>
+                                    <button onClick={() => { 
+                                        setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                        setNewName(getNameWithoutExtension(selectedImage.file.name)); 
+                                        setRenameModalOpen(true); 
+                                        setImageMenuOpen(false); 
+                                    }}><FiEdit2 /> Rename</button>
                                     <button onClick={() => { setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); setImageMenuOpen(false); }}><FiCornerUpRight /> Move</button>
                                     <button className="danger" onClick={() => { setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); setImageMenuOpen(false); }}><FiTrash2 /> Delete</button>
                                 </div>
