@@ -77,14 +77,6 @@ service firebase.storage {
         && (request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2' || request.auth.token.admin == true);
     }
 
-    // Check if user is Pro, Admin, or Exempt
-    function isProOrAdmin(uid) {
-      return uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2' 
-             || request.auth.token.admin == true
-             || (firestore.exists(/databases/(default)/documents/users/$(uid)) && firestore.get(/databases/(default)/documents/users/$(uid)).data.plan == 'pro')
-             || (request.auth.token.email != null && firestore.exists(/databases/(default)/documents/exemptions/$(request.auth.token.email)));
-    }
-
     // ══════════════════════════════════════════════════════════════════════════
     //  USER-SPECIFIC FILES — /users/{userId}/{allPaths=**}
     //
@@ -98,12 +90,13 @@ service firebase.storage {
         && isEmailVerified()
         && request.auth.uid == userId;
 
-      // Create: verified owner, any content type (since it's encrypted client-side)
-      // Free users are capped at 20MB per file. Pro/Admin have no per-file limit (capped at 5GB total elsewhere).
+      // Create: verified owner, any content type.
+      // Client enforces the 20MB limit for Free tier and 5GB limit for Pro.
+      // Server enforces an absolute max of 5GB to prevent runaway uploads.
       allow create: if isAuthenticated()
         && isEmailVerified()
         && request.auth.uid == userId
-        && (request.resource.size < 20 * 1024 * 1024 || isProOrAdmin(userId))
+        && request.resource.size < 5 * 1024 * 1024 * 1024
         && resource == null;  // prevent overwrites
 
       // Update: blocked (upload new file instead)
