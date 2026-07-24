@@ -266,9 +266,22 @@ export default function FileExplorer() {
         const unsubFolders = subscribeToFolders(currentFolderId, async (fetchedFolders) => {
             setFolders(fetchedFolders);
             
+            // Eagerly populate from cache so we don't show "Loading..."
+            const initialCounts: Record<string, number> = {};
+            fetchedFolders.forEach(f => {
+                if (globalFolderCountsCache[f.id] !== undefined) {
+                    initialCounts[f.id] = globalFolderCountsCache[f.id];
+                }
+            });
+            if (Object.keys(initialCounts).length > 0) {
+                setFolderCounts(prev => ({ ...prev, ...initialCounts }));
+            }
+            
             const counts: Record<string, number> = {};
             await Promise.all(fetchedFolders.map(async f => {
-                counts[f.id] = await getFolderItemCount(f.id);
+                const count = await getFolderItemCount(f.id);
+                counts[f.id] = count;
+                globalFolderCountsCache[f.id] = count;
             }));
             setFolderCounts(prev => ({ ...prev, ...counts }));
         });
@@ -904,7 +917,7 @@ export default function FileExplorer() {
                         onChange={handleSelectAll}
                         className="minimal-checkbox"
                     />
-                    <span style={{ fontSize: "0.9rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
                     {(selectedFiles.size > 0 || selectedFolders.size > 0) && (
                         <span style={{ marginLeft: "auto", fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 500 }}>
                             {selectedFiles.size + selectedFolders.size} Selected
