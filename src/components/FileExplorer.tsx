@@ -24,6 +24,7 @@ import * as XLSX from "xlsx";
 import JSZip from "jszip";
 
 const gradientColorsList = [
+    { id: 'golden-sand', name: 'Golden Sand', start: '#fde68a', end: '#facc15' },
     { id: 'sunset-glow', name: 'Sunset Glow', start: '#fb7185', end: '#fb923c' },
     { id: 'neon-horizon', name: 'Neon Horizon', start: '#d946ef', end: '#06b6d4' },
     { id: 'mango-salsa', name: 'Mango Salsa', start: '#facc15', mid: '#f97316', end: '#ef4444' },
@@ -33,16 +34,15 @@ const gradientColorsList = [
     { id: 'mint-cloud', name: 'Mint Cloud', start: '#99f6e4', end: '#d9f99d' },
     { id: 'lavender-tea', name: 'Lavender Tea', start: '#f5d0fe', end: '#c7d2fe' },
     { id: 'arctic-ice', name: 'Arctic Ice', start: '#7dd3fc', end: '#a5b4fc' },
-    { id: 'golden-sand', name: 'Golden Sand', start: '#fde68a', end: '#facc15' },
     { id: 'cyber-night', name: 'Cyber Night', start: '#0f172a', mid: '#581c87', end: '#0f172a' },
     { id: 'deep-ocean', name: 'Deep Ocean', start: '#2563eb', end: '#7c3aed' },
     { id: 'royal-velvet', name: 'Royal Velvet', start: '#7e22ce', end: '#a21caf' },
     { id: 'pine-forest', name: 'Pine Forest', start: '#047857', end: '#134e4a' },
     { id: 'steel-blade', name: 'Steel Blade', start: '#374151', end: '#111827' },
-    { id: 'tropical-sunrise', name: 'Tropical Sunrise', start: '#ec4899', mid: '#eab308', end: '#14b8a6' },
+    { id: 'tropical-sunrise', name: 'Tropical Sunrise', start: '#ec4899', mid: '#ea8108', end: '#b81445' },
     { id: 'cosmic-rift', name: 'Cosmic Rift', start: '#dc2626', mid: '#9333ea', end: '#2563eb' },
     { id: 'synthwave', name: 'Synthwave', start: '#06b6d4', mid: '#d946ef', end: '#f97316' },
-    { id: 'earth-sky', name: 'Earth & Sky', start: '#15803d', mid: '#f59e0b', end: '#0ea5e9' },
+    { id: 'moss', name: 'Moss', start: '#70e000', mid: '#008000', end: '#007200' },
     { id: 'atasha', name: 'Atasha Purple', start: '#e0b1cb', mid: '#be95c4', end: '#9f86c0' }
 ];
 

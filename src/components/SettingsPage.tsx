@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { FiLock, FiEye, FiEyeOff } from "react-icons/fi";
 import { changeVaultPassword, generateNewRecoveryKey, validatePassword } from "../services/authService";
 import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
+import { deleteAccount } from "../services/userService";
 
 export default function SettingsPage() {
     const [currentPw, setCurrentPw] = useState("");
@@ -27,6 +28,12 @@ export default function SettingsPage() {
     const [migrationSuccess, setMigrationSuccess] = useState("");
     const [showMigration, setShowMigration] = useState(false);
 
+    const [deleteAccountPw, setDeleteAccountPw] = useState("");
+    const [deleteAccountWord, setDeleteAccountWord] = useState("");
+    const [showDeleteAccountPw, setShowDeleteAccountPw] = useState(false);
+    const [deleteAccountError, setDeleteAccountError] = useState("");
+    const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+
     useEffect(() => {
         hasLegacyCredentials().then(setShowMigration).catch(console.error);
     }, []);
@@ -43,6 +50,34 @@ export default function SettingsPage() {
             setMigrationError(msg);
         } finally {
             setMigrationBusy(false);
+        }
+    };
+
+    const handleDeleteAccount = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setDeleteAccountError("");
+
+        if (deleteAccountWord !== "delete") {
+            setDeleteAccountError("You must type 'delete' to confirm.");
+            return;
+        }
+
+        if (!window.confirm("Are you absolutely sure? This will delete all your data and cannot be undone.")) {
+            return;
+        }
+
+        setDeleteAccountBusy(true);
+        try {
+            await deleteAccount(deleteAccountPw);
+        } catch (err: any) {
+            console.error(err);
+            if (err.message === "auth/wrong-password" || err.code === "auth/wrong-password") {
+                setDeleteAccountError("Incorrect password.");
+            } else {
+                setDeleteAccountError(err.message || "Failed to delete account.");
+            }
+        } finally {
+            setDeleteAccountBusy(false);
         }
     };
 
@@ -238,6 +273,51 @@ export default function SettingsPage() {
                     </button>
                 </div>
             )}
+
+            <div style={{ background: "rgba(221, 40, 40, 0.05)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--danger)", marginBottom: "24px" }}>
+                <h3 style={{ marginBottom: "8px", color: "var(--danger)" }}>Danger Zone</h3>
+                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                    Permanently delete your account and all associated data. This action cannot be undone. 
+                    Deleted email addresses can be reused for a fresh account.
+                </p>
+
+                {deleteAccountError && <div className="auth-error" style={{ marginBottom: "16px" }}>{deleteAccountError}</div>}
+
+                <form onSubmit={handleDeleteAccount} className="auth-form" style={{ gap: "12px", display: "flex", flexDirection: "column" }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                        <div className="input-icon"><FiLock size={16} /></div>
+                        <input
+                            type={showDeleteAccountPw ? "text" : "password"}
+                            placeholder="Current password"
+                            value={deleteAccountPw}
+                            onChange={(e) => setDeleteAccountPw(e.target.value)}
+                            required
+                        />
+                        <button
+                            type="button"
+                            className="input-suffix"
+                            onClick={() => setShowDeleteAccountPw(!showDeleteAccountPw)}
+                        >
+                            {showDeleteAccountPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                    </div>
+                    
+                    <div className="form-group" style={{ margin: 0 }}>
+                        <input
+                            type="text"
+                            placeholder='Type "delete" to confirm'
+                            value={deleteAccountWord}
+                            onChange={(e) => setDeleteAccountWord(e.target.value)}
+                            required
+                            style={{ paddingLeft: "12px" }}
+                        />
+                    </div>
+
+                    <button type="submit" className="auth-submit" disabled={deleteAccountBusy || deleteAccountWord !== 'delete'} style={{ marginTop: "8px", maxWidth: "250px", background: "var(--danger)" }}>
+                        {deleteAccountBusy ? "Deleting..." : "Delete Account"}
+                    </button>
+                </form>
+            </div>
         </div>
     );
 }
