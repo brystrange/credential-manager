@@ -756,7 +756,7 @@ export default function FileExplorer() {
             await Promise.all([
                 ...Array.from(selectedFiles).map(async id => {
                     const f = files.find(file => file.id === id);
-                    if (f) await moveVaultFile(f, targetFolderId);
+                    if (f) await moveVaultFile(id, targetFolderId);
                 }),
                 ...Array.from(selectedFolders).map(id => moveFolder(id, targetFolderId))
             ]);
