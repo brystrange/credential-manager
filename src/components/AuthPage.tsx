@@ -282,22 +282,22 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
 
                     <div className="verify-steps">
                         <div className="verify-step">
-                            <FiCheckCircle size={16} className="verify-step-icon" />
+                            <div className="verify-step-number">1</div>
                             <span>Open the email from Fort Sterling</span>
                         </div>
                         <div className="verify-step">
-                            <FiCheckCircle size={16} className="verify-step-icon" />
+                            <div className="verify-step-number">2</div>
                             <span>Click the verification link</span>
                         </div>
                         <div className="verify-step">
-                            <FiCheckCircle size={16} className="verify-step-icon" />
+                            <div className="verify-step-number">3</div>
                             <span>Return here and sign in</span>
                         </div>
                     </div>
 
                     {recoveryKey && (
-                        <div style={{ background: "var(--bg-glass)", border: "1px solid var(--danger)", padding: "16px", borderRadius: "var(--radius-md)", marginBottom: "20px", textAlign: "left" }}>
-                            <h3 style={{ margin: "0 0 8px", color: "var(--danger)", display: "flex", alignItems: "center", gap: "6px", fontSize: "1rem" }}>
+                        <div style={{ background: "var(--bg-glass)", border: "1px solid var(--green)", padding: "16px", borderRadius: "var(--radius-md)", marginBottom: "20px", textAlign: "left" }}>
+                            <h3 style={{ margin: "0 0 8px", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px", fontSize: "1rem" }}>
                                 <FiAlertCircle /> Save Your Recovery Key
                             </h3>
                             <p style={{ margin: "0 0 12px", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: "1.4" }}>
@@ -317,28 +317,32 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                         </div>
                     )}
 
-                    <button
-                        className="auth-submit"
-                        onClick={handleResendVerification}
-                        disabled={resendLoading}
-                        style={{ marginTop: "8px" }}
-                    >
-                        {resendLoading ? "Sending..." : (
-                            <>
-                                <FiRefreshCw size={14} style={{ marginRight: 6 }} />
-                                Resend verification email
-                            </>
-                        )}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        <button
+                            className="auth-submit"
+                            onClick={handleResendVerification}
+                            disabled={resendLoading}
+                            style={{ margin: 0, flex: 1, padding: "10px 12px" }}
+                        >
+                            {resendLoading ? "Sending..." : (
+                                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                    <FiRefreshCw size={14} />
+                                    Resend email
+                                </span>
+                            )}
+                        </button>
 
-                    <button
-                        className="google-btn"
-                        style={{ marginTop: 12 }}
-                        onClick={() => { resetFields(); setView("login"); }}
-                    >
-                        <FiLogIn size={16} />
-                        Go to Sign In
-                    </button>
+                        <button
+                            className="google-btn"
+                            style={{ margin: 0, flex: 1, padding: "0 12px" }}
+                            onClick={() => { resetFields(); setView("login"); }}
+                        >
+                            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                <FiLogIn size={16} />
+                                Go to Sign In
+                            </span>
+                        </button>
+                    </div>
                 </div>
             </div>
         );
