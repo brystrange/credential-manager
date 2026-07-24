@@ -6,7 +6,8 @@ import { deleteAccount } from "../services/userService";
 import { useSubscription } from "../context/SubscriptionContext";
 
 export default function SettingsPage() {
-    const { isPro } = useSubscription();
+    const { isPro, isExempt } = useSubscription();
+    const preventDeletion = isPro && !isExempt;
     const [currentPw, setCurrentPw] = useState("");
     const [newPw, setNewPw] = useState("");
     const [confirmPw, setConfirmPw] = useState("");
@@ -59,7 +60,7 @@ export default function SettingsPage() {
         e.preventDefault();
         setDeleteAccountError("");
 
-        if (isPro) {
+        if (preventDeletion) {
             setDeleteAccountError("You have an active Pro subscription. Please cancel your subscription before deleting your account.");
             return;
         }
@@ -281,8 +282,8 @@ export default function SettingsPage() {
                 </div>
             )}
 
-            <div style={{ background: "rgba(221, 40, 40, 0.05)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--danger)", marginBottom: "24px" }}>
-                <h3 style={{ marginBottom: "8px", color: "var(--danger)" }}>Danger Zone</h3>
+            <div style={{ background: "#dd27270d", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
+                <h3 style={{ marginBottom: "8px", color: "var(--danger)" }}>Delete Account</h3>
                 <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
                     Permanently delete your account and all associated data. This action cannot be undone. 
                     Deleted email addresses can be reused for a fresh account.
@@ -290,8 +291,8 @@ export default function SettingsPage() {
 
                 {deleteAccountError && <div className="auth-error" style={{ marginBottom: "16px" }}>{deleteAccountError}</div>}
 
-                {isPro && (
-                    <div style={{ padding: "12px", background: "rgba(245, 158, 11, 0.1)", color: "var(--warning)", border: "1px solid var(--warning)", borderRadius: "var(--radius-sm)", marginBottom: "16px", fontSize: "0.85rem" }}>
+                {preventDeletion && (
+                    <div style={{ padding: "10px 0px", color: "var(--red-accent)", marginBottom: "16px", fontSize: "0.85rem" }}>
                         You must cancel your active Pro subscription before you can delete your account.
                     </div>
                 )}
@@ -305,13 +306,11 @@ export default function SettingsPage() {
                             value={deleteAccountPw}
                             onChange={(e) => setDeleteAccountPw(e.target.value)}
                             required
-                            disabled={isPro}
                         />
                         <button
                             type="button"
                             className="input-suffix"
                             onClick={() => setShowDeleteAccountPw(!showDeleteAccountPw)}
-                            disabled={isPro}
                         >
                             {showDeleteAccountPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                         </button>
@@ -325,11 +324,10 @@ export default function SettingsPage() {
                             onChange={(e) => setDeleteAccountWord(e.target.value)}
                             required
                             style={{ paddingLeft: "12px" }}
-                            disabled={isPro}
                         />
                     </div>
 
-                    <button type="submit" className="auth-submit" disabled={isPro || deleteAccountBusy || deleteAccountWord !== 'delete'} style={{ marginTop: "8px", maxWidth: "250px", background: "var(--danger)" }}>
+                    <button type="submit" className="auth-submit" disabled={preventDeletion || deleteAccountBusy || deleteAccountWord !== 'delete'} style={{ marginTop: "8px", maxWidth: "250px", background: "var(--danger)" }}>
                         {deleteAccountBusy ? "Deleting..." : "Delete Account"}
                     </button>
                 </form>
