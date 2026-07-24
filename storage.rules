@@ -102,8 +102,9 @@ service firebase.storage {
       // Update: blocked (upload new file instead)
       allow update: if false;
 
-      // Delete: owner only (required for account deletion even if unverified)
+      // Delete: verified owner only
       allow delete: if isAuthenticated()
+        && isEmailVerified()
         && request.auth.uid == userId;
     }
   }
