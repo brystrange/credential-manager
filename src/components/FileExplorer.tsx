@@ -977,7 +977,7 @@ export default function FileExplorer() {
                     />
                     <span style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
                     {(selectedFiles.size > 0 || selectedFolders.size > 0) && (
-                        <span style={{ marginLeft: "auto", fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                        <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 500 }}>
                             {selectedFiles.size + selectedFolders.size} Selected
                         </span>
                     )}

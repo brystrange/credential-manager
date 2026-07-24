@@ -19,7 +19,14 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [activePage, setActivePage] = useState(1);
+  const [passwordPrompt, setPasswordPrompt] = useState<{ callback: (password: string) => void, reason: number } | null>(null);
+  const [passwordInput, setPasswordInput] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const handlePassword = (callback: (password: string) => void, reason: number) => {
+    setPasswordPrompt({ callback, reason });
+    setPasswordInput("");
+  };
 
   const documentFile = useMemo(() => {
     if (typeof url === 'string') return url;
@@ -120,6 +127,7 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
         <Document
           file={documentFile}
           onLoadSuccess={onDocumentLoadSuccess}
+          onPassword={handlePassword}
           className="pdf-document-root"
         >
           {showSidebar && (
@@ -165,6 +173,44 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
           </div>
         </Document>
       </div>
+
+      {passwordPrompt && (
+        <div className="modal-overlay" style={{ zIndex: 9999, background: 'rgba(0, 0, 0, 0.8)' }}>
+            <div className="confirm-dialog" onClick={(e) => e.stopPropagation()} style={{ width: '90%', maxWidth: '400px' }}>
+                <h3>Password Required</h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                    {passwordPrompt.reason === 2 ? "Incorrect password. Please try again." : "This PDF is password protected. Enter the password to view."}
+                </p>
+                <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (passwordInput) {
+                        passwordPrompt.callback(passwordInput);
+                        setPasswordPrompt(null);
+                    }
+                }}>
+                    <input 
+                        type="password"
+                        value={passwordInput}
+                        onChange={e => setPasswordInput(e.target.value)}
+                        placeholder="Enter password..."
+                        autoFocus
+                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', marginBottom: '20px' }}
+                    />
+                    <div className="confirm-actions">
+                        <button type="button" className="btn-secondary" onClick={() => {
+                            if (onContainerClick) onContainerClick();
+                            setPasswordPrompt(null);
+                        }}>
+                            Cancel
+                        </button>
+                        <button type="submit" className="btn-primary" disabled={!passwordInput}>
+                            Open
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
     </div>
   );
 }
