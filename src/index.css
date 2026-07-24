@@ -4056,21 +4056,21 @@ option {
 }
 
 /* Office preview styling isolation — override dark theme inheritance */
-.docx-wrapper, .docx-preview-wrapper, .office-document-container > div {
+.docx-wrapper, .office-document-container > div {
   display: block !important;
   width: 100% !important;
-  background: #ffffff !important;
+  background: #e6e6e6 !important;
   background-color: #e6e6e6 !important;
   overflow-x: auto !important;
   padding: 0 !important; /* Remove library's injected wrapper padding */
 }
 
-.docx-preview-wrapper > * {
-  margin: 30px auto !important; /* Reduced top/bottom margin */
+section.docx {
+  margin: 30px auto !important; /* Gap between multiple pages */
   padding: 80px 60px !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
-  box-shadow: 0 4px 10px rgba(7, 7, 7, 0.1);
+  box-shadow: 0 4px 10px rgba(7, 7, 7, 0.1) !important;
   border: 0px solid !important;
   width: 816px !important;
   max-width: none !important;
@@ -4079,7 +4079,7 @@ option {
 }
 
 @media (max-width: 768px) {
-  .docx-preview-wrapper > * {
+  section.docx {
     margin: 30px 30px !important; /* Reduced left/right margin on mobile */
   }
 }

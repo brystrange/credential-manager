@@ -228,7 +228,6 @@ export default function FileExplorer() {
         ) {
             officeContainerRef.current.innerHTML = '';
             renderAsync(selectedImage.officeData, officeContainerRef.current, undefined, {
-                className: 'docx-preview-wrapper',
                 inWrapper: true,
                 ignoreWidth: false,
                 ignoreHeight: false,
