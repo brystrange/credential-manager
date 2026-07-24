@@ -3,8 +3,10 @@ import { FiLock, FiEye, FiEyeOff } from "react-icons/fi";
 import { changeVaultPassword, generateNewRecoveryKey, validatePassword } from "../services/authService";
 import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
 import { deleteAccount } from "../services/userService";
+import { useSubscription } from "../context/SubscriptionContext";
 
 export default function SettingsPage() {
+    const { isPro } = useSubscription();
     const [currentPw, setCurrentPw] = useState("");
     const [newPw, setNewPw] = useState("");
     const [confirmPw, setConfirmPw] = useState("");
@@ -56,6 +58,11 @@ export default function SettingsPage() {
     const handleDeleteAccount = async (e: React.FormEvent) => {
         e.preventDefault();
         setDeleteAccountError("");
+
+        if (isPro) {
+            setDeleteAccountError("You have an active Pro subscription. Please cancel your subscription before deleting your account.");
+            return;
+        }
 
         if (deleteAccountWord !== "delete") {
             setDeleteAccountError("You must type 'delete' to confirm.");
@@ -283,6 +290,12 @@ export default function SettingsPage() {
 
                 {deleteAccountError && <div className="auth-error" style={{ marginBottom: "16px" }}>{deleteAccountError}</div>}
 
+                {isPro && (
+                    <div style={{ padding: "12px", background: "rgba(245, 158, 11, 0.1)", color: "var(--warning)", border: "1px solid var(--warning)", borderRadius: "var(--radius-sm)", marginBottom: "16px", fontSize: "0.85rem" }}>
+                        You must cancel your active Pro subscription before you can delete your account.
+                    </div>
+                )}
+
                 <form onSubmit={handleDeleteAccount} className="auth-form" style={{ gap: "12px", display: "flex", flexDirection: "column" }}>
                     <div className="form-group" style={{ margin: 0 }}>
                         <div className="input-icon"><FiLock size={16} /></div>
@@ -292,11 +305,13 @@ export default function SettingsPage() {
                             value={deleteAccountPw}
                             onChange={(e) => setDeleteAccountPw(e.target.value)}
                             required
+                            disabled={isPro}
                         />
                         <button
                             type="button"
                             className="input-suffix"
                             onClick={() => setShowDeleteAccountPw(!showDeleteAccountPw)}
+                            disabled={isPro}
                         >
                             {showDeleteAccountPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                         </button>
@@ -310,10 +325,11 @@ export default function SettingsPage() {
                             onChange={(e) => setDeleteAccountWord(e.target.value)}
                             required
                             style={{ paddingLeft: "12px" }}
+                            disabled={isPro}
                         />
                     </div>
 
-                    <button type="submit" className="auth-submit" disabled={deleteAccountBusy || deleteAccountWord !== 'delete'} style={{ marginTop: "8px", maxWidth: "250px", background: "var(--danger)" }}>
+                    <button type="submit" className="auth-submit" disabled={isPro || deleteAccountBusy || deleteAccountWord !== 'delete'} style={{ marginTop: "8px", maxWidth: "250px", background: "var(--danger)" }}>
                         {deleteAccountBusy ? "Deleting..." : "Delete Account"}
                     </button>
                 </form>
