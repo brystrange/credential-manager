@@ -21,7 +21,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }, [theme]);
 
     const toggleTheme = () => {
-        setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+        setTheme((prev) => {
+            const nextTheme = prev === "dark" ? "light" : "dark";
+            // Disable transitions temporarily when switching to dark mode
+            if (nextTheme === "dark") {
+                document.documentElement.classList.add("theme-transitioning");
+                setTimeout(() => {
+                    document.documentElement.classList.remove("theme-transitioning");
+                }, 50);
+            }
+            return nextTheme;
+        });
     };
 
     return (

@@ -12,6 +12,11 @@
   --sidebar-width: 240px;
 }
 
+/* Disable transitions globally during theme switch */
+.theme-transitioning * {
+  transition: none !important;
+}
+
 /* DARK THEME (Default) */
 :root, [data-theme="dark"] {
   color-scheme: dark;
