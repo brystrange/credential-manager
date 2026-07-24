@@ -920,7 +920,7 @@ export default function FileExplorer() {
                             onTouchEnd={handleTouchEnd}
                             onTouchMove={handleTouchMove}
                         >
-                            <div className="file-card-icon" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <input 
                                     type="checkbox" 
                                     checked={selectedFolders.has(folder.id)} 
@@ -928,11 +928,13 @@ export default function FileExplorer() {
                                     onClick={(e) => e.stopPropagation()} 
                                     style={{ cursor: 'pointer', width: '16px', height: '16px' }} 
                                 />
-                                <FiFolder 
-                                    size={18} 
-                                    style={{ color: folder.color ? "transparent" : "var(--text-primary)" }}
-                                    fill={folder.color ? `url(#gradient-${folder.color})` : "none"}
-                                />
+                                <div className="file-card-icon">
+                                    <FiFolder 
+                                        size={18} 
+                                        style={{ color: folder.color ? "transparent" : "var(--text-primary)" }}
+                                        fill={folder.color ? `url(#gradient-${folder.color})` : "none"}
+                                    />
+                                </div>
                             </div>
                             <div className="file-card-info">
                                 <span className="file-name" style={{ fontWeight: 'normal' }}>{folder.name}</span>
@@ -959,7 +961,7 @@ export default function FileExplorer() {
                             onTouchEnd={handleTouchEnd}
                             onTouchMove={handleTouchMove}
                         >
-                            <div className="file-card-icon" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <input 
                                     type="checkbox" 
                                     checked={selectedFiles.has(file.id)} 
@@ -967,11 +969,13 @@ export default function FileExplorer() {
                                     onClick={(e) => e.stopPropagation()} 
                                     style={{ cursor: 'pointer', width: '16px', height: '16px' }} 
                                 />
-                                {loadingFileId === file.id ? (
-                                    <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
-                                ) : (
-                                    file.type.startsWith("image/") ? <ImageThumbnail file={file} /> : getFileIcon(file.type)
-                                )}
+                                <div className="file-card-icon">
+                                    {loadingFileId === file.id ? (
+                                        <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
+                                    ) : (
+                                        file.type.startsWith("image/") ? <ImageThumbnail file={file} /> : getFileIcon(file.type)
+                                    )}
+                                </div>
                             </div>
                             <div className="file-card-info">
                                 <span className="file-name" style={{ fontWeight: 'normal' }}>{file.name}</span>
