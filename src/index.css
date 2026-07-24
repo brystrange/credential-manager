@@ -4062,10 +4062,11 @@ option {
   background: #ffffff !important;
   background-color: #ffffff !important;
   overflow-x: auto !important;
+  padding: 0 !important; /* Remove library's injected wrapper padding */
 }
 
 .docx-preview-wrapper > * {
-  margin: 40px auto !important;
+  margin: 10px auto !important; /* Reduced top/bottom margin */
   padding: 80px 60px !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
@@ -4075,6 +4076,12 @@ option {
   max-width: none !important;
   min-height: 1056px !important;
   box-sizing: border-box !important;
+}
+
+@media (max-width: 768px) {
+  .docx-preview-wrapper > * {
+    margin: 10px 10px !important; /* Reduced left/right margin on mobile */
+  }
 }
 
 /* Forcefully remove ANY injected shadow from docx-preview library EXCEPT the page itself */
