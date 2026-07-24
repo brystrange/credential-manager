@@ -119,6 +119,7 @@ export default function FileExplorer() {
     const [files, setFiles] = useState<VaultFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
+    const [loadingBulkAction, setLoadingBulkAction] = useState<string | null>(null);
 
     // Modals
     const [newFolderModalOpen, setNewFolderModalOpen] = useState(false);
@@ -752,6 +753,7 @@ export default function FileExplorer() {
     const handleBulkDelete = async () => {
         if (!window.confirm(`Are you sure you want to delete ${selectedFiles.size + selectedFolders.size} items?`)) return;
         setActionLoading(true);
+        setLoadingBulkAction('delete');
         try {
             await Promise.all([
                 ...Array.from(selectedFiles).map(async id => {
@@ -767,12 +769,14 @@ export default function FileExplorer() {
             alert("Error deleting some items.");
         }
         setActionLoading(false);
+        setLoadingBulkAction(null);
     };
 
     const handleBulkMove = async (targetFolderId: string | null) => {
         setBulkMoveModalOpen(false);
         if (targetFolderId === currentFolderId) return;
         setActionLoading(true);
+        setLoadingBulkAction('move');
         try {
             await Promise.all([
                 ...Array.from(selectedFiles).map(async id => {
@@ -788,11 +792,13 @@ export default function FileExplorer() {
             alert("Error moving some items.");
         }
         setActionLoading(false);
+        setLoadingBulkAction(null);
     };
 
     const handleBulkDownload = async () => {
         if (selectedFiles.size === 0 && selectedFolders.size === 0) return;
         setActionLoading(true);
+        setLoadingBulkAction('download');
         try {
             const zip = new JSZip();
             
@@ -855,6 +861,7 @@ export default function FileExplorer() {
             alert("Error downloading files.");
         }
         setActionLoading(false);
+        setLoadingBulkAction(null);
     };
 
 
@@ -1141,16 +1148,14 @@ export default function FileExplorer() {
 
             {(selectedFiles.size > 0 || selectedFolders.size > 0) && (
                 <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', gap: '20px', alignItems: 'center', zIndex: 100, border: '1px solid var(--border-color)' }}>
-                    {selectedFiles.size > 0 && (
-                        <button onClick={handleBulkDownload} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
-                            {actionLoading ? <FiLoader size={16} className="spin" /> : <FiDownload size={16} />} Download
-                        </button>
-                    )}
+                    <button onClick={handleBulkDownload} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                        {loadingBulkAction === 'download' ? <FiLoader size={16} className="spin" /> : <FiDownload size={16} />} Download
+                    </button>
                     <button onClick={() => setBulkMoveModalOpen(true)} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
-                        {actionLoading ? <FiLoader size={16} className="spin" /> : <FiCornerUpRight size={16} />} Move
+                        {loadingBulkAction === 'move' ? <FiLoader size={16} className="spin" /> : <FiCornerUpRight size={16} />} Move
                     </button>
                     <button onClick={handleBulkDelete} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
-                        {actionLoading ? <FiLoader size={16} className="spin" /> : <FiTrash2 size={16} />} Delete
+                        {loadingBulkAction === 'delete' ? <FiLoader size={16} className="spin" /> : <FiTrash2 size={16} />} Delete
                     </button>
                     <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
                     <button onClick={() => { setSelectedFiles(new Set()); setSelectedFolders(new Set()); }} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
