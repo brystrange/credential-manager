@@ -4060,18 +4060,18 @@ option {
   display: block !important;
   width: 100% !important;
   background: #ffffff !important;
-  background-color: #ffffff !important;
+  background-color: #e6e6e6 !important;
   overflow-x: auto !important;
   padding: 0 !important; /* Remove library's injected wrapper padding */
 }
 
 .docx-preview-wrapper > * {
-  margin: 10px auto !important; /* Reduced top/bottom margin */
+  margin: 30px auto !important; /* Reduced top/bottom margin */
   padding: 80px 60px !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
-  border: 1px solid rgba(0,0,0,0.05) !important;
+  box-shadow: 0 4px 10px rgba(7, 7, 7, 0.1);
+  border: 0px solid !important;
   width: 816px !important;
   max-width: none !important;
   min-height: 1056px !important;
@@ -4080,7 +4080,7 @@ option {
 
 @media (max-width: 768px) {
   .docx-preview-wrapper > * {
-    margin: 10px 10px !important; /* Reduced left/right margin on mobile */
+    margin: 30px 30px !important; /* Reduced left/right margin on mobile */
   }
 }
 
