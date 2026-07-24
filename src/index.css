@@ -4065,7 +4065,7 @@ option {
 }
 
 .docx-preview-wrapper > * {
-  margin: 40px auto !important;
+  margin: 20px auto !important;
   padding: 80px 60px !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
@@ -4075,6 +4075,13 @@ option {
   max-width: none !important;
   min-height: 1056px !important;
   box-sizing: border-box !important;
+}
+
+@media (max-width: 768px) {
+  .docx-preview-wrapper > * {
+    margin: 10px auto !important;
+    padding: 40px 20px !important;
+  }
 }
 
 /* Forcefully remove ANY injected shadow from docx-preview library EXCEPT the page itself */
