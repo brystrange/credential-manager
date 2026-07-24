@@ -106,6 +106,8 @@ const ImageThumbnail = ({ file }: { file: VaultFile }) => {
     );
 };
 
+const globalFolderCountsCache: Record<string, number> = {};
+
 export default function FileExplorer() {
     const { storageUsed, storageLimit, isStorageAtLimit, isPro } = useSubscription();
     
