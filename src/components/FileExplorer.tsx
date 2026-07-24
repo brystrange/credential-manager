@@ -232,6 +232,7 @@ export default function FileExplorer() {
                 inWrapper: true,
                 ignoreWidth: false,
                 ignoreHeight: false,
+                breakPages: true,
             }).catch((err: unknown) => console.error('Failed to render docx', err));
         }
     }, [selectedImage]);
