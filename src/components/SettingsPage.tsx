@@ -4,6 +4,7 @@ import { changeVaultPassword, generateNewRecoveryKey, validatePassword } from ".
 import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
 import { deleteAccount } from "../services/userService";
 import { useSubscription } from "../context/SubscriptionContext";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsPage() {
     const { isPro, isExempt } = useSubscription();
@@ -36,6 +37,7 @@ export default function SettingsPage() {
     const [showDeleteAccountPw, setShowDeleteAccountPw] = useState(false);
     const [deleteAccountError, setDeleteAccountError] = useState("");
     const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     useEffect(() => {
         hasLegacyCredentials().then(setShowMigration).catch(console.error);
@@ -70,13 +72,14 @@ export default function SettingsPage() {
             return;
         }
 
-        if (!window.confirm("Are you absolutely sure? This will delete all your data and cannot be undone.")) {
-            return;
-        }
+        setShowDeleteConfirm(true);
+    };
 
+    const executeDeleteAccount = async () => {
         setDeleteAccountBusy(true);
         try {
             await deleteAccount(deleteAccountPw);
+            setShowDeleteConfirm(false);
         } catch (err: any) {
             console.error(err);
             if (err.message === "auth/wrong-password" || err.code === "auth/wrong-password") {
@@ -84,6 +87,7 @@ export default function SettingsPage() {
             } else {
                 setDeleteAccountError(err.message || "Failed to delete account.");
             }
+            setShowDeleteConfirm(false);
         } finally {
             setDeleteAccountBusy(false);
         }
@@ -332,6 +336,16 @@ export default function SettingsPage() {
                     </button>
                 </form>
             </div>
+
+            <ConfirmDialog
+                isOpen={showDeleteConfirm}
+                title="Are you absolutely sure?"
+                message="This will delete all your data and cannot be undone."
+                confirmLabel="Delete Account"
+                onConfirm={executeDeleteAccount}
+                onCancel={() => setShowDeleteConfirm(false)}
+                loading={deleteAccountBusy}
+            />
         </div>
     );
 }
