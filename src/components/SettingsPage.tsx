@@ -37,6 +37,7 @@ export default function SettingsPage() {
     const [showDeleteAccountPw, setShowDeleteAccountPw] = useState(false);
     const [deleteAccountError, setDeleteAccountError] = useState("");
     const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+    const [deleteStatusMsg, setDeleteStatusMsg] = useState("");
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     useEffect(() => {
@@ -77,8 +78,11 @@ export default function SettingsPage() {
 
     const executeDeleteAccount = async () => {
         setDeleteAccountBusy(true);
+        setDeleteStatusMsg("Starting deletion process...");
         try {
-            await deleteAccount(deleteAccountPw);
+            await deleteAccount(deleteAccountPw, (msg) => {
+                setDeleteStatusMsg(msg);
+            });
             setShowDeleteConfirm(false);
         } catch (err: any) {
             console.error(err);
@@ -343,12 +347,13 @@ export default function SettingsPage() {
 
             <ConfirmDialog
                 isOpen={showDeleteConfirm}
-                title="Delete account?"
-                message="This will delete all your data and cannot be undone."
-                confirmLabel="Delete Account"
+                title="Delete Account"
+                message="Are you absolutely sure you want to delete your account? This action cannot be undone."
+                confirmLabel="Yes, delete my account"
                 onConfirm={executeDeleteAccount}
                 onCancel={() => setShowDeleteConfirm(false)}
                 loading={deleteAccountBusy}
+                loadingMessage={deleteStatusMsg}
             />
         </div>
     );

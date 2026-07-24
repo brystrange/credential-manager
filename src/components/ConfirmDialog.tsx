@@ -8,6 +8,7 @@ interface ConfirmDialogProps {
     onConfirm: () => void;
     onCancel: () => void;
     loading?: boolean;
+    loadingMessage?: string;
 }
 
 export default function ConfirmDialog({
@@ -18,6 +19,7 @@ export default function ConfirmDialog({
     onConfirm,
     onCancel,
     loading,
+    loadingMessage,
 }: ConfirmDialogProps) {
     if (!isOpen) return null;
 
@@ -26,6 +28,11 @@ export default function ConfirmDialog({
             <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
                 <h3>{title}</h3>
                 <p>{message}</p>
+                {loading && loadingMessage && (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px', fontStyle: 'italic', display: 'flex', alignItems: 'center' }}>
+                        {loadingMessage}
+                    </p>
+                )}
                 <div className="confirm-actions">
                     <button className="btn-secondary" onClick={onCancel} disabled={loading}>
                         Cancel

@@ -5,7 +5,7 @@ import { ref, deleteObject } from "firebase/storage";
 import { deriveKey, exportKeyToHex } from "./crypto";
 import { clearEncryptionKey } from "./authService";
 
-export async function deleteAccount(password: string): Promise<void> {
+export async function deleteAccount(password: string, onProgress?: (msg: string) => void): Promise<void> {
     const user = auth.currentUser;
     if (!user) throw new Error("No authenticated user.");
 
@@ -44,6 +44,7 @@ export async function deleteAccount(password: string): Promise<void> {
     
     // 1. Delete all credentials and their history
     console.log("Deleting credentials and history...");
+    if (onProgress) onProgress("Deleting credentials and history...");
     const credsSnap = await getDocs(collection(db, "users", uid, "credentials"));
     for (const credDoc of credsSnap.docs) {
         const historySnap = await getDocs(collection(credDoc.ref, "history"));
@@ -56,6 +57,7 @@ export async function deleteAccount(password: string): Promise<void> {
 
     // 2. Delete all files (Storage + Firestore)
     console.log("Deleting files...");
+    if (onProgress) onProgress("Deleting files...");
     const filesSnap = await getDocs(collection(db, "users", uid, "files"));
     for (const fileDoc of filesSnap.docs) {
         const fileData = fileDoc.data();
@@ -74,6 +76,7 @@ export async function deleteAccount(password: string): Promise<void> {
 
     // 3. Delete all folders
     console.log("Deleting folders...");
+    if (onProgress) onProgress("Deleting folders...");
     const foldersSnap = await getDocs(collection(db, "users", uid, "folders"));
     for (const folderDoc of foldersSnap.docs) {
         await deleteDoc(folderDoc.ref);
@@ -82,11 +85,13 @@ export async function deleteAccount(password: string): Promise<void> {
 
     // 4. Delete user document
     console.log("Deleting user document...");
+    if (onProgress) onProgress("Deleting user document...");
     await deleteDoc(doc(db, "users", uid));
     console.log("User document deleted.");
 
     // --- Delete Firebase Auth User ---
-    console.log("Deleting Firebase Auth User...");
+    console.log("Deleting overall data...");
+    if (onProgress) onProgress("Deleting overall data...");
     try {
         await deleteUser(user);
     } catch (e: any) {
