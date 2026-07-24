@@ -170,6 +170,11 @@ export default function FileExplorer() {
     const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
     const [colorPickerTarget, setColorPickerTarget] = useState<{ id: string, name: string } | null>(null);
 
+    // Bulk Actions
+    const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+    const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
+    const [bulkMoveModalOpen, setBulkMoveModalOpen] = useState(false);
+
     // Zoom and Pan State
     const [zoomLevel, setZoomLevel] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -681,6 +686,105 @@ export default function FileExplorer() {
         }
     };
 
+    const handleToggleFileSelection = (fileId: string) => {
+        setSelectedFiles(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(fileId)) newSet.delete(fileId);
+            else newSet.add(fileId);
+            return newSet;
+        });
+    };
+
+    const handleToggleFolderSelection = (folderId: string) => {
+        setSelectedFolders(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(folderId)) newSet.delete(folderId);
+            else newSet.add(folderId);
+            return newSet;
+        });
+    };
+
+    const handleSelectAll = () => {
+        if (selectedFiles.size === files.length && selectedFolders.size === folders.length) {
+            setSelectedFiles(new Set());
+            setSelectedFolders(new Set());
+        } else {
+            setSelectedFiles(new Set(files.map(f => f.id)));
+            setSelectedFolders(new Set(folders.map(f => f.id)));
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (!window.confirm(`Are you sure you want to delete ${selectedFiles.size + selectedFolders.size} items?`)) return;
+        setActionLoading(true);
+        try {
+            await Promise.all([
+                ...Array.from(selectedFiles).map(async id => {
+                    const f = files.find(file => file.id === id);
+                    if (f) await deleteVaultFile(f);
+                }),
+                ...Array.from(selectedFolders).map(id => deleteFolder(id))
+            ]);
+            setSelectedFiles(new Set());
+            setSelectedFolders(new Set());
+        } catch (e) {
+            console.error(e);
+            alert("Error deleting some items.");
+        }
+        setActionLoading(false);
+    };
+
+    const handleBulkMove = async (targetFolderId: string | null) => {
+        setBulkMoveModalOpen(false);
+        if (targetFolderId === currentFolderId) return;
+        setActionLoading(true);
+        try {
+            await Promise.all([
+                ...Array.from(selectedFiles).map(async id => {
+                    const f = files.find(file => file.id === id);
+                    if (f) await moveVaultFile(f, targetFolderId);
+                }),
+                ...Array.from(selectedFolders).map(id => moveFolder(id, targetFolderId))
+            ]);
+            setSelectedFiles(new Set());
+            setSelectedFolders(new Set());
+        } catch (e) {
+            console.error(e);
+            alert("Error moving some items.");
+        }
+        setActionLoading(false);
+    };
+
+    const handleBulkDownload = async () => {
+        if (selectedFiles.size === 0) return;
+        setActionLoading(true);
+        try {
+            const zip = new JSZip();
+            await Promise.all(Array.from(selectedFiles).map(async id => {
+                const f = files.find(file => file.id === id);
+                if (f) {
+                    const blob = await downloadVaultFile(f);
+                    zip.file(f.name, blob);
+                }
+            }));
+            const content = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(content);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `bulk-download-${Date.now()}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            setSelectedFiles(new Set());
+            setSelectedFolders(new Set());
+        } catch (e) {
+            console.error(e);
+            alert("Error downloading files.");
+        }
+        setActionLoading(false);
+    };
+
 
     const formatSize = (bytes: number) => {
         if (bytes === 0) return '0 Bytes';
@@ -783,6 +887,18 @@ export default function FileExplorer() {
                 ))}
             </div>
 
+            {(!loading && (folders.length > 0 || files.length > 0)) && (
+                <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
+                    <input 
+                        type="checkbox" 
+                        checked={selectedFiles.size === files.length && selectedFolders.size === folders.length && (files.length > 0 || folders.length > 0)}
+                        onChange={handleSelectAll}
+                        style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                    />
+                    <span style={{ fontSize: "0.9rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
+                </div>
+            )}
+
             {loading ? (
                 <div style={{ textAlign: "center", padding: "40px" }}>
                     <div className="spin" style={{ display: "inline-block", border: "3px solid var(--border-color)", borderTopColor: "var(--accent)", borderRadius: "50%", width: "24px", height: "24px" }} />
@@ -804,7 +920,14 @@ export default function FileExplorer() {
                             onTouchEnd={handleTouchEnd}
                             onTouchMove={handleTouchMove}
                         >
-                            <div className="file-card-icon">
+                            <div className="file-card-icon" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedFolders.has(folder.id)} 
+                                    onChange={() => handleToggleFolderSelection(folder.id)} 
+                                    onClick={(e) => e.stopPropagation()} 
+                                    style={{ cursor: 'pointer', width: '16px', height: '16px' }} 
+                                />
                                 <FiFolder 
                                     size={18} 
                                     style={{ color: folder.color ? "transparent" : "var(--text-primary)" }}
@@ -836,7 +959,14 @@ export default function FileExplorer() {
                             onTouchEnd={handleTouchEnd}
                             onTouchMove={handleTouchMove}
                         >
-                            <div className="file-card-icon">
+                            <div className="file-card-icon" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedFiles.has(file.id)} 
+                                    onChange={() => handleToggleFileSelection(file.id)} 
+                                    onClick={(e) => e.stopPropagation()} 
+                                    style={{ cursor: 'pointer', width: '16px', height: '16px' }} 
+                                />
                                 {loadingFileId === file.id ? (
                                     <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
                                 ) : (
@@ -890,10 +1020,41 @@ export default function FileExplorer() {
                 onClose={() => setMoveTarget(null)}
                 onSelect={(folderId) => handleMove(folderId)}
                 currentFolderId={currentFolderId}
-                movingItemId={moveTarget?.id || ""}
-                isMovingFolder={moveTarget?.isFolder || false}
+                movingFolderIds={moveTarget?.isFolder ? [moveTarget.id] : []}
                 actionLoading={actionLoading}
             />
+
+            <FolderPickerModal
+                isOpen={bulkMoveModalOpen}
+                onClose={() => setBulkMoveModalOpen(false)}
+                onSelect={(folderId) => handleBulkMove(folderId)}
+                currentFolderId={currentFolderId}
+                movingFolderIds={Array.from(selectedFolders)}
+                actionLoading={actionLoading}
+            />
+
+            {(selectedFiles.size > 0 || selectedFolders.size > 0) && (
+                <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', gap: '20px', alignItems: 'center', zIndex: 100, border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontWeight: 600, background: 'var(--accent)', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '0.85rem' }}>
+                        {selectedFiles.size + selectedFolders.size} Selected
+                    </span>
+                    {selectedFiles.size > 0 && (
+                        <button onClick={handleBulkDownload} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                            <FiDownload size={16} /> Download
+                        </button>
+                    )}
+                    <button onClick={() => setBulkMoveModalOpen(true)} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                        <FiCornerUpRight size={16} /> Move
+                    </button>
+                    <button onClick={handleBulkDelete} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                        <FiTrash2 size={16} /> Delete
+                    </button>
+                    <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
+                    <button onClick={() => { setSelectedFiles(new Set()); setSelectedFolders(new Set()); }} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                        <FiX size={16} /> Clear
+                    </button>
+                </div>
+            )}
 
             {/* Color Picker Modal */}
             {colorPickerTarget && (

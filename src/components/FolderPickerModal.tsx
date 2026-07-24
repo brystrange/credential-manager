@@ -8,12 +8,11 @@ interface FolderPickerModalProps {
     onClose: () => void;
     onSelect: (folderId: string | null) => void;
     currentFolderId: string | null;
-    movingItemId: string;
-    isMovingFolder: boolean;
+    movingFolderIds?: string[]; // IDs of folders being moved
     actionLoading?: boolean;
 }
 
-export default function FolderPickerModal({ isOpen, onClose, onSelect, currentFolderId, movingItemId, isMovingFolder, actionLoading }: FolderPickerModalProps) {
+export default function FolderPickerModal({ isOpen, onClose, onSelect, currentFolderId, movingFolderIds = [], actionLoading }: FolderPickerModalProps) {
     const [folders, setFolders] = useState<VaultFolder[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -49,9 +48,9 @@ export default function FolderPickerModal({ isOpen, onClose, onSelect, currentFo
         return `${buildPath(parent)} / ${folder.name}`;
     };
 
-    // Filter out the folder being moved (and its descendants if we are moving a folder)
+    // Filter out the folders being moved (and their descendants)
     const validFolders = folders.filter(f => {
-        if (isMovingFolder && isDescendant(f.id, movingItemId)) return false;
+        if (movingFolderIds.some(mId => isDescendant(f.id, mId))) return false;
         return true;
     });
 
