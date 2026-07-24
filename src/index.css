@@ -4166,3 +4166,41 @@ section.docx {
     display: none !important;
   }
 }
+
+/* Minimal Checkbox */
+.minimal-checkbox {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  background-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 0;
+}
+
+.minimal-checkbox:hover {
+  border-color: var(--accent);
+}
+
+.minimal-checkbox:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.minimal-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  width: 3px;
+  height: 6px;
+  border: solid white;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+  top: 1.5px;
+}

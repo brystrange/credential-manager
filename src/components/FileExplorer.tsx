@@ -6,6 +6,7 @@ import {
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
     FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo
 } from "react-icons/fi";
+import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv } from "react-icons/fa";
 import { 
     subscribeToFolders, subscribeToFiles, createFolder, renameFolder, deleteFolder, 
     uploadVaultFile, downloadVaultFile, renameVaultFile, deleteVaultFile,
@@ -794,7 +795,15 @@ export default function FileExplorer() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
 
-    const getFileIcon = (type: string) => {
+    const getFileIcon = (file: VaultFile) => {
+        const type = file.type || '';
+        const name = (file.name || '').toLowerCase();
+        
+        if (name.endsWith('.doc') || name.endsWith('.docx') || type.includes('word')) return <FaFileWord size={18} style={{ color: "#2b579a" }} />;
+        if (name.endsWith('.xls') || name.endsWith('.xlsx') || type.includes('excel') || type.includes('spreadsheet')) return <FaFileExcel size={18} style={{ color: "#217346" }} />;
+        if (name.endsWith('.ppt') || name.endsWith('.pptx') || type.includes('powerpoint') || type.includes('presentation')) return <FaFilePowerpoint size={18} style={{ color: "#d24726" }} />;
+        if (name.endsWith('.csv') || type.includes('csv')) return <FaFileCsv size={18} style={{ color: "#4caf50" }} />;
+
         if (type.includes("image")) return <FiImage size={18} style={{ color: "#4caf50" }} />;
         if (type.includes("video")) return <FiVideo size={18} style={{ color: "#f44336" }} />;
         if (type.includes("audio")) return <FiMusic size={18} style={{ color: "#9c27b0" }} />;
@@ -888,14 +897,19 @@ export default function FileExplorer() {
             </div>
 
             {(!loading && (folders.length > 0 || files.length > 0)) && (
-                <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
+                <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
                     <input 
                         type="checkbox" 
                         checked={selectedFiles.size === files.length && selectedFolders.size === folders.length && (files.length > 0 || folders.length > 0)}
                         onChange={handleSelectAll}
-                        style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                        className="minimal-checkbox"
                     />
                     <span style={{ fontSize: "0.9rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
+                    {(selectedFiles.size > 0 || selectedFolders.size > 0) && (
+                        <span style={{ marginLeft: "auto", fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                            {selectedFiles.size + selectedFolders.size} Selected
+                        </span>
+                    )}
                 </div>
             )}
 
@@ -926,7 +940,7 @@ export default function FileExplorer() {
                                     checked={selectedFolders.has(folder.id)} 
                                     onChange={() => handleToggleFolderSelection(folder.id)} 
                                     onClick={(e) => e.stopPropagation()} 
-                                    style={{ cursor: 'pointer', width: '16px', height: '16px' }} 
+                                    className="minimal-checkbox"
                                 />
                                 <div className="file-card-icon">
                                     <FiFolder 
@@ -967,13 +981,13 @@ export default function FileExplorer() {
                                     checked={selectedFiles.has(file.id)} 
                                     onChange={() => handleToggleFileSelection(file.id)} 
                                     onClick={(e) => e.stopPropagation()} 
-                                    style={{ cursor: 'pointer', width: '16px', height: '16px' }} 
+                                    className="minimal-checkbox"
                                 />
                                 <div className="file-card-icon">
                                     {loadingFileId === file.id ? (
                                         <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
                                     ) : (
-                                        file.type.startsWith("image/") ? <ImageThumbnail file={file} /> : getFileIcon(file.type)
+                                        file.type.startsWith("image/") ? <ImageThumbnail file={file} /> : getFileIcon(file)
                                     )}
                                 </div>
                             </div>
@@ -1039,9 +1053,6 @@ export default function FileExplorer() {
 
             {(selectedFiles.size > 0 || selectedFolders.size > 0) && (
                 <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', gap: '20px', alignItems: 'center', zIndex: 100, border: '1px solid var(--border-color)' }}>
-                    <span style={{ fontWeight: 600, background: 'var(--accent)', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '0.85rem' }}>
-                        {selectedFiles.size + selectedFolders.size} Selected
-                    </span>
                     {selectedFiles.size > 0 && (
                         <button onClick={handleBulkDownload} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
                             <FiDownload size={16} /> Download
