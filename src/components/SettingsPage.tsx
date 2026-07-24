@@ -82,8 +82,12 @@ export default function SettingsPage() {
             setShowDeleteConfirm(false);
         } catch (err: any) {
             console.error(err);
-            if (err.message === "auth/wrong-password" || err.code === "auth/wrong-password") {
-                setDeleteAccountError("Incorrect password.");
+            if (
+                err.message === "auth/wrong-password" || 
+                err.code === "auth/wrong-password" ||
+                err.code === "auth/invalid-credential"
+            ) {
+                setDeleteAccountError("Invalid password. Unable to delete account.");
             } else {
                 setDeleteAccountError(err.message || "Failed to delete account.");
             }
