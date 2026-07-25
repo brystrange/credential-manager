@@ -172,7 +172,7 @@ export default function SettingsPage({
                 <div>
                     <h1 className="page-title">Settings</h1>
                     <p className="page-subtitle">
-                        Manage your vault security and preferences
+                        Manage your account and other settings
                     </p>
                 </div>
             </div>

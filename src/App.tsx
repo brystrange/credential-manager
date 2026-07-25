@@ -539,6 +539,7 @@ function AppInner({
     const [selectedCategory, setSelectedCategory] = useState("All");
     const [expandAllSignal, setExpandAllSignal] = useState(0);
     const [collapseAllSignal, setCollapseAllSignal] = useState(0);
+    const [viewLabel, setViewLabel] = useState("View Options");
     const [currentPage, setCurrentPage] = useState(1);
     const [loading, setLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
@@ -1052,11 +1053,11 @@ function AppInner({
                                 ...categories.map(cat => ({ label: cat, value: cat }))
                             ];
                             const viewOptions = [
-                                { label: "Expand All", value: "expand", action: () => setExpandAllSignal(prev => prev + 1) },
-                                { label: "Collapse All", value: "collapse", action: () => setCollapseAllSignal(prev => prev + 1) }
+                                { label: "Expand All", value: "expand", action: () => { setExpandAllSignal(prev => prev + 1); setViewLabel("Expanded"); } },
+                                { label: "Collapse All", value: "collapse", action: () => { setCollapseAllSignal(prev => prev + 1); setViewLabel("Collapsed"); } }
                             ];
                             return (
-                                <div style={{ display: "flex", gap: "10px", marginBottom: "20px", alignItems: "center", width: "100%", margin: "0 auto 20px" }}>
+                                <div style={{ display: "flex", gap: "10px", marginBottom: "5px", alignItems: "center", width: "100%", margin: "0 auto 20px" }}>
                                     <CustomDropdown 
                                         options={categoryOptions} 
                                         value={selectedCategory} 
@@ -1066,7 +1067,7 @@ function AppInner({
                                     <div style={{ marginLeft: "auto" }}>
                                         <CustomDropdown 
                                             options={viewOptions} 
-                                            label="View Options" 
+                                            label={viewLabel} 
                                         />
                                     </div>
                                 </div>
