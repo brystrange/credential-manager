@@ -49,8 +49,7 @@ export default function CustomDropdown({ options, value, onChange, label }: Cust
                     cursor: "pointer",
                     outline: "none",
                     fontWeight: 500,
-                    minWidth: "150px",
-                    justifyContent: "space-between"
+                    justifyContent: "flex-start"
                 }}
             >
                 {displayLabel}

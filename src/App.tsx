@@ -762,6 +762,8 @@ function AppInner({
             const platform = findPlatformByName(platforms, cred.platform);
             if (platform && platform.category) {
                 cats.add(platform.category);
+            } else {
+                cats.add("Miscellaneous");
             }
         }
         return Array.from(cats).sort();
@@ -775,7 +777,8 @@ function AppInner({
             
         if (selectedCategory !== "All") {
             const platform = findPlatformByName(platforms, c.platform);
-            if (!platform || platform.category !== selectedCategory) {
+            const category = (platform && platform.category) ? platform.category : "Miscellaneous";
+            if (category !== selectedCategory) {
                 return false;
             }
         }
@@ -1057,7 +1060,7 @@ function AppInner({
                                 { label: "Collapse All", value: "collapse", action: () => { setCollapseAllSignal(prev => prev + 1); setViewLabel("Collapsed"); } }
                             ];
                             return (
-                                <div style={{ display: "flex", gap: "10px", marginBottom: "5px", alignItems: "center", width: "100%", margin: "0 auto 20px" }}>
+                                <div style={{ display: "flex", gap: "10px", marginBottom: "5px", alignItems: "center", width: "100%", margin: "0 auto 5px" }}>
                                     <CustomDropdown 
                                         options={categoryOptions} 
                                         value={selectedCategory} 
