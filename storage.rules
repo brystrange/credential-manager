@@ -78,6 +78,17 @@ service firebase.storage {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    //  AVATARS — /avatars/{fileName}
+    // ══════════════════════════════════════════════════════════════════════════
+    match /avatars/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isVerifiedUser()
+        && fileName == request.auth.uid + '.jpg'
+        && isSafeImageType()
+        && isUnderSizeLimit();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     //  USER-SPECIFIC FILES — /users/{userId}/{allPaths=**}
     //
     //  Reserved for per-user file storage (vault files, exports, etc).

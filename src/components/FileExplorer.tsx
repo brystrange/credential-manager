@@ -1018,7 +1018,7 @@ export default function FileExplorer() {
                             onTouchEnd={handleTouchEnd}
                             onTouchMove={handleTouchMove}
                         >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div className="file-card-visual">
                                 <input 
                                     type="checkbox" 
                                     checked={selectedFolders.has(folder.id)} 
@@ -1065,7 +1065,7 @@ export default function FileExplorer() {
                             onTouchEnd={handleTouchEnd}
                             onTouchMove={handleTouchMove}
                         >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div className="file-card-visual">
                                 <input 
                                     type="checkbox" 
                                     checked={selectedFiles.has(file.id)} 

@@ -668,4 +668,4 @@ export const autoDeleteExcessData = onSchedule("every day 00:00", async (event) 
             console.error(`Error auto-deleting data for user ${uid}:`, err);
         }
     }
-});
+});

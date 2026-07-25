@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Credential } from "../services/credentialService";
 import type { Platform } from "../services/platformService";
 import { findPlatformByName } from "../services/platformService";
@@ -13,6 +13,8 @@ interface PlatformGroupProps {
     onDelete: (credential: Credential) => void;
     onHistory: (credential: Credential) => void;
     defaultExpanded?: boolean;
+    expandSignal?: number;
+    collapseSignal?: number;
 }
 
 export default function PlatformGroup({
@@ -23,10 +25,20 @@ export default function PlatformGroup({
     onDelete,
     onHistory,
     defaultExpanded = false,
+    expandSignal = 0,
+    collapseSignal = 0,
 }: PlatformGroupProps) {
     const [expanded, setExpanded] = useState(defaultExpanded);
     const [imgError, setImgError] = useState(false);
     const platform = findPlatformByName(platforms, platformName);
+    
+    useEffect(() => {
+        if (expandSignal > 0) setExpanded(true);
+    }, [expandSignal]);
+
+    useEffect(() => {
+        if (collapseSignal > 0) setExpanded(false);
+    }, [collapseSignal]);
 
     const accountCount = credentials.length;
 

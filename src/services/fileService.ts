@@ -87,14 +87,24 @@ export function subscribeToFolders(parentId: string | null = null, callback: (fo
 }
 
 export async function getFolderItemCount(folderId: string): Promise<number> {
-    const folderCountQuery = query(getUserFoldersRef(), where("parentId", "==", folderId));
+    const folderQuery = query(getUserFoldersRef(), where("parentId", "==", folderId));
     const fileCountQuery = query(getUserFilesRef(), where("folderId", "==", folderId));
     
     const [folderSnap, fileSnap] = await Promise.all([
-        getCountFromServer(folderCountQuery),
+        getDocs(folderQuery),
         getCountFromServer(fileCountQuery)
     ]);
-    return folderSnap.data().count + fileSnap.data().count;
+    
+    let count = fileSnap.data().count;
+    
+    const subfolderPromises = folderSnap.docs.map(doc => getFolderItemCount(doc.id));
+    const subfolderCounts = await Promise.all(subfolderPromises);
+    
+    for (const subCount of subfolderCounts) {
+        count += subCount;
+    }
+    
+    return count;
 }
 
 export async function getAllFolders(): Promise<VaultFolder[]> {

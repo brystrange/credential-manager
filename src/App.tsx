@@ -9,7 +9,7 @@ import {
     deleteCredential,
 } from "./services/credentialService";
 import type { Platform } from "./services/platformService";
-import { getPlatforms } from "./services/platformService";
+import { getPlatforms, findPlatformByName } from "./services/platformService";
 import AuthPage from "./components/AuthPage";
 import LandingPage from "./components/LandingPage";
 import AuthCallback from "./components/AuthCallback";
@@ -20,6 +20,7 @@ import FAB from "./components/FAB";
 import SearchBar from "./components/SearchBar";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PlatformGroup from "./components/PlatformGroup";
+import CustomDropdown from "./components/CustomDropdown";
 import PricingPage from "./components/PricingPage";
 import SettingsPage from "./components/SettingsPage";
 import ManageSubscriptionPage from "./components/ManageSubscriptionPage";
@@ -40,7 +41,11 @@ import {
     FiInfo,
     FiCreditCard,
 } from "react-icons/fi";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { updateProfile } from "firebase/auth";
 import type { User } from "firebase/auth";
+import imageCompression from "browser-image-compression";
+import { storage } from "./firebaseConfig";
 import { useTheme } from "./context/ThemeContext";
 
 /* ─── Welcome Splash ─────────────────────────────────────────────────────────
@@ -532,6 +537,9 @@ function AppInner({
     const [credentials, setCredentials] = useState<Credential[]>([]);
     const [platforms, setPlatforms] = useState<Platform[]>([]);
     const [search, setSearch] = useState("");
+    const [selectedCategory, setSelectedCategory] = useState("All");
+    const [expandAllSignal, setExpandAllSignal] = useState(0);
+    const [collapseAllSignal, setCollapseAllSignal] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
     const [loading, setLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
@@ -543,6 +551,37 @@ function AppInner({
     const [editingCredential, setEditingCredential] = useState<Credential | null>(null);
     const [needsSecurityTerms, setNeedsSecurityTerms] = useState(false);
     const [hideSecurityTermsChecked, setHideSecurityTermsChecked] = useState(false);
+
+    const [avatarUploading, setAvatarUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !user) return;
+
+        setAvatarUploading(true);
+        try {
+            const options = {
+                maxSizeMB: 0.5,
+                maxWidthOrHeight: 256,
+                useWebWorker: true,
+            };
+            const compressedFile = await imageCompression(file, options);
+            const avatarRef = ref(storage, `avatars/${user.uid}.jpg`);
+            await uploadBytes(avatarRef, compressedFile);
+            
+            const photoURL = await getDownloadURL(avatarRef);
+            await updateProfile(user, { photoURL });
+            
+            setUser({ ...user, photoURL } as User);
+        } catch (error) {
+            console.error("Avatar upload failed:", error);
+            alert("Failed to upload avatar.");
+        } finally {
+            setAvatarUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+        }
+    };
 
     // Pricing page
     const [pricingOpen, setPricingOpen] = useState(false);
@@ -718,12 +757,31 @@ function AppInner({
         setSignOutLoading(false);
     };
 
-    const filteredCredentials = credentials.filter((c) =>
-        c.platform.toLowerCase().includes(search.toLowerCase()) ||
-        c.accountName?.toLowerCase().includes(search.toLowerCase()) ||
-        c.email.toLowerCase().includes(search.toLowerCase()) ||
-        c.username.toLowerCase().includes(search.toLowerCase())
-    );
+    const categories = useMemo(() => {
+        const cats = new Set<string>();
+        for (const cred of credentials) {
+            const platform = findPlatformByName(platforms, cred.platform);
+            if (platform && platform.category) {
+                cats.add(platform.category);
+            }
+        }
+        return Array.from(cats).sort();
+    }, [platforms, credentials]);
+
+    const filteredCredentials = credentials.filter((c) => {
+        const matchesSearch = c.platform.toLowerCase().includes(search.toLowerCase()) ||
+            c.accountName?.toLowerCase().includes(search.toLowerCase()) ||
+            c.email.toLowerCase().includes(search.toLowerCase()) ||
+            c.username.toLowerCase().includes(search.toLowerCase());
+            
+        if (selectedCategory !== "All") {
+            const platform = findPlatformByName(platforms, c.platform);
+            if (!platform || platform.category !== selectedCategory) {
+                return false;
+            }
+        }
+        return matchesSearch;
+    });
 
     // Group credentials by platform
     const groupedCredentials = useMemo(() => {
@@ -879,8 +937,26 @@ function AppInner({
                 </div>
 
                 <div className="sidebar-user">
-                    <div className="user-avatar">
-                        {displayName.charAt(0).toUpperCase()}
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        style={{ display: 'none' }} 
+                        accept="image/*"
+                        onChange={handleAvatarUpload}
+                    />
+                    <div 
+                        className="user-avatar" 
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{ cursor: "pointer", position: "relative", overflow: "hidden" }}
+                        title="Click to change avatar"
+                    >
+                        {avatarUploading ? (
+                            <span className="spinner small" style={{ borderColor: "rgba(255,255,255,0.3)", borderTopColor: "#fff" }} />
+                        ) : user.photoURL ? (
+                            <img src={user.photoURL} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        ) : (
+                            displayName.charAt(0).toUpperCase()
+                        )}
                     </div>
                     <div className="user-info">
                         <span className="user-name">{displayName}</span>
@@ -982,6 +1058,33 @@ function AppInner({
 
                         <SearchBar value={search} onChange={(val) => { setSearch(val); setCurrentPage(1); }} />
 
+                        {(() => {
+                            const categoryOptions = [
+                                { label: "All Categories", value: "All" },
+                                ...categories.map(cat => ({ label: cat, value: cat }))
+                            ];
+                            const viewOptions = [
+                                { label: "Expand All", value: "expand", action: () => setExpandAllSignal(prev => prev + 1) },
+                                { label: "Collapse All", value: "collapse", action: () => setCollapseAllSignal(prev => prev + 1) }
+                            ];
+                            return (
+                                <div style={{ display: "flex", gap: "10px", marginBottom: "20px", alignItems: "center", width: "100%", margin: "0 auto 20px" }}>
+                                    <CustomDropdown 
+                                        options={categoryOptions} 
+                                        value={selectedCategory} 
+                                        onChange={(val) => { setSelectedCategory(val); setCurrentPage(1); }} 
+                                    />
+                                    
+                                    <div style={{ marginLeft: "auto" }}>
+                                        <CustomDropdown 
+                                            options={viewOptions} 
+                                            label="View Options" 
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
                 {loading ? (
                     <div className="credentials-loading">
                         <span className="spinner large" />
@@ -1000,22 +1103,32 @@ function AppInner({
                 ) : (
                     <>
                     <div className="credentials-grouped">
-                        {paginatedPlatforms.map((platformName) => {
-                            const key = platformName.toLowerCase();
+                        {(() => {
+                            const visibleKeys = new Set(paginatedPlatforms.map(p => p.toLowerCase()));
+                            const renderOrder = [
+                                ...paginatedPlatforms,
+                                ...existingPlatforms.filter(p => !visibleKeys.has(p.toLowerCase()))
+                            ];
+                            return renderOrder.map((platformName) => {
+                                const key = platformName.toLowerCase();
                             const creds = groupedCredentials.get(key) || [];
+                            const isVisible = paginatedPlatforms.includes(platformName);
                             return (
-                                <PlatformGroup
-                                    key={key}
-                                    platformName={platformName}
-                                    credentials={creds}
-                                    platforms={platforms}
-                                    onEdit={handleEdit}
-                                    onDelete={setDeleteTarget}
-                                    onHistory={handleHistory}
-                                    defaultExpanded={!!search}
-                                />
+                                <div key={key} style={{ display: isVisible ? 'block' : 'none' }}>
+                                    <PlatformGroup
+                                        platformName={platformName}
+                                        credentials={creds}
+                                        platforms={platforms}
+                                        onEdit={handleEdit}
+                                        onDelete={setDeleteTarget}
+                                        onHistory={handleHistory}
+                                        expandSignal={expandAllSignal}
+                                        collapseSignal={collapseAllSignal}
+                                    />
+                                </div>
                             );
-                        })}
+                        });
+                        })()}
                     </div>
                     {totalPages > 1 && (
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "20px", width: "95%", margin: "0 auto" }}>
