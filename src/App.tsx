@@ -26,7 +26,6 @@ import SettingsPage from "./components/SettingsPage";
 import ManageSubscriptionPage from "./components/ManageSubscriptionPage";
 import { SubscriptionProvider, useSubscription } from "./context/SubscriptionContext";
 import {
-    FiLogOut,
     FiInbox,
     FiKey,
     FiMenu,
@@ -553,7 +552,6 @@ function AppInner({
     const [hideSecurityTermsChecked, setHideSecurityTermsChecked] = useState(false);
 
     const [avatarUploading, setAvatarUploading] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
