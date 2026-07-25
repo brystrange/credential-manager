@@ -1,12 +1,29 @@
-import React, { useState, useEffect } from "react";
-import { FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import React, { useState, useEffect, useRef } from "react";
+import { FiLock, FiEye, FiEyeOff, FiLogOut, FiEdit2 } from "react-icons/fi";
+import type { User } from "firebase/auth";
 import { changeVaultPassword, generateNewRecoveryKey, validatePassword } from "../services/authService";
 import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
 import { deleteAccount } from "../services/userService";
 import { useSubscription } from "../context/SubscriptionContext";
 import ConfirmDialog from "./ConfirmDialog";
 
-export default function SettingsPage() {
+interface SettingsPageProps {
+    user: User | null;
+    avatarUploading: boolean;
+    handleAvatarUpload: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+    handleSignOut: () => Promise<void>;
+    signOutLoading: boolean;
+}
+
+export default function SettingsPage({
+    user,
+    avatarUploading,
+    handleAvatarUpload,
+    handleSignOut,
+    signOutLoading
+}: SettingsPageProps) {
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [avatarHovered, setAvatarHovered] = useState(false);
     const { isPro, isExempt } = useSubscription();
     const preventDeletion = isPro && !isExempt;
     const [currentPw, setCurrentPw] = useState("");
@@ -161,10 +178,64 @@ export default function SettingsPage() {
             </div>
 
             <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
-                <h3 style={{ marginBottom: "8px" }}>Change Vault Password</h3>
-                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                    You must enter your current vault password to set a new one.
-                </p>
+                <h3 style={{ marginBottom: "20px" }}>Account Information</h3>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: "20px", marginBottom: "24px" }}>
+                    <div style={{ position: "relative" }}>
+                        <div 
+                            className="user-avatar" 
+                            style={{ width: "80px", height: "80px", cursor: "pointer", position: "relative", overflow: "hidden", fontSize: "2rem", borderRadius: "50%", background: "var(--bg-glass)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border-color)" }}
+                            onClick={() => fileInputRef.current?.click()}
+                            onMouseEnter={() => setAvatarHovered(true)}
+                            onMouseLeave={() => setAvatarHovered(false)}
+                            title="Click to change avatar"
+                        >
+                            {avatarUploading ? (
+                                <span className="spinner" style={{ borderColor: "rgba(255,255,255,0.3)", borderTopColor: "#fff", width: "24px", height: "24px" }} />
+                            ) : user?.photoURL ? (
+                                <img src={user.photoURL} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            ) : (
+                                (user?.displayName || user?.email || "U").charAt(0).toUpperCase()
+                            )}
+                            {avatarHovered && !avatarUploading && (
+                                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", transition: "all 0.2s" }}>
+                                    <FiEdit2 size={24} />
+                                </div>
+                            )}
+                        </div>
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            style={{ display: 'none' }} 
+                            accept="image/*"
+                            onChange={handleAvatarUpload}
+                        />
+                    </div>
+                    <div>
+                        <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px" }}>{user?.displayName || "User"}</div>
+                        <div style={{ color: "var(--text-secondary)", fontSize: "0.95rem" }}>{user?.email}</div>
+                    </div>
+                </div>
+
+                <button 
+                    className="auth-submit" 
+                    onClick={handleSignOut} 
+                    disabled={signOutLoading}
+                    style={{ maxWidth: "200px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: "var(--bg-glass)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+                >
+                    <FiLogOut size={16} />
+                    {signOutLoading ? "Signing Out..." : "Sign Out"}
+                </button>
+            </div>
+
+            <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
+
+                
+                <div style={{ marginBottom: "32px" }}>
+                    <h3 style={{ marginBottom: "8px" }}>Change Vault Password</h3>
+                    <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                        You must enter your current vault password to set a new one.
+                    </p>
 
                 {error && <div className="auth-error" style={{ marginBottom: "16px" }}>{error}</div>}
                 {success && <div className="auth-success" style={{ marginBottom: "16px", color: "var(--success)" }}>{success}</div>}
@@ -228,13 +299,13 @@ export default function SettingsPage() {
                         {busy ? "Updating..." : "Change Password"}
                     </button>
                 </form>
-            </div>
+                </div>
 
-            <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
-                <h3 style={{ marginBottom: "8px" }}>Recovery Key</h3>
-                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                    Generate a new Recovery Key if you lost your old one or are an existing user. This will invalidate any old Recovery Keys.
-                </p>
+                <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "32px" }}>
+                    <h3 style={{ marginBottom: "8px" }}>Recovery Key</h3>
+                    <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                        Generate a new Recovery Key if you lost your old one or are an existing user. This will invalidate any old Recovery Keys.
+                    </p>
 
                 {recoveryError && <div className="auth-error" style={{ marginBottom: "16px" }}>{recoveryError}</div>}
 
@@ -271,6 +342,7 @@ export default function SettingsPage() {
                         </button>
                     </form>
                 )}
+            </div>
             </div>
 
             {showMigration && (

@@ -579,7 +579,7 @@ function AppInner({
             alert("Failed to upload avatar.");
         } finally {
             setAvatarUploading(false);
-            if (fileInputRef.current) fileInputRef.current.value = "";
+            e.target.value = "";
         }
     };
 
@@ -937,19 +937,7 @@ function AppInner({
                 </div>
 
                 <div className="sidebar-user">
-                    <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        style={{ display: 'none' }} 
-                        accept="image/*"
-                        onChange={handleAvatarUpload}
-                    />
-                    <div 
-                        className="user-avatar" 
-                        onClick={() => fileInputRef.current?.click()}
-                        style={{ cursor: "pointer", position: "relative", overflow: "hidden" }}
-                        title="Click to change avatar"
-                    >
+                    <div className="user-avatar" style={{ position: "relative", overflow: "hidden" }}>
                         {avatarUploading ? (
                             <span className="spinner small" style={{ borderColor: "rgba(255,255,255,0.3)", borderTopColor: "#fff" }} />
                         ) : user.photoURL ? (
@@ -1016,10 +1004,6 @@ function AppInner({
                         {theme === "dark" ? <FiMoon size={14} /> : <FiSun size={14} />}
                         <span>{theme === "dark" ? "Dark" : "Light"}</span>
                     </button>
-                    <button className="sign-out-btn desktop" onClick={handleSignOut} disabled={signOutLoading}>
-                        <FiLogOut size={14} />
-                        <span>{signOutLoading ? "Logging Out..." : "Sign Out"}</span>
-                    </button>
                 </div>
             </aside>
 
@@ -1040,7 +1024,13 @@ function AppInner({
                     </div>
                 )}
                 {isSettingsRoute ? (
-                    <SettingsPage />
+                    <SettingsPage
+                        user={user}
+                        avatarUploading={avatarUploading}
+                        handleAvatarUpload={handleAvatarUpload}
+                        handleSignOut={handleSignOut}
+                        signOutLoading={signOutLoading}
+                    />
                 ) : isManageSubscriptionRoute ? (
                     <ManageSubscriptionPage />
                 ) : isFilesRoute ? (
