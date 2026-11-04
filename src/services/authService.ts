@@ -69,7 +69,8 @@ export async function signUp(email: string, password: string, fullName: string):
 
     await setDoc(doc(db, "users", uid), {
         salt,
-        email,
+        // Store normalized email for admin exemption lookup
+        email: (auth.currentUser?.email || "").toLowerCase(),
         fullName: encryptedFullName,
         createdAt: new Date(),
         encryptedMasterKey,
@@ -213,12 +214,26 @@ export async function resendVerificationEmail(email: string, password: string): 
  * - If the user has no Firestore record  → status "new"   (needs vault setup)
  * - If the user has an existing record   → status "existing" (needs vault unlock)
  */
-export async function signInWithGoogle(): Promise<
+export async function signInWithGoogle(loginHint?: string): Promise<
     | { status: "new"; uid: string }
     | { status: "existing"; uid: string }
 > {
     const provider = new GoogleAuthProvider();
+    const customParams: Record<string, string> = {
+        prompt: "select_account",
+    };
+    if (loginHint && loginHint.trim()) {
+        customParams.login_hint = loginHint.trim();
+    }
+    provider.setCustomParameters(customParams);
     const result = await signInWithPopup(auth, provider);
+    if (result.user.email) {
+        try {
+            localStorage.setItem("fs_last_google_email", result.user.email);
+        } catch {
+            // Ignore storage errors
+        }
+    }
     const uid = result.user.uid;
 
     const userDoc = await getDoc(doc(db, "users", uid));
@@ -251,6 +266,7 @@ export async function setupGoogleVault(password: string): Promise<string> {
     
     await setDoc(doc(db, "users", uid), {
         salt,
+        email: (auth.currentUser?.email || "").toLowerCase(),
         fullName: encryptedFullName,
         createdAt: new Date(),
         encryptedMasterKey,

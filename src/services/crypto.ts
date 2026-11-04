@@ -142,3 +142,68 @@ export async function decryptFile(
 
     return new Blob([plaintext], { type: mimeType });
 }
+
+// ─── File sharing (asymmetric key wrapping) ─────────────────────────────────
+// Each user has an RSA-OAEP key pair. The private key is stored encrypted with
+// the user's master key; the public key is used by senders to wrap a random
+// per-share AES key so only the intended recipients can decrypt shared files.
+
+const RSA_PARAMS: RsaHashedKeyGenParams = {
+    name: "RSA-OAEP",
+    modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]),
+    hash: "SHA-256",
+};
+
+export async function generateSharingKeyPair(): Promise<CryptoKeyPair> {
+    return await crypto.subtle.generateKey(RSA_PARAMS, true, ["encrypt", "decrypt"]);
+}
+
+export async function exportPublicKeyJwk(key: CryptoKey): Promise<string> {
+    const jwk = await crypto.subtle.exportKey("jwk", key);
+    return JSON.stringify({ kty: jwk.kty, n: jwk.n, e: jwk.e, alg: jwk.alg, ext: true });
+}
+
+export async function importPublicKeyJwk(jwkString: string): Promise<CryptoKey> {
+    const jwk = JSON.parse(jwkString) as JsonWebKey;
+    return await crypto.subtle.importKey(
+        "jwk",
+        { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: "RSA-OAEP-256", ext: true },
+        { name: "RSA-OAEP", hash: "SHA-256" },
+        false,
+        ["encrypt"]
+    );
+}
+
+export async function exportPrivateKeyHex(key: CryptoKey): Promise<string> {
+    const pkcs8 = await crypto.subtle.exportKey("pkcs8", key);
+    return bufferToHex(pkcs8);
+}
+
+export async function importPrivateKeyHex(hex: string): Promise<CryptoKey> {
+    return await crypto.subtle.importKey(
+        "pkcs8",
+        hexToBuffer(hex),
+        { name: "RSA-OAEP", hash: "SHA-256" },
+        false,
+        ["decrypt"]
+    );
+}
+
+/** Random AES-256-GCM key used to encrypt the contents of a single share. */
+export async function generateShareKey(): Promise<CryptoKey> {
+    return await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+}
+
+/** Encrypts the raw share key with a recipient's RSA public key. Returns hex. */
+export async function wrapShareKey(shareKey: CryptoKey, publicKey: CryptoKey): Promise<string> {
+    const raw = await crypto.subtle.exportKey("raw", shareKey);
+    const wrapped = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, raw);
+    return bufferToHex(wrapped);
+}
+
+/** Decrypts a wrapped share key with the current user's RSA private key. */
+export async function unwrapShareKey(wrappedHex: string, privateKey: CryptoKey): Promise<CryptoKey> {
+    const raw = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateKey, hexToBuffer(wrappedHex));
+    return await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}

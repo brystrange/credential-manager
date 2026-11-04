@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { listenToSubscription } from "../services/subscriptionService";
+import { listenToSubscription, syncSubscriptionStatus } from "../services/subscriptionService";
 import type { Plan, SubscriptionStatus } from "../services/subscriptionService";
 import { auth, db } from "../firebaseConfig";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -19,6 +19,8 @@ interface SubscriptionContextValue {
   status: SubscriptionStatus;
   /** True when the user has an active Pro subscription */
   isPro: boolean;
+  /** Current number of saved credentials */
+  credentialCount: number;
   /** Maximum number of credentials allowed (Infinity for Pro) */
   credentialLimit: number;
   /** True when the user has reached or exceeded their limit */
@@ -31,6 +33,12 @@ interface SubscriptionContextValue {
   storageLimit: number;
   /** True if the user has reached their storage limit */
   isStorageAtLimit: boolean;
+  /** True when usage exceeds Free tier limits (> 10 credentials or > 500 MB storage) */
+  exceedsFreeLimit: boolean;
+  /** Number of credentials above the Free tier limit (10) */
+  excessCredentials: number;
+  /** Bytes of file storage above the Free tier limit (500 MB) */
+  excessStorage: number;
   subscriptionId?: string;
   currentPeriodEnd?: Date | null;
   downgradeGracePeriodEnd?: Date | null;
@@ -44,12 +52,16 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
   plan: "free",
   status: null,
   isPro: false,
+  credentialCount: 0,
   credentialLimit: FREE_CREDENTIAL_LIMIT,
   isAtLimit: false,
   isNearLimit: false,
   storageUsed: 0,
   storageLimit: FREE_STORAGE_LIMIT,
   isStorageAtLimit: false,
+  exceedsFreeLimit: false,
+  excessCredentials: 0,
+  excessStorage: 0,
   loaded: false,
   isExempt: false,
 });
@@ -102,14 +114,28 @@ export function SubscriptionProvider({
     return unsub;
   }, [uid]);
 
+  // Periodically & on window focus verify Pro subscription status with Lemon Squeezy
+  useEffect(() => {
+    if (!uid || (plan !== "pro" && !isExempt)) return;
+
+    syncSubscriptionStatus();
+
+    const handleFocus = () => {
+      syncSubscriptionStatus();
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [uid, plan, isExempt]);
+
   useEffect(() => {
     if (!uid || !auth.currentUser?.email) {
       setIsExempt(false);
       return;
     }
-    const email = auth.currentUser.email;
+    const email = auth.currentUser.email.trim().toLowerCase();
     const unsub = onSnapshot(doc(db, "exemptions", email), (snap) => {
-      setIsExempt(snap.exists() && snap.data()?.exempt === true);
+      const exempted = snap.exists() && snap.data()?.exempt !== false;
+      setIsExempt(exempted);
     }, (err) => {
       console.warn("Could not check exemption status:", err);
       setIsExempt(false);
@@ -117,20 +143,46 @@ export function SubscriptionProvider({
     return unsub;
   }, [uid]);
 
-  // Listen for storage usage from user profile
+  // Listen for storage usage from user files collection and reconcile user profile storageUsed
   useEffect(() => {
     if (!uid) return;
-    const unsub = onSnapshot(doc(db, "users", uid), (snap) => {
+    let profileStorage: number | undefined = undefined;
+
+    const unsubProfile = onSnapshot(doc(db, "users", uid), (snap) => {
       if (snap.exists()) {
-        setStorageUsed(snap.data().storageUsed || 0);
+        profileStorage = Math.max(0, snap.data().storageUsed || 0);
+        setStorageUsed(profileStorage);
       }
     }, (err) => {
       console.warn("Could not load user profile for storage info:", err);
     });
-    return unsub;
+
+    const unsubFiles = onSnapshot(collection(db, "users", uid, "files"), (snap) => {
+      const actualBytes = snap.docs.reduce((sum, d) => sum + (Number(d.data().size) || 0), 0);
+      setStorageUsed(actualBytes);
+      if (profileStorage !== undefined && profileStorage !== actualBytes) {
+        updateDoc(doc(db, "users", uid), { storageUsed: actualBytes }).catch(() => {});
+      }
+    }, (err) => {
+      console.warn("Could not load user files for storage calculation:", err);
+    });
+
+    return () => {
+      unsubProfile();
+      unsubFiles();
+    };
   }, [uid]);
 
-  const isPro = (plan === "pro" && (status === "active" || status === "on_trial")) || isExempt;
+  const isPeriodValid = !currentPeriodEnd || currentPeriodEnd > new Date();
+  const isPro =
+    isExempt ||
+    (plan === "pro" &&
+      (status === "active" || status === "on_trial" || status === "on-trial") &&
+      isPeriodValid);
+
+  const effectivePlan: Plan = isPro ? "pro" : "free";
+  const effectiveStatus: SubscriptionStatus = isExempt ? "active" : status;
+
   const credentialLimit = isPro ? PRO_CREDENTIAL_LIMIT : FREE_CREDENTIAL_LIMIT;
   const isAtLimit = credentialCount >= credentialLimit;
   // Warn when 2 or fewer slots remain (only meaningful on Free)
@@ -139,16 +191,24 @@ export function SubscriptionProvider({
   const storageLimit = isPro ? PRO_STORAGE_LIMIT : FREE_STORAGE_LIMIT;
   const isStorageAtLimit = storageUsed >= storageLimit;
 
+  const excessCredentials = isExempt ? 0 : Math.max(0, credentialCount - FREE_CREDENTIAL_LIMIT);
+  const excessStorage = isExempt ? 0 : Math.max(0, storageUsed - FREE_STORAGE_LIMIT);
+  const exceedsFreeLimit = !isExempt && (excessCredentials > 0 || excessStorage > 0);
+
   const value: SubscriptionContextValue = {
-    plan,
-    status,
+    plan: effectivePlan,
+    status: effectiveStatus,
     isPro,
+    credentialCount,
     credentialLimit,
     isAtLimit,
     isNearLimit,
     storageUsed,
     storageLimit,
     isStorageAtLimit,
+    exceedsFreeLimit,
+    excessCredentials,
+    excessStorage,
     subscriptionId,
     currentPeriodEnd,
     downgradeGracePeriodEnd,

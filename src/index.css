@@ -788,6 +788,35 @@ button {
   text-overflow: ellipsis;
 }
 
+.settings-signout-btn {
+  background: rgba(127, 29, 29, 0.1);
+  border: 1px solid rgba(127, 29, 29, 0.4);
+  color: var(--danger);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  width: fit-content;
+}
+
+.settings-signout-btn:hover:not(:disabled) {
+  background: rgba(127, 29, 29, 0.25);
+  border-color: rgba(127, 29, 29, 0.7);
+  color: #ff6b6b;
+}
+
+.settings-signout-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .sidebar-nav {
   padding: 10px 10px;
   flex: 1;
@@ -3742,6 +3771,165 @@ option {
   width: 100%;
 }
 
+/* ─── File Explorer Toolbar ─── */
+.file-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.file-toolbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.file-toolbar-actions .file-action-btn {
+  width: auto;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+}
+
+.file-toolbar-actions .file-action-btn-primary {
+  background: var(--accent);
+}
+
+.file-toolbar-secondary {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.file-view-toggle {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.file-view-btn {
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.file-view-btn.active {
+  background: var(--bg-secondary);
+}
+
+.file-view-btn:not(:first-child) {
+  border-left: 1px solid var(--border-color);
+}
+
+.file-storage-meter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 160px;
+}
+
+.file-storage-text {
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.file-storage-track {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.file-storage-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* Responsive File Toolbar on Mobile / Narrow Viewports */
+@media (max-width: 768px) {
+  .file-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .file-toolbar-actions {
+    width: 100%;
+    display: flex;
+    gap: 10px;
+  }
+
+  .file-toolbar-actions .file-action-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  .file-toolbar-secondary {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .file-storage-meter {
+    flex: 1;
+    min-width: 0;
+    max-width: 220px;
+    align-items: flex-end;
+  }
+
+  .file-storage-text {
+    font-size: 0.78rem;
+    margin-bottom: 3px;
+  }
+
+  .file-storage-track {
+    width: 100%;
+    height: 6px;
+  }
+}
+
+@media (max-width: 380px) {
+  .file-toolbar-actions {
+    gap: 8px;
+  }
+
+  .file-toolbar-actions .file-action-btn {
+    padding: 9px 8px;
+    font-size: 0.76rem;
+    gap: 6px;
+  }
+
+  .file-storage-text {
+    font-size: 0.72rem;
+  }
+}
+
 .breadcrumbs {
   display: flex;
   align-items: center;
@@ -3802,13 +3990,14 @@ option {
   align-items: center;
   text-align: center;
   position: relative;
-  transition: all 0.2s ease;
   cursor: pointer;
+  outline: none;
 }
 
 .file-card:hover {
   border-color: var(--accent);
   box-shadow: 0 4px 12px var(--shadow-color);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .file-card-visual {

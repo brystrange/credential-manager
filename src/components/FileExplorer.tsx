@@ -4,7 +4,7 @@ import {
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
     FiChevronRight, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
-    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo
+    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers
 } from "react-icons/fi";
 import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv } from "react-icons/fa";
 import { 
@@ -16,6 +16,14 @@ import {
 import type { VaultFolder, VaultFile } from "../services/fileService";
 import ConfirmDialog from "./ConfirmDialog";
 import FolderPickerModal from "./FolderPickerModal";
+import ShareModal from "./ShareModal";
+import {
+    listShares,
+    downloadSharedFile,
+    removeShare,
+    ensureSharingKeys,
+} from "../services/shareService";
+import type { SharedItem, SharedFileEntry, ShareableItem } from "../services/shareService";
 import { useSubscription } from "../context/SubscriptionContext";
 import { compressImage } from "../utils/imageCompressor";
 import PDFEditor from "./PDFEditor";
@@ -108,6 +116,8 @@ const ImageThumbnail = ({ file }: { file: VaultFile }) => {
 };
 
 const globalFolderCountsCache: Record<string, number> = {};
+let globalFoldersCache: VaultFolder[] | null = null;
+let globalFilesCache: VaultFile[] | null = null;
 
 export default function FileExplorer() {
     const { storageUsed, storageLimit, isStorageAtLimit, isPro } = useSubscription();
@@ -115,9 +125,9 @@ export default function FileExplorer() {
     const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
     const [breadcrumbs, setBreadcrumbs] = useState<{id: string | null, name: string}[]>([{ id: null, name: "Home" }]);
     
-    const [folders, setFolders] = useState<VaultFolder[]>([]);
-    const [files, setFiles] = useState<VaultFile[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [folders, setFolders] = useState<VaultFolder[]>(() => globalFoldersCache ?? []);
+    const [files, setFiles] = useState<VaultFile[]>(() => globalFilesCache ?? []);
+    const [loading, setLoading] = useState(() => !globalFoldersCache);
     const [actionLoading, setActionLoading] = useState(false);
     const [loadingBulkAction, setLoadingBulkAction] = useState<string | null>(null);
 
@@ -179,6 +189,35 @@ export default function FileExplorer() {
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
     const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
     const [bulkMoveModalOpen, setBulkMoveModalOpen] = useState(false);
+    const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+
+    // Sharing State
+    const [shareModalOpen, setShareModalOpen] = useState(false);
+    const [itemsToShare, setItemsToShare] = useState<ShareableItem[]>([]);
+    const [sharedItems, setSharedItems] = useState<SharedItem[]>([]);
+    const [sentShares, setSentShares] = useState<SharedItem[]>([]);
+    const [loadingShares, setLoadingShares] = useState(false);
+    const [sharedTab, setSharedTab] = useState<"received" | "sent">("received");
+    const [confirmRemoveShare, setConfirmRemoveShare] = useState<SharedItem | null>(null);
+    const [downloadingSharedId, setDownloadingSharedId] = useState<string | null>(null);
+
+    const refreshShares = async () => {
+        setLoadingShares(true);
+        try {
+            await ensureSharingKeys();
+            const res = await listShares();
+            setSharedItems(res.received);
+            setSentShares(res.sent);
+        } catch (err) {
+            console.debug("Failed to list shares:", err);
+        } finally {
+            setLoadingShares(false);
+        }
+    };
+
+    useEffect(() => {
+        void refreshShares();
+    }, []);
 
     // Zoom and Pan State
     const [zoomLevel, setZoomLevel] = useState(1);
@@ -265,10 +304,28 @@ export default function FileExplorer() {
     }, []);
 
     useEffect(() => {
+        if (currentFolderId?.startsWith("__shared__")) {
+            setFolders([]);
+            setFiles([]);
+            setLoading(false);
+            void refreshShares();
+            return;
+        }
+
         setLoading(true);
+        let foldersLoaded = false;
+        let filesLoaded = false;
+        const markLoaded = () => {
+            if (foldersLoaded && filesLoaded) {
+                setLoading(false);
+            }
+        };
 
         const unsubFolders = subscribeToFolders(currentFolderId, async (fetchedFolders) => {
+            if (currentFolderId === null) globalFoldersCache = fetchedFolders;
             setFolders(fetchedFolders);
+            foldersLoaded = true;
+            markLoaded();
             
             // Eagerly populate from cache so we don't show "Loading..."
             const initialCounts: Record<string, number> = {};
@@ -291,8 +348,10 @@ export default function FileExplorer() {
         });
 
         const unsubFiles = subscribeToFiles(currentFolderId, (fetchedFiles) => {
+            if (currentFolderId === null) globalFilesCache = fetchedFiles;
             setFiles(fetchedFiles);
-            setLoading(false);
+            filesLoaded = true;
+            markLoaded();
         });
 
         return () => {
@@ -750,8 +809,7 @@ export default function FileExplorer() {
         }
     };
 
-    const handleBulkDelete = async () => {
-        if (!window.confirm(`Are you sure you want to delete ${selectedFiles.size + selectedFolders.size} items?`)) return;
+    const confirmBulkDelete = async () => {
         setActionLoading(true);
         setLoadingBulkAction('delete');
         try {
@@ -764,12 +822,103 @@ export default function FileExplorer() {
             ]);
             setSelectedFiles(new Set());
             setSelectedFolders(new Set());
+            setBulkDeleteModalOpen(false);
         } catch (e) {
             console.error(e);
             alert("Error deleting some items.");
+        } finally {
+            setActionLoading(false);
+            setLoadingBulkAction(null);
         }
-        setActionLoading(false);
-        setLoadingBulkAction(null);
+    };
+
+    const handleShareTarget = (target: { id: string; name: string; isFolder: boolean; file?: VaultFile }) => {
+        if (target.isFolder) {
+            const fo = folders.find(f => f.id === target.id);
+            if (fo) setItemsToShare([{ kind: "folder", folder: fo }]);
+        } else if (target.file) {
+            setItemsToShare([{ kind: "file", file: target.file }]);
+        }
+        setShareModalOpen(true);
+    };
+
+    const handleBulkShare = () => {
+        const items: ShareableItem[] = [];
+        selectedFolders.forEach(id => {
+            const fo = folders.find(f => f.id === id);
+            if (fo) items.push({ kind: "folder", folder: fo });
+        });
+        selectedFiles.forEach(id => {
+            const fi = files.find(f => f.id === id);
+            if (fi) items.push({ kind: "file", file: fi });
+        });
+        if (items.length === 0) return;
+        setItemsToShare(items);
+        setShareModalOpen(true);
+    };
+
+    const handleDownloadSharedFile = async (share: SharedItem, file: SharedFileEntry) => {
+        const key = `${share.id}:${file.storagePath}`;
+        setDownloadingSharedId(key);
+        try {
+            const blob = await downloadSharedFile(share, file);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = file.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Failed to download shared file:", err);
+            alert("Failed to download shared file. It may have been removed or access revoked.");
+        } finally {
+            setDownloadingSharedId(null);
+        }
+    };
+
+    const handleDownloadAllShared = async (share: SharedItem) => {
+        setDownloadingSharedId(share.id);
+        try {
+            const zip = new JSZip();
+            for (const file of share.files) {
+                const blob = await downloadSharedFile(share, file);
+                zip.file(file.path, blob);
+            }
+            const content = await zip.generateAsync({ type: "blob" });
+            const url = URL.createObjectURL(content);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${share.name || "shared-files"}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Failed to download shared ZIP:", err);
+            alert("Failed to download all shared files.");
+        } finally {
+            setDownloadingSharedId(null);
+        }
+    };
+
+    const handleConfirmRemoveShare = async () => {
+        if (!confirmRemoveShare) return;
+        setActionLoading(true);
+        try {
+            await removeShare(confirmRemoveShare.id);
+            if (currentFolderId === `__shared__:${confirmRemoveShare.id}`) {
+                navigateToFolder("__shared__", "Shared with Me");
+            }
+            setConfirmRemoveShare(null);
+            await refreshShares();
+        } catch (err) {
+            console.error("Failed to remove share:", err);
+            alert("Failed to remove share.");
+        } finally {
+            setActionLoading(false);
+        }
     };
 
     const handleBulkMove = async (targetFolderId: string | null) => {
@@ -908,12 +1057,20 @@ export default function FileExplorer() {
                 <h1 className="page-title">Secure File Storage</h1>
                 <p className="page-subtitle" style={{ marginBottom: "16px" }}>Encrypted document storage</p>
             </div>
-            <div className="content-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-                <div style={{ display: "flex", gap: "10px" }}>
-                    <button className="auth-submit" style={{ width: "auto", margin: 0, display: "flex", alignItems: "center", gap: "8px" }} onClick={() => setNewFolderModalOpen(true)}>
+            <div className="file-toolbar">
+                <div className="file-toolbar-actions">
+                    <button 
+                        className="auth-submit file-action-btn" 
+                        onClick={() => setNewFolderModalOpen(true)} 
+                        disabled={!!currentFolderId?.startsWith("__shared__")}
+                    >
                         <FiPlus /> New Folder
                     </button>
-                    <button className="auth-submit" style={{ width: "auto", margin: 0, display: "flex", alignItems: "center", gap: "8px", background: "var(--accent)" }} onClick={handleUploadClick} disabled={uploadProgress !== null || isStorageAtLimit}>
+                    <button 
+                        className="auth-submit file-action-btn file-action-btn-primary" 
+                        onClick={handleUploadClick} 
+                        disabled={uploadProgress !== null || isStorageAtLimit || !!currentFolderId?.startsWith("__shared__")}
+                    >
                         {uploadProgress !== null ? (
                             <><FiLoader size={16} className="spin" /> Uploading {Math.round(uploadProgress)}%</>
                         ) : (
@@ -923,32 +1080,38 @@ export default function FileExplorer() {
                     <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} multiple />
                 </div>
                 
-                <div style={{ display: "flex", alignItems: "center", gap: "24px" }}>
-                    <div style={{ display: "flex", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)" }}>
+                <div className="file-toolbar-secondary">
+                    <div className="file-view-toggle">
                         <button 
                             type="button" 
+                            className={`file-view-btn ${viewMode === "grid" ? "active" : ""}`}
                             onClick={() => setViewMode("grid")}
-                            style={{ padding: "8px", background: viewMode === "grid" ? "var(--bg-secondary)" : "transparent", border: "none", color: "var(--text-primary)", cursor: "pointer", borderTopLeftRadius: "var(--radius-sm)", borderBottomLeftRadius: "var(--radius-sm)" }}
                             title="Grid View"
                         >
                             <FiGrid />
                         </button>
                         <button 
                             type="button" 
+                            className={`file-view-btn ${viewMode === "list" ? "active" : ""}`}
                             onClick={() => setViewMode("list")}
-                            style={{ padding: "8px", background: viewMode === "list" ? "var(--bg-secondary)" : "transparent", border: "none", color: "var(--text-primary)", cursor: "pointer", borderTopRightRadius: "var(--radius-sm)", borderBottomRightRadius: "var(--radius-sm)", borderLeft: "1px solid var(--border-color)" }}
                             title="List View"
                         >
                             <FiList />
                         </button>
                     </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", fontSize: "0.85rem" }}>
-                        <span style={{ color: "var(--text-secondary)", marginBottom: "4px" }}>
+                    <div className="file-storage-meter">
+                        <span className="file-storage-text">
                             {formatSize(storageUsed)} / {formatSize(storageLimit)} Used
                         </span>
-                        <div style={{ width: "100%", height: "8px", background: "var(--bg-secondary)", borderRadius: "4px", overflow: "hidden" }}>
-                            <div style={{ width: `${storageUsed > 0 ? Math.max(2, (storageUsed / storageLimit) * 100) : 0}%`, height: "100%", background: isStorageAtLimit ? "var(--danger)" : "var(--accent)", transition: "width 0.3s ease" }} />
+                        <div className="file-storage-track">
+                            <div 
+                                className="file-storage-fill" 
+                                style={{ 
+                                    width: `${storageUsed > 0 ? Math.max(2, (storageUsed / storageLimit) * 100) : 0}%`, 
+                                    background: isStorageAtLimit ? "var(--danger)" : "var(--accent)" 
+                                }} 
+                            />
                         </div>
                     </div>
                 </div>
@@ -974,7 +1137,7 @@ export default function FileExplorer() {
                 ))}
             </div>
 
-            {(!loading && (folders.length > 0 || files.length > 0)) && (
+            {(!loading && !currentFolderId?.startsWith("__shared__") && (folders.length > 0 || files.length > 0)) && (
                 <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
                     <input 
                         type="checkbox" 
@@ -991,17 +1154,236 @@ export default function FileExplorer() {
                 </div>
             )}
 
-            {loading ? (
+            {currentFolderId === "__shared__" ? (
+                <div>
+                    <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-color)", paddingBottom: "12px", marginBottom: "20px" }}>
+                        <button
+                            type="button"
+                            onClick={() => setSharedTab("received")}
+                            style={{
+                                padding: "8px 16px",
+                                borderRadius: "var(--radius-sm)",
+                                border: "none",
+                                cursor: "pointer",
+                                background: sharedTab === "received" ? "var(--accent)" : "transparent",
+                                color: sharedTab === "received" ? "#000" : "var(--text-secondary)",
+                                fontWeight: 600,
+                                fontSize: "0.875rem",
+                            }}
+                        >
+                            Received ({sharedItems.length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setSharedTab("sent")}
+                            style={{
+                                padding: "8px 16px",
+                                borderRadius: "var(--radius-sm)",
+                                border: "none",
+                                cursor: "pointer",
+                                background: sharedTab === "sent" ? "var(--accent)" : "transparent",
+                                color: sharedTab === "sent" ? "#000" : "var(--text-secondary)",
+                                fontWeight: 600,
+                                fontSize: "0.875rem",
+                            }}
+                        >
+                            Shared by Me ({sentShares.length})
+                        </button>
+                    </div>
+
+                    {loadingShares ? (
+                        <div style={{ textAlign: "center", padding: "40px" }}>
+                            <div className="spin" style={{ display: "inline-block", border: "3px solid var(--border-color)", borderTopColor: "var(--accent)", borderRadius: "50%", width: "24px", height: "24px" }} />
+                        </div>
+                    ) : (sharedTab === "received" ? sharedItems : sentShares).length === 0 ? (
+                        <div className="empty-state">
+                            <FiUsers size={48} style={{ color: "var(--text-muted)", marginBottom: "16px" }} />
+                            <p>{sharedTab === "received" ? "No files have been shared with you yet." : "You haven't shared any files yet."}</p>
+                        </div>
+                    ) : (
+                        <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
+                            {(sharedTab === "received" ? sharedItems : sentShares).map((item) => (
+                                <div
+                                    key={item.id}
+                                    className="file-card"
+                                    onClick={() => {
+                                        if (item.itemType === "folder") {
+                                            navigateToFolder(`__shared__:${item.id}`, item.name);
+                                        } else if (item.files[0]) {
+                                            void handleDownloadSharedFile(item, item.files[0]);
+                                        }
+                                    }}
+                                >
+                                    <div className="file-card-visual">
+                                        <div className="file-card-icon" style={{ color: "var(--accent)" }}>
+                                            {item.itemType === "folder" ? <FiFolder size={18} /> : <FiFile size={18} />}
+                                        </div>
+                                    </div>
+                                    <div className="file-card-info" style={{ flex: 1, minWidth: 0 }}>
+                                        <span className="file-name" style={{ fontWeight: 600 }}>{item.name}</span>
+                                        <span className="file-size" style={{ display: "block", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                                            {item.isSender
+                                                ? `Shared with ${item.recipients.map(r => r.email).join(", ")}`
+                                                : `From: ${item.senderEmail}`}
+                                            {" • "}
+                                            {item.files.length} {item.files.length === 1 ? "file" : "files"}
+                                            {" • "}
+                                            {item.createdAt.toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                    <div className="file-actions" onClick={e => e.stopPropagation()} style={{ display: "flex", gap: "6px" }}>
+                                        {item.itemType === "file" && item.files[0] ? (
+                                            <button
+                                                title="Download"
+                                                onClick={() => handleDownloadSharedFile(item, item.files[0])}
+                                                disabled={downloadingSharedId === `${item.id}:${item.files[0].storagePath}`}
+                                                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", padding: "4px" }}
+                                            >
+                                                {downloadingSharedId === `${item.id}:${item.files[0].storagePath}` ? <FiLoader className="spin" size={16} /> : <FiDownload size={16} />}
+                                            </button>
+                                        ) : (
+                                            <button
+                                                title="Download All (ZIP)"
+                                                onClick={() => handleDownloadAllShared(item)}
+                                                disabled={downloadingSharedId === item.id}
+                                                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", padding: "4px" }}
+                                            >
+                                                {downloadingSharedId === item.id ? <FiLoader className="spin" size={16} /> : <FiArchive size={16} />}
+                                            </button>
+                                        )}
+                                        <button
+                                            title={item.isSender ? "Revoke share" : "Remove from my list"}
+                                            onClick={() => setConfirmRemoveShare(item)}
+                                            style={{ background: "transparent", border: "none", color: "var(--danger)", cursor: "pointer", padding: "4px" }}
+                                        >
+                                            <FiTrash2 size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            ) : currentFolderId?.startsWith("__shared__:") ? (
+                (() => {
+                    const shareId = currentFolderId.replace("__shared__:", "");
+                    const activeShare = sharedItems.concat(sentShares).find(s => s.id === shareId);
+                    if (!activeShare) {
+                        return (
+                            <div className="empty-state">
+                                <p>Shared folder not found or revoked.</p>
+                            </div>
+                        );
+                    }
+                    return (
+                        <div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "12px 16px", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)" }}>
+                                <div>
+                                    <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                                        {activeShare.isSender
+                                            ? `Shared with: ${activeShare.recipients.map(r => r.email).join(", ")}`
+                                            : `Shared by: ${activeShare.senderEmail}`}
+                                    </div>
+                                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                                        {activeShare.files.length} file{activeShare.files.length === 1 ? "" : "s"} • {activeShare.createdAt.toLocaleDateString()}
+                                    </div>
+                                </div>
+                                <div style={{ display: "flex", gap: "10px" }}>
+                                    <button
+                                        className="auth-submit"
+                                        style={{ width: "auto", margin: 0, padding: "6px 14px", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px" }}
+                                        onClick={() => handleDownloadAllShared(activeShare)}
+                                        disabled={downloadingSharedId === activeShare.id}
+                                    >
+                                        {downloadingSharedId === activeShare.id ? <FiLoader className="spin" size={14} /> : <FiArchive size={14} />}
+                                        Download All (ZIP)
+                                    </button>
+                                    <button
+                                        className="auth-submit"
+                                        style={{ width: "auto", margin: 0, padding: "6px 14px", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: "1px solid var(--danger)", color: "var(--danger)" }}
+                                        onClick={() => setConfirmRemoveShare(activeShare)}
+                                    >
+                                        <FiTrash2 size={14} />
+                                        {activeShare.isSender ? "Revoke" : "Remove"}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
+                                {activeShare.files.map((fileEntry, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="file-card"
+                                        onClick={() => void handleDownloadSharedFile(activeShare, fileEntry)}
+                                    >
+                                        <div className="file-card-visual">
+                                            <div className="file-card-icon">
+                                                <FiFile size={18} />
+                                            </div>
+                                        </div>
+                                        <div className="file-card-info" style={{ flex: 1, minWidth: 0 }}>
+                                            <span className="file-name">{fileEntry.path}</span>
+                                            <span className="file-size">{formatSize(fileEntry.size)}</span>
+                                        </div>
+                                        <div className="file-actions" onClick={e => e.stopPropagation()}>
+                                            <button
+                                                title="Download"
+                                                onClick={() => handleDownloadSharedFile(activeShare, fileEntry)}
+                                                disabled={downloadingSharedId === `${activeShare.id}:${fileEntry.storagePath}`}
+                                                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", padding: "4px" }}
+                                            >
+                                                {downloadingSharedId === `${activeShare.id}:${fileEntry.storagePath}` ? (
+                                                    <FiLoader className="spin" size={16} />
+                                                ) : (
+                                                    <FiDownload size={16} />
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })()
+            ) : loading ? (
                 <div style={{ textAlign: "center", padding: "40px" }}>
                     <div className="spin" style={{ display: "inline-block", border: "3px solid var(--border-color)", borderTopColor: "var(--accent)", borderRadius: "50%", width: "24px", height: "24px" }} />
                 </div>
-            ) : folders.length === 0 && files.length === 0 ? (
+            ) : folders.length === 0 && files.length === 0 && currentFolderId !== null ? (
                 <div className="empty-state">
                     <FiFolder size={48} style={{ color: "var(--text-muted)", marginBottom: "16px" }} />
                     <p>This folder is empty.</p>
                 </div>
             ) : (
                 <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
+                    {currentFolderId === null && (
+                        <div 
+                            className="file-card"
+                            onClick={() => {
+                                if (selectedFiles.size > 0 || selectedFolders.size > 0) return;
+                                navigateToFolder("__shared__", "Shared with Me");
+                            }}
+                            style={{ borderColor: "var(--border-color)", outline: "none" }}
+                        >
+                            <div className="file-card-visual">
+                                {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
+                                <div className="file-card-icon" style={{ color: "var(--accent)" }}>
+                                    <FiUsers size={18} />
+                                </div>
+                            </div>
+                            <div className="file-card-info">
+                                <span className="file-name" style={{ fontWeight: 'normal' }}>Shared with Me</span>
+                                <span className="file-size">
+                                    {`${sharedItems.length} item${sharedItems.length === 1 ? "" : "s"}`}
+                                </span>
+                            </div>
+                            <div className="file-actions" onClick={(e) => { e.stopPropagation(); navigateToFolder("__shared__", "Shared with Me"); }}>
+                                <button title="Open">
+                                    <FiChevronRight size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {folders.map(folder => (
                         <div 
                             key={folder.id} 
@@ -1117,6 +1499,9 @@ export default function FileExplorer() {
                     <button className="context-menu-item" onClick={() => { setMoveTarget(contextMenu.target); setContextMenu(null); }}>
                         <FiCornerUpRight /> Move
                     </button>
+                    <button className="context-menu-item" onClick={() => { handleShareTarget(contextMenu.target); setContextMenu(null); }}>
+                        <FiShare2 /> Share
+                    </button>
                     {contextMenu.target.isFolder && (
                         <button className="context-menu-item" onClick={() => { setColorPickerTarget({ id: contextMenu.target.id, name: contextMenu.target.name }); setContextMenu(null); }}>
                             <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: 'linear-gradient(135deg, #ffd1dc, #ffdfba, #bae1ff)' }} /> Color
@@ -1154,7 +1539,10 @@ export default function FileExplorer() {
                     <button onClick={() => setBulkMoveModalOpen(true)} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
                         {loadingBulkAction === 'move' ? <FiLoader size={16} className="spin" /> : <FiCornerUpRight size={16} />} Move
                     </button>
-                    <button onClick={handleBulkDelete} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                    <button onClick={handleBulkShare} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                        <FiShare2 size={16} /> Share
+                    </button>
+                    <button onClick={() => setBulkDeleteModalOpen(true)} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
                         {loadingBulkAction === 'delete' ? <FiLoader size={16} className="spin" /> : <FiTrash2 size={16} />} Delete
                     </button>
                     <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
@@ -1327,6 +1715,7 @@ export default function FileExplorer() {
                                 setRenameModalOpen(true); 
                             }}><FiEdit2 /> Rename</button>
                             <button onClick={() => { setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); }}><FiCornerUpRight /> Move</button>
+                            <button onClick={() => { setItemsToShare([{ kind: "file", file: selectedImage.file }]); setShareModalOpen(true); }}><FiShare2 /> Share</button>
                             <button className="danger" onClick={() => { setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); }}><FiTrash2 /> Delete</button>
                             <button className="close-btn" onClick={() => { setSelectedImage(null); setZoomLevel(1); setPan({x:0, y:0}); }}><FiX size={24} /></button>
                         </div>
@@ -1364,6 +1753,7 @@ export default function FileExplorer() {
                                         setImageMenuOpen(false); 
                                     }}><FiEdit2 /> Rename</button>
                                     <button onClick={() => { setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); setImageMenuOpen(false); }}><FiCornerUpRight /> Move</button>
+                                    <button onClick={() => { setItemsToShare([{ kind: "file", file: selectedImage.file }]); setShareModalOpen(true); setImageMenuOpen(false); }}><FiShare2 /> Share</button>
                                     <button className="danger" onClick={() => { setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); setImageMenuOpen(false); }}><FiTrash2 /> Delete</button>
                                 </div>
                             )}
@@ -1674,6 +2064,37 @@ export default function FileExplorer() {
                     </div>
                 </div>
             )}
+
+            {/* Bulk Delete Confirm Dialog */}
+            <ConfirmDialog
+                isOpen={bulkDeleteModalOpen}
+                title={`Delete ${selectedFiles.size + selectedFolders.size} Item${selectedFiles.size + selectedFolders.size === 1 ? '' : 's'}`}
+                message={<>Are you sure you want to delete <strong>{selectedFiles.size + selectedFolders.size} selected item{selectedFiles.size + selectedFolders.size === 1 ? '' : 's'}</strong>? This action cannot be undone.</>}
+                onConfirm={confirmBulkDelete}
+                onCancel={() => setBulkDeleteModalOpen(false)}
+                loading={actionLoading}
+            />
+
+            {/* Share Modal */}
+            <ShareModal
+                isOpen={shareModalOpen}
+                items={itemsToShare}
+                onClose={() => setShareModalOpen(false)}
+                onShared={() => void refreshShares()}
+            />
+
+            {/* Remove / Revoke Share Confirm Dialog */}
+            <ConfirmDialog
+                isOpen={!!confirmRemoveShare}
+                title={confirmRemoveShare?.isSender ? "Revoke Share" : "Remove Shared Item"}
+                message={confirmRemoveShare?.isSender
+                    ? <>Are you sure you want to revoke access to <strong>"{confirmRemoveShare?.name}"</strong>? Recipients will no longer be able to access these files.</>
+                    : <>Are you sure you want to remove <strong>"{confirmRemoveShare?.name}"</strong> from your shared list?</>
+                }
+                onConfirm={handleConfirmRemoveShare}
+                onCancel={() => setConfirmRemoveShare(null)}
+                loading={actionLoading}
+            />
         </div>
     );
 }

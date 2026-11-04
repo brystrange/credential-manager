@@ -34,6 +34,13 @@ export default function AuthCallback() {
                 // Sign in with the custom token minted by our Firebase Function
                 const userCredential = await signInWithCustomToken(auth, token);
                 const user = userCredential.user;
+                if (user.email) {
+                    try {
+                        localStorage.setItem("fs_last_google_email", user.email);
+                    } catch {
+                        // Ignore storage errors
+                    }
+                }
 
                 // Check if user exists in Firestore
                 const userDoc = await getDoc(doc(db, "users", user.uid));

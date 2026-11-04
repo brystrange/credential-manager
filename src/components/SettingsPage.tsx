@@ -180,8 +180,8 @@ export default function SettingsPage({
             <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
                 <h3 style={{ marginBottom: "20px" }}>Account Information</h3>
                 
-                <div style={{ display: "flex", alignItems: "center", gap: "20px", marginBottom: "24px" }}>
-                    <div style={{ position: "relative" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                    <div style={{ position: "relative", flexShrink: 0 }}>
                         <div 
                             className="user-avatar" 
                             style={{ width: "80px", height: "80px", cursor: "pointer", position: "relative", overflow: "hidden", fontSize: "2rem", borderRadius: "50%", background: "var(--bg-glass)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border-color)" }}
@@ -211,21 +211,27 @@ export default function SettingsPage({
                             onChange={handleAvatarUpload}
                         />
                     </div>
-                    <div>
-                        <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px" }}>{user?.displayName || "User"}</div>
-                        <div style={{ color: "var(--text-secondary)", fontSize: "0.95rem" }}>{user?.email}</div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px", wordBreak: "break-word" }}>{user?.displayName || "User"}</div>
+                        <div style={{ color: "var(--text-secondary)", fontSize: "0.95rem", wordBreak: "break-all" }}>{user?.email}</div>
                     </div>
                 </div>
 
-                <button 
-                    className="auth-submit" 
-                    onClick={handleSignOut} 
-                    disabled={signOutLoading}
-                    style={{ maxWidth: "200px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: "var(--bg-glass)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
-                >
-                    <FiLogOut size={16} />
-                    {signOutLoading ? "Signing Out..." : "Sign Out"}
-                </button>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "20px" }}>
+                    <button 
+                        className="settings-signout-btn" 
+                        onClick={handleSignOut} 
+                        disabled={signOutLoading}
+                        style={{ 
+                            background: "rgba(127, 29, 29, 0.1)", 
+                            border: "1px solid rgba(127, 29, 29, 0.4)", 
+                            color: "var(--danger)" 
+                        }}
+                    >
+                        <FiLogOut size={16} />
+                        {signOutLoading ? "Signing Out..." : "Sign Out"}
+                    </button>
+                </div>
             </div>
 
             <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>

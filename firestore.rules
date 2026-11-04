@@ -82,7 +82,7 @@ service cloud.firestore {
       // Subscription fields (plan, subscriptionId, subscriptionStatus,
       // currentPeriodEnd, lsCustomerId) are written ONLY by Cloud Functions
       // via Admin SDK, which bypasses these rules entirely.
-      allow update: if isVerifiedOwner(userId)
+      allow update: if (isAuthenticated() && request.auth.token.admin == true) || isVerifiedOwner(userId)
         && hasMaxFields(20)
         // Cannot change the salt after creation (would break all encryption)
         && request.resource.data.salt == resource.data.salt

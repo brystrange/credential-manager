@@ -173,6 +173,34 @@ export async function deleteFolder(id: string): Promise<void> {
     // in a real app you'd want a Cloud Function or recursive batch delete)
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error("Not authenticated");
+
+    // Recursively delete subfolders
+    const subfoldersQuery = query(getUserFoldersRef(), where("parentId", "==", id));
+    const subfoldersSnap = await getDocs(subfoldersQuery);
+    for (const subDoc of subfoldersSnap.docs) {
+        await deleteFolder(subDoc.id);
+    }
+
+    // Delete all files inside this folder and decrement storageUsed
+    const filesQuery = query(getUserFilesRef(), where("folderId", "==", id));
+    const filesSnap = await getDocs(filesQuery);
+    for (const fileDoc of filesSnap.docs) {
+        const data = fileDoc.data();
+        if (data.storagePath) {
+            try {
+                await deleteObject(ref(storage, data.storagePath));
+            } catch (err) {
+                console.warn("Failed to delete storage object:", err);
+            }
+        }
+        await deleteDoc(fileDoc.ref);
+        if (data.size) {
+            await updateDoc(doc(db, "users", uid), {
+                storageUsed: increment(-data.size)
+            });
+        }
+    }
+
     const docRef = doc(db, "users", uid, "folders", id);
     await deleteDoc(docRef);
 }
@@ -399,7 +427,11 @@ export async function deleteVaultFile(vaultFile: VaultFile): Promise<void> {
 
     // 1. Delete from Storage
     const storageRef = ref(storage, vaultFile.storagePath);
-    await deleteObject(storageRef);
+    try {
+        await deleteObject(storageRef);
+    } catch (err) {
+        console.warn("Storage object already removed or inaccessible:", err);
+    }
 
     // 2. Delete from Firestore
     const docRef = doc(db, "users", uid, "files", vaultFile.id);

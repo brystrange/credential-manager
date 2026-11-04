@@ -1,11 +1,11 @@
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
-import { db, functions } from "../firebaseConfig";
+import { auth, db, functions } from "../firebaseConfig";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type Plan = "free" | "pro";
-export type SubscriptionStatus = "active" | "cancelled" | "expired" | "on_trial" | null;
+export type SubscriptionStatus = "active" | "cancelled" | "expired" | "on_trial" | "on-trial" | null;
 
 export interface Subscription {
   plan: Plan;
@@ -29,7 +29,7 @@ export function listenToSubscription(
 ): () => void {
   const userRef = doc(db, "users", uid);
 
-  return onSnapshot(userRef, (snap) => {
+  return onSnapshot(userRef, async (snap) => {
     if (!snap.exists()) {
       onUpdate({ plan: "free", subscriptionStatus: null });
       return;
@@ -37,16 +37,80 @@ export function listenToSubscription(
     const data = snap.data();
     const periodEnd = data.currentPeriodEnd?.toDate?.() ?? null;
     const graceEnd = data.downgradeGracePeriodEnd?.toDate?.() ?? null;
+    const rawPlan = (data.plan as Plan) ?? "free";
+    const rawStatus = (data.subscriptionStatus as SubscriptionStatus) ?? null;
+
+    // Check if the user is in the /admin exemptions list
+    const email = (auth.currentUser?.email || data.email || "").trim().toLowerCase();
+    if (email) {
+      try {
+        const exemptSnap = await getDoc(doc(db, "exemptions", email));
+        if (exemptSnap.exists() && exemptSnap.data()?.exempt !== false) {
+          onUpdate({
+            plan: "pro",
+            subscriptionStatus: "active",
+            subscriptionId: data.subscriptionId ?? undefined,
+            currentPeriodEnd: periodEnd,
+            lsCustomerId: data.lsCustomerId ?? undefined,
+            downgradeGracePeriodEnd: null,
+          });
+          return;
+        }
+      } catch {
+        // Proceed with normal subscription check if exemption read fails
+      }
+    }
+
+    const isExpiredByDate = periodEnd !== null && periodEnd <= new Date();
+    const isCancelledOrExpired =
+      rawStatus === "cancelled" || rawStatus === "expired" || isExpiredByDate;
+
+    if (rawPlan === "pro" && isCancelledOrExpired) {
+      const nextStatus: SubscriptionStatus = isExpiredByDate ? "expired" : rawStatus;
+      updateDoc(userRef, {
+        plan: "free",
+        subscriptionStatus: nextStatus,
+      }).catch((err) => console.warn("Failed to sync downgraded plan:", err));
+
+      onUpdate({
+        plan: "free",
+        subscriptionStatus: nextStatus,
+        subscriptionId: data.subscriptionId ?? undefined,
+        currentPeriodEnd: periodEnd,
+        lsCustomerId: data.lsCustomerId ?? undefined,
+        downgradeGracePeriodEnd: graceEnd,
+      });
+      return;
+    }
 
     onUpdate({
-      plan: (data.plan as Plan) ?? "free",
-      subscriptionStatus: (data.subscriptionStatus as SubscriptionStatus) ?? null,
+      plan: rawPlan,
+      subscriptionStatus: rawStatus,
       subscriptionId: data.subscriptionId ?? undefined,
       currentPeriodEnd: periodEnd,
       lsCustomerId: data.lsCustomerId ?? undefined,
       downgradeGracePeriodEnd: graceEnd,
     });
   });
+}
+
+// ─── Sync Subscription Status ────────────────────────────────────────────────
+
+/**
+ * Calls the `syncSubscriptionStatus` Cloud Function to verify the latest
+ * subscription status with Lemon Squeezy and downgrade if cancelled/expired.
+ */
+export async function syncSubscriptionStatus(): Promise<void> {
+  try {
+    const fn = httpsCallable<void, { plan: Plan; status: SubscriptionStatus }>(
+      functions,
+      "syncSubscriptionStatus"
+    );
+    await fn();
+  } catch (err) {
+    // Ignore if function is not yet deployed or offline
+    console.debug("Subscription sync skipped:", err);
+  }
 }
 
 // ─── Checkout ────────────────────────────────────────────────────────────────

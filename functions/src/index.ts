@@ -111,6 +111,63 @@ export const setAdminClaim = onCall(async (request) => {
 
 import * as https from "https";
 
+const FREE_CREDENTIAL_LIMIT = 10;
+const FREE_STORAGE_LIMIT = 500 * 1024 * 1024; // 500 MB
+
+/** Helper: check if a user is manually exempted by an admin (grants Pro tier limits) */
+async function isUserExempt(uid: string): Promise<boolean> {
+    try {
+        const userRecord = await admin.auth().getUser(uid);
+        const email = userRecord.email?.trim().toLowerCase();
+        if (!email) return false;
+        const exemptSnap = await db.collection("exemptions").doc(email).get();
+        return exemptSnap.exists && exemptSnap.data()?.exempt !== false;
+    } catch {
+        return false;
+    }
+}
+
+/** Helper: compute user's current credential count and file storage usage */
+async function checkUserUsageAndGracePeriod(
+    userRef: FirebaseFirestore.DocumentReference,
+    fallbackStorageUsed = 0
+): Promise<{
+    credsCount: number;
+    storageUsed: number;
+    exceedsFreeLimit: boolean;
+    gracePeriodEnd: admin.firestore.Timestamp | null;
+}> {
+    const [credsSnap, filesSnap] = await Promise.all([
+        userRef.collection("credentials").count().get(),
+        userRef.collection("files").get(),
+    ]);
+    const credsCount = credsSnap.data().count;
+    const filesBytes = filesSnap.docs.reduce(
+        (sum, d) => sum + (Number(d.data().size) || 0),
+        0
+    );
+    const storageUsed = filesSnap.empty
+        ? Math.min(Math.max(0, fallbackStorageUsed), 0)
+        : filesBytes;
+
+    if (storageUsed !== fallbackStorageUsed) {
+        await userRef.update({ storageUsed }).catch(() => {});
+    }
+
+    const isExempt = await isUserExempt(userRef.id);
+    const exceedsFreeLimit =
+        !isExempt && (credsCount > FREE_CREDENTIAL_LIMIT || storageUsed > FREE_STORAGE_LIMIT);
+
+    let gracePeriodEnd: admin.firestore.Timestamp | null = null;
+    if (exceedsFreeLimit) {
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        gracePeriodEnd = admin.firestore.Timestamp.fromDate(d);
+    }
+
+    return { credsCount, storageUsed, exceedsFreeLimit, gracePeriodEnd };
+}
+
 /** Helper: POST to Lemon Squeezy REST API */
 function lsRequest<T>(
     path: string,
@@ -185,6 +242,7 @@ export const createCheckoutSession = onCall(
             data: {
                 type: "checkouts",
                 attributes: {
+                    custom_price: 150, // $1.50/month in cents
                     checkout_data: {
                         email: userRecord.email ?? undefined,
                         custom: {
@@ -230,7 +288,7 @@ export const lemonWebhook = onRequest(
         return;
     }
 
-    const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET;
+    const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.trim();
     if (!secret) {
         console.error("LEMONSQUEEZY_WEBHOOK_SECRET not set");
         res.status(500).send("Server misconfiguration");
@@ -255,7 +313,10 @@ export const lemonWebhook = onRequest(
     hmac.update(rawBody);
     const digest = hmac.digest("hex");
 
-    if (!crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"))) {
+    if (
+        digest.length !== signature.length ||
+        !crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"))
+    ) {
         res.status(403).send("Invalid signature");
         return;
     }
@@ -264,8 +325,28 @@ export const lemonWebhook = onRequest(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const payload = JSON.parse(rawBody.toString("utf8")) as Record<string, any>;
     const eventName: string = payload.meta?.event_name ?? "";
-    const uid: string | undefined = payload.meta?.custom_data?.user_id;
+    let uid: string | undefined = payload.meta?.custom_data?.user_id;
     const attributes = payload.data?.attributes ?? {};
+    const subId = payload.data?.id ? String(payload.data.id) : "";
+    const customerId = attributes.customer_id ? String(attributes.customer_id) : "";
+    const userEmail: string | undefined = attributes.user_email;
+
+    if (!uid && subId) {
+        const snap = await db.collection("users").where("subscriptionId", "==", subId).limit(1).get();
+        if (!snap.empty) uid = snap.docs[0].id;
+    }
+    if (!uid && customerId) {
+        const snap = await db.collection("users").where("lsCustomerId", "==", customerId).limit(1).get();
+        if (!snap.empty) uid = snap.docs[0].id;
+    }
+    if (!uid && userEmail) {
+        try {
+            const userRecord = await admin.auth().getUserByEmail(userEmail);
+            uid = userRecord.uid;
+        } catch {
+            // Ignore if user email is not found in Firebase Auth
+        }
+    }
 
     if (!uid) {
         // Cannot associate event with a user — acknowledge and move on
@@ -274,57 +355,96 @@ export const lemonWebhook = onRequest(
     }
 
     const userRef = db.collection("users").doc(uid);
+    const periodEndIso = attributes.renews_at || attributes.trial_ends_at || attributes.ends_at;
 
     try {
+        if (await isUserExempt(uid)) {
+            await userRef.update({
+                plan: "pro",
+                subscriptionStatus: "active",
+                downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
+            });
+            res.status(200).send("ok");
+            return;
+        }
         switch (eventName) {
             case "subscription_created":
             case "subscription_resumed":
                 await userRef.update({
                     plan: "pro",
-                    subscriptionId: String(payload.data?.id ?? ""),
+                    subscriptionId: subId,
                     subscriptionStatus: attributes.status === "on_trial" ? "active" : (attributes.status ?? "active"),
-                    currentPeriodEnd: attributes.renews_at
-                        ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
+                    currentPeriodEnd: periodEndIso
+                        ? admin.firestore.Timestamp.fromDate(new Date(periodEndIso))
                         : null,
-                    lsCustomerId: String(attributes.customer_id ?? ""),
+                    lsCustomerId: customerId,
                     downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
                 });
                 break;
 
-            case "subscription_updated":
-                await userRef.update({
-                    subscriptionStatus: attributes.status === "on_trial" ? "active" : (attributes.status ?? "active"),
-                    currentPeriodEnd: attributes.renews_at
-                        ? admin.firestore.Timestamp.fromDate(new Date(attributes.renews_at))
-                        : null,
-                });
-                break;
+            case "subscription_updated": {
+                const isCancelledOrExpired =
+                    attributes.cancelled === true ||
+                    attributes.status === "cancelled" ||
+                    attributes.status === "expired";
 
-            case "subscription_cancelled":
+                if (isCancelledOrExpired) {
+                    const userDoc = await userRef.get();
+                    const usage = await checkUserUsageAndGracePeriod(
+                        userRef,
+                        userDoc.data()?.storageUsed || 0
+                    );
+                    await userRef.update({
+                        plan: "free",
+                        subscriptionStatus: attributes.status === "expired" ? "expired" : "cancelled",
+                        currentPeriodEnd: null,
+                        downgradeGracePeriodEnd: usage.gracePeriodEnd
+                            ? usage.gracePeriodEnd
+                            : admin.firestore.FieldValue.delete(),
+                    });
+                } else {
+                    await userRef.update({
+                        plan: "pro",
+                        subscriptionStatus: attributes.status === "on_trial" ? "active" : (attributes.status ?? "active"),
+                        currentPeriodEnd: periodEndIso
+                            ? admin.firestore.Timestamp.fromDate(new Date(periodEndIso))
+                            : null,
+                    });
+                }
+                break;
+            }
+
+            case "subscription_cancelled": {
+                const userDoc = await userRef.get();
+                const usage = await checkUserUsageAndGracePeriod(
+                    userRef,
+                    userDoc.data()?.storageUsed || 0
+                );
                 await userRef.update({
+                    plan: "free",
                     subscriptionStatus: "cancelled",
-                    // Keep plan: "pro" — user retains access until period ends
+                    currentPeriodEnd: null,
+                    downgradeGracePeriodEnd: usage.gracePeriodEnd
+                        ? usage.gracePeriodEnd
+                        : admin.firestore.FieldValue.delete(),
                 });
                 break;
+            }
 
             case "subscription_expired": {
                 const userDoc = await userRef.get();
-                const storageUsed = userDoc.data()?.storageUsed || 0;
-                
-                const credsSnap = await userRef.collection("credentials").count().get();
-                const credsCount = credsSnap.data().count;
-                
-                let gracePeriodEnd: admin.firestore.Timestamp | null = null;
-                if (credsCount > 10 || storageUsed > 500 * 1024 * 1024) {
-                    const d = new Date();
-                    d.setDate(d.getDate() + 7);
-                    gracePeriodEnd = admin.firestore.Timestamp.fromDate(d);
-                }
+                const usage = await checkUserUsageAndGracePeriod(
+                    userRef,
+                    userDoc.data()?.storageUsed || 0
+                );
 
                 await userRef.update({
                     plan: "free",
                     subscriptionStatus: "expired",
-                    ...(gracePeriodEnd ? { downgradeGracePeriodEnd: gracePeriodEnd } : {}),
+                    currentPeriodEnd: null,
+                    downgradeGracePeriodEnd: usage.gracePeriodEnd
+                        ? usage.gracePeriodEnd
+                        : admin.firestore.FieldValue.delete(),
                 });
                 break;
             }
@@ -340,8 +460,109 @@ export const lemonWebhook = onRequest(
     res.status(200).send("ok");
 });
 
+// ─── syncSubscriptionStatus ──────────────────────────────────────────────────
+// Verifies the user's current subscription status with Lemon Squeezy and
+// downgrades to Free tier immediately if cancelled or expired.
+export const syncSubscriptionStatus = onCall(
+    { secrets: ["LEMONSQUEEZY_API_KEY"] },
+    async (request) => {
+        if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+
+        const userRef = db.collection("users").doc(request.auth.uid);
+        const userDoc = await userRef.get();
+        if (!userDoc.exists) {
+            return { plan: "free", status: null };
+        }
+
+        const data = userDoc.data() || {};
+        if (await isUserExempt(request.auth.uid)) {
+            if (data.plan !== "pro" || data.subscriptionStatus !== "active") {
+                await userRef.update({
+                    plan: "pro",
+                    subscriptionStatus: "active",
+                    downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
+                });
+            }
+            return { plan: "pro", status: "active" };
+        }
+
+        const rawPlan = data.plan ?? "free";
+        const rawStatus = data.subscriptionStatus ?? null;
+        const periodEnd: Date | null = data.currentPeriodEnd?.toDate?.() ?? null;
+
+        if (rawPlan !== "pro") {
+            return { plan: "free", status: rawStatus };
+        }
+
+        const isExpiredByDate = periodEnd !== null && periodEnd <= new Date();
+        if (rawStatus === "cancelled" || rawStatus === "expired" || isExpiredByDate) {
+            const nextStatus = isExpiredByDate ? "expired" : rawStatus;
+            const usage = await checkUserUsageAndGracePeriod(userRef, data.storageUsed || 0);
+            await userRef.update({
+                plan: "free",
+                subscriptionStatus: nextStatus,
+                currentPeriodEnd: null,
+                downgradeGracePeriodEnd: usage.gracePeriodEnd
+                    ? usage.gracePeriodEnd
+                    : admin.firestore.FieldValue.delete(),
+            });
+            return { plan: "free", status: nextStatus };
+        }
+
+        const apiKey = process.env.LEMONSQUEEZY_API_KEY;
+        const subId = typeof data.subscriptionId === "string" ? data.subscriptionId.trim() : "";
+
+        if (apiKey && /^\d+$/.test(subId)) {
+            interface SubDetailResponse {
+                data?: {
+                    attributes?: {
+                        status?: string;
+                        cancelled?: boolean;
+                        renews_at?: string | null;
+                        trial_ends_at?: string | null;
+                        ends_at?: string | null;
+                    };
+                };
+            }
+            try {
+                const subRes = await lsRequest<SubDetailResponse>(
+                    `/v1/subscriptions/${subId}`,
+                    "GET",
+                    apiKey
+                );
+                const attrs = subRes.data?.attributes;
+                if (attrs) {
+                    const isCancelledOrExpired =
+                        attrs.cancelled === true ||
+                        attrs.status === "cancelled" ||
+                        attrs.status === "expired";
+
+                    if (isCancelledOrExpired) {
+                        const nextStatus = attrs.status === "expired" ? "expired" : "cancelled";
+                        const usage = await checkUserUsageAndGracePeriod(userRef, data.storageUsed || 0);
+                        await userRef.update({
+                            plan: "free",
+                            subscriptionStatus: nextStatus,
+                            currentPeriodEnd: null,
+                            downgradeGracePeriodEnd: usage.gracePeriodEnd
+                                ? usage.gracePeriodEnd
+                                : admin.firestore.FieldValue.delete(),
+                        });
+                        return { plan: "free", status: nextStatus };
+                    }
+                }
+            } catch (err) {
+                console.warn(`Failed to verify subscription ${subId} with Lemon Squeezy:`, err);
+            }
+        }
+
+        return { plan: rawPlan, status: rawStatus };
+    }
+);
+
 // ─── createBillingPortalSession ──────────────────────────────────────────────
 // Returns the Lemon Squeezy customer portal URL for a given subscription or customer.
+// Prevents downgrading if the user exceeds Free tier limits (> 10 credentials or > 500 MB storage).
 export const createBillingPortalSession = onCall(
     { secrets: ["LEMONSQUEEZY_API_KEY"] },
     async (request) => {
@@ -352,7 +573,17 @@ export const createBillingPortalSession = onCall(
         throw new HttpsError("failed-precondition", "Lemon Squeezy not configured.");
     }
 
-    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    const userRef = admin.firestore().collection("users").doc(request.auth.uid);
+    const userDoc = await userRef.get();
+    const usage = await checkUserUsageAndGracePeriod(userRef, userDoc.data()?.storageUsed || 0);
+
+    if (usage.exceedsFreeLimit) {
+        throw new HttpsError(
+            "failed-precondition",
+            "Please delete your excess credentials and file storage size to be within the Free tier limit (10 credentials, 500 MB storage) before downgrading. Failure to do so before the billing date may result in a charge."
+        );
+    }
+
     const subId = userDoc.data()?.subscriptionId;
     const custId = userDoc.data()?.lsCustomerId;
 
@@ -407,7 +638,7 @@ export const createBillingPortalSession = onCall(
                 
                 // Save it back to db for future use if we found it
                 if (portalUrl) {
-                    await admin.firestore().collection("users").doc(request.auth.uid).update({
+                    await userRef.update({
                         lsCustomerId: searchResponse.data[0].id
                     });
                 }
@@ -495,7 +726,8 @@ export const googleAuthStart = onRequest({ secrets: [GOOGLE_CLIENT_ID], cors: tr
     // We dynamically build the redirectUri based on the current request
     const redirectUri = getRedirectUri(req);
 
-    res.redirect(302, buildGoogleAuthUrl(clientId, returnUrl, redirectUri, req.headers.origin || "https://fortsterling.app"));
+    const loginHint = typeof req.query.loginHint === "string" ? req.query.loginHint : undefined;
+    res.redirect(302, buildGoogleAuthUrl(clientId, returnUrl, redirectUri, req.headers.origin || "https://fortsterling.app", loginHint));
 });
 
 export const googleAuthCallback = onRequest(
@@ -576,6 +808,13 @@ export const autoDeleteExcessData = onSchedule("every day 00:00", async (event) 
         console.log(`Processing auto-delete for user ${uid}`);
 
         try {
+            if (await isUserExempt(uid)) {
+                await userRef.update({
+                    downgradeGracePeriodEnd: admin.firestore.FieldValue.delete()
+                });
+                continue;
+            }
+
             // 1. Delete excess credentials
             const credsSnap = await userRef.collection("credentials")
                 .orderBy("createdAt", "desc")
@@ -625,7 +864,7 @@ export const autoDeleteExcessData = onSchedule("every day 00:00", async (event) 
                     
                     const fileData = fileDoc.data();
                     const size = fileData.size || 0;
-                    const fullPath = fileData.fullPath;
+                    const fullPath = fileData.fullPath || fileData.storagePath;
                     
                     if (fullPath) {
                         // Delete from Firebase Storage
@@ -668,4 +907,7 @@ export const autoDeleteExcessData = onSchedule("every day 00:00", async (event) 
             console.error(`Error auto-deleting data for user ${uid}:`, err);
         }
     }
-});
+});
+
+// --- File Sharing (see sharing.ts) ---
+export * from "./sharing";

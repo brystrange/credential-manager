@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router-dom";
 import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, setupGoogleVault, resetGoogleVaultPassword, checkSecurityTerms, agreeSecurityTerms, validatePassword } from "./services/authService";
+import { ensureSharingKeys } from "./services/shareService";
 import type { Credential, CredentialInput } from "./services/credentialService";
 import {
     subscribeToCredentials,
@@ -656,6 +657,7 @@ function AppInner({
         setShowWelcome(true);
         setLoginInProgress(false);
         setVaultUnlocked(true);
+        ensureSharingKeys().catch((err) => console.debug("Sharing keys init:", err));
         try {
             const hasAgreed = await checkSecurityTerms();
             if (!hasAgreed) setNeedsSecurityTerms(true);

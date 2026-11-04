@@ -31,7 +31,8 @@ export function buildGoogleAuthUrl(
     clientId: string,
     returnUrl: string,
     redirectUri: string,
-    defaultUrl: string
+    defaultUrl: string,
+    loginHint?: string
 ): string {
     const state = JSON.stringify({ returnUrl: decodeReturnUrl(returnUrl, defaultUrl) });
     return (
@@ -41,6 +42,8 @@ export function buildGoogleAuthUrl(
         "&response_type=code" +
         "&scope=openid%20email%20profile" +
         "&access_type=online" +
+        "&prompt=select_account" +
+        (loginHint && loginHint.trim() ? `&login_hint=${encodeURIComponent(loginHint.trim())}` : "") +
         `&state=${encodeURIComponent(state)}`
     );
 }

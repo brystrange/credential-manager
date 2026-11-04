@@ -168,12 +168,13 @@ await sendToServer(encrypted, iv);`}
                                 <div style={{ position: "absolute", top: "-14px", left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#000", padding: "4px 16px", borderRadius: "999px", fontSize: "0.85rem", fontWeight: "600" }}>Most Popular</div>
                                 <h3 style={{ fontSize: "1.5rem", marginBottom: "8px" }}>Pro</h3>
                                 <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>For power users and professionals.</p>
-                                <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$3.20<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
+                                <div style={{ fontSize: "3rem", fontWeight: "700", marginBottom: "32px" }}>$1.50<span style={{ fontSize: "1rem", color: "var(--text-secondary)", fontWeight: "400" }}>/month</span></div>
                                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 40px", display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>Up to 1,000 credentials</strong></li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>Full password history</strong></li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>5GB storage</strong></li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>No upload limit</strong></li>
+                                    <li style={{ display: "flex", gap: "12px", alignItems: "center" }}><FiCheck color="var(--accent)" /> <strong>File Sharing</strong></li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> No ads</li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> End-to-end encryption</li>
                                     <li style={{ display: "flex", gap: "12px", alignItems: "center", color: "var(--text-secondary)" }}><FiCheck color="var(--accent)" /> 30-day free trial</li>

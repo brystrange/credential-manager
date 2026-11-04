@@ -168,6 +168,16 @@ export default function AdminConsole() {
                 addedBy: auth.currentUser?.email || "admin",
                 addedAt: new Date()
             });
+            for (const userDoc of usersSnap.docs) {
+                try {
+                    await setDoc(doc(db, "users", userDoc.id), {
+                        plan: "pro",
+                        subscriptionStatus: "active",
+                    }, { merge: true });
+                } catch {
+                    // SubscriptionContext also reads exemptions/{email} directly
+                }
+            }
             setExemptEmail("");
             await loadExemptions();
         } catch (err) {
@@ -182,6 +192,21 @@ export default function AdminConsole() {
         setSaving(true);
         try {
             await deleteDoc(doc(db, "exemptions", email));
+            try {
+                const usersQuery = query(collection(db, "users"), where("email", "==", email.trim().toLowerCase()));
+                const usersSnap = await getDocs(usersQuery);
+                for (const userDoc of usersSnap.docs) {
+                    const uData = userDoc.data();
+                    if (!uData.subscriptionId) {
+                        await setDoc(doc(db, "users", userDoc.id), {
+                            plan: "free",
+                            subscriptionStatus: null,
+                        }, { merge: true });
+                    }
+                }
+            } catch {
+                // Ignore if admin write to users/{uid} is restricted
+            }
             await loadExemptions();
         } catch (err) {
             console.error("Failed to remove exemption:", err);
@@ -878,7 +903,10 @@ export default function AdminConsole() {
                                     {exemptions.map(ex => (
                                         <div key={ex.email} className="admin-platform-card" style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <div>
-                                                <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.82rem" }}>{ex.email}</div>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: "var(--text-primary)", fontSize: "0.82rem" }}>
+                                                    <span>{ex.email}</span>
+                                                    <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "rgba(99, 102, 241, 0.15)", color: "var(--accent-primary, #6366f1)", border: "1px solid rgba(99, 102, 241, 0.35)" }}>PRO TIER</span>
+                                                </div>
                                                 <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: 2 }}>
                                                     Added by {ex.addedBy} • {ex.addedAt.toLocaleDateString()}
                                                 </div>
