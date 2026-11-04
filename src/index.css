@@ -3868,21 +3868,23 @@ option {
 @media (max-width: 768px) {
   .file-toolbar {
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 12px;
     margin-bottom: 16px;
   }
 
   .file-toolbar-actions {
-    width: 100%;
+    width: auto;
     display: flex;
     gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
   }
 
   .file-toolbar-actions .file-action-btn {
-    flex: 1;
-    min-width: 0;
-    padding: 10px 12px;
+    flex: initial;
+    width: auto;
+    padding: 9px 14px;
     font-size: 0.82rem;
     white-space: nowrap;
     text-align: center;
@@ -3920,8 +3922,8 @@ option {
   }
 
   .file-toolbar-actions .file-action-btn {
-    padding: 9px 8px;
-    font-size: 0.76rem;
+    padding: 8px 10px;
+    font-size: 0.78rem;
     gap: 6px;
   }
 
