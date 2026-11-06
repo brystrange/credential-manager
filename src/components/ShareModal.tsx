@@ -418,7 +418,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                 style={{ maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }}
                 onClick={(e) => e.stopPropagation()}
             >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                     <h3 style={{ margin: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</h3>
                     <button type="button" style={iconBtn} onClick={close} title="Close"><FiX size={18} /></button>
                 </div>
@@ -447,10 +447,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                     </div>
                 ) : (
                     <>
-                        <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", marginBottom: 14 }}>
-                            Files are re-encrypted so only the recipients you choose can open them.
-                        </p>
-
                         {/* Search by email */}
                         <form onSubmit={handleSearch} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                             <div className="form-group" style={{ flex: 1, margin: 0 }}>
