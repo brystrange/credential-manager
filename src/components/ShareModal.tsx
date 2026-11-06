@@ -67,9 +67,10 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [creatingNewGroup, setCreatingNewGroup] = useState(false);
     const [newGroupName, setNewGroupName] = useState("");
 
-    // Collapsible group cards
-    const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(new Set());
+    // Collapsible group cards (collapsed by default)
+    const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
     const [sentRecipients, setSentRecipients] = useState<ShareRecipient[]>([]);
+    const [sentGroupName, setSentGroupName] = useState<string | null>(null);
 
     const [sharing, setSharing] = useState(false);
     const [progress, setProgress] = useState<{ percent: number; label: string } | null>(null);
@@ -77,8 +78,8 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [done, setDone] = useState(false);
 
     const title = items.length === 1
-        ? `Share "${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
-        : `Share ${items.length} items`;
+        ? `Shared "${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
+        : `Shared ${items.length} items`;
 
     const refreshContacts = async () => {
         setLoadingContacts(true);
@@ -110,6 +111,8 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         setDone(false);
         setProgress(null);
         setSentRecipients([]);
+        setSentGroupName(null);
+        setExpandedGroupIds(new Set());
         if (isPro) void refreshContacts();
     }, [isOpen, isPro]);
 
@@ -210,7 +213,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     };
 
     const toggleGroupCollapse = (groupId: string) => {
-        setCollapsedGroupIds((prev) => {
+        setExpandedGroupIds((prev) => {
             const next = new Set(prev);
             if (next.has(groupId)) {
                 next.delete(groupId);
@@ -221,7 +224,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         });
     };
 
-    const sendToRecipients = async (recipients: ShareRecipient[]) => {
+    const sendToRecipients = async (recipients: ShareRecipient[], targetGroupName?: string) => {
         if (recipients.length === 0 || sharing) return;
         const noKey = recipients.filter((r) => !r.publicKeyJwk);
         if (noKey.length > 0) {
@@ -236,12 +239,13 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         setSharing(true);
         setError("");
         setSentRecipients(recipients);
+        setSentGroupName(targetGroupName || null);
         setSelected([]);
 
         const itemLabel = items.length === 1
             ? `"${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
             : `${items.length} items`;
-        const recipientLabel = recipients.length === 1 ? recipients[0].email : `${recipients.length} people`;
+        const recipientLabel = targetGroupName || (recipients.length === 1 ? recipients[0].email : `${recipients.length} people`);
         const taskId = startTask({
             title: `Sending ${itemLabel}`,
             detail: `To ${recipientLabel}`,
@@ -259,7 +263,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
             finishTask(taskId, {
                 status: "success",
                 title: `Sent ${itemLabel}`,
-                detail: `To ${recipients.map((s) => s.email).join(", ")}`,
+                detail: `To ${targetGroupName || recipients.map((s) => s.email).join(", ")}`,
             });
         } catch (err) {
             const message = shareErrorMessage(err);
@@ -290,7 +294,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
             setError(`Group "${g.name}" has no members.`);
             return;
         }
-        void sendToRecipients(members);
+        void sendToRecipients(members, g.name);
     };
 
     const handleOpenMenu = (e: React.MouseEvent, c: ShareRecipient) => {
@@ -435,7 +439,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                         <FiCheck size={36} style={{ color: "var(--green, #22c55e)", marginBottom: 10 }} />
                         <h3 style={{ marginBottom: 8 }}>Sent successfully</h3>
                         <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                            Sent to {sentRecipients.map((s) => s.email).join(", ")}. They'll find it under <strong>Shared with me</strong>.
+                            Sent to {sentGroupName || sentRecipients.map((s) => s.email).join(", ")}. They'll find it under <strong>Shared with me</strong>.
                         </p>
                         <div className="confirm-actions" style={{ marginTop: 18 }}>
                             <button type="button" className="btn-primary" onClick={onClose}>Done</button>
@@ -562,7 +566,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                 <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>Add recipients above, then save them as a custom group.</p>
                             ) : (
                                 groups.map((g) => {
-                                    const isCollapsed = collapsedGroupIds.has(g.id);
+                                    const isExpanded = expandedGroupIds.has(g.id);
                                     return (
                                         <div
                                             key={g.id}
@@ -587,12 +591,12 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                                         userSelect: "none",
                                                     }}
                                                     onClick={() => toggleGroupCollapse(g.id)}
-                                                    title={isCollapsed ? "Expand group" : "Collapse group"}
+                                                    title={isExpanded ? "Collapse group" : "Expand group"}
                                                 >
-                                                    {isCollapsed ? (
-                                                        <FiChevronRight size={15} style={{ color: "var(--text-secondary)" }} />
-                                                    ) : (
+                                                    {isExpanded ? (
                                                         <FiChevronDown size={15} style={{ color: "var(--text-secondary)" }} />
+                                                    ) : (
+                                                        <FiChevronRight size={15} style={{ color: "var(--text-secondary)" }} />
                                                     )}
                                                     <span style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 700 }}>
                                                         {g.name}
@@ -623,7 +627,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                             </div>
 
                                             {/* Members pills with x icon on the right */}
-                                            {!isCollapsed && (
+                                            {isExpanded && (
                                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", paddingTop: 2 }}>
                                                     {g.memberUids.map((uid) => (
                                                         <span
