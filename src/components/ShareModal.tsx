@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FiX, FiLoader, FiLock, FiCheck, FiMoreHorizontal } from "react-icons/fi";
+import { FiX, FiLoader, FiLock, FiCheck, FiMoreHorizontal, FiChevronDown, FiChevronRight } from "react-icons/fi";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useTaskToast } from "../context/TaskToastContext";
 import {
@@ -66,6 +66,9 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [showGroupPicker, setShowGroupPicker] = useState(false);
     const [creatingNewGroup, setCreatingNewGroup] = useState(false);
     const [newGroupName, setNewGroupName] = useState("");
+
+    // Collapsible group cards
+    const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(new Set());
 
     const [sharing, setSharing] = useState(false);
     const [progress, setProgress] = useState<{ percent: number; label: string } | null>(null);
@@ -202,6 +205,18 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         } finally {
             setSavingGroup(false);
         }
+    };
+
+    const toggleGroupCollapse = (groupId: string) => {
+        setCollapsedGroupIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(groupId)) {
+                next.delete(groupId);
+            } else {
+                next.add(groupId);
+            }
+            return next;
+        });
     };
 
     const sendToRecipients = async (recipients: ShareRecipient[]) => {
@@ -543,82 +558,104 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                             ) : groups.length === 0 ? (
                                 <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>Add recipients above, then save them as a custom group.</p>
                             ) : (
-                                groups.map((g) => (
-                                    <div
-                                        key={g.id}
-                                        style={{
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            gap: 6,
-                                            padding: "8px 12px",
-                                            borderRadius: "var(--radius-sm)",
-                                            border: "1px solid var(--border-color)",
-                                            background: "var(--bg-input)",
-                                        }}
-                                    >
-                                        {/* Header: Group Name and action */}
-                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                            <span style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 700 }}>
-                                                {g.name}
-                                            </span>
-                                            <button
-                                                type="button"
-                                                style={{
-                                                    background: "transparent",
-                                                    border: "none",
-                                                    color: "var(--accent)",
-                                                    textDecoration: "underline",
-                                                    fontSize: "0.76rem",
-                                                    fontWeight: 600,
-                                                    padding: "2px 0",
-                                                    cursor: sharing ? "not-allowed" : "pointer",
-                                                    opacity: sharing ? 0.6 : 1,
-                                                }}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleSendToGroup(g);
-                                                }}
-                                                disabled={sharing}
-                                                title={`Send file directly to all members of ${g.name}`}
-                                            >
-                                                Send to all
-                                            </button>
-                                        </div>
-
-                                        {/* Members pills with x icon on the right */}
-                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                                            {g.memberUids.map((uid) => (
-                                                <span
-                                                    key={uid}
+                                groups.map((g) => {
+                                    const isCollapsed = collapsedGroupIds.has(g.id);
+                                    return (
+                                        <div
+                                            key={g.id}
+                                            style={{
+                                                display: "flex",
+                                                flexDirection: "column",
+                                                gap: 6,
+                                                padding: "8px 12px",
+                                                borderRadius: "var(--radius-sm)",
+                                                border: "1px solid var(--border-color)",
+                                                background: "var(--bg-input)",
+                                            }}
+                                        >
+                                            {/* Header: Group Name and action */}
+                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                                <div
                                                     style={{
-                                                        display: "inline-flex",
+                                                        display: "flex",
                                                         alignItems: "center",
                                                         gap: 6,
-                                                        padding: "3px 8px 3px 10px",
-                                                        borderRadius: 999,
-                                                        border: "1px solid var(--border-color)",
-                                                        background: "var(--bg-card)",
-                                                        fontSize: "0.75rem",
-                                                        color: "var(--text-primary)",
+                                                        cursor: "pointer",
+                                                        userSelect: "none",
                                                     }}
+                                                    onClick={() => toggleGroupCollapse(g.id)}
+                                                    title={isCollapsed ? "Expand group" : "Collapse group"}
                                                 >
-                                                    <span>{getEmailForUid(uid)}</span>
-                                                    <button
-                                                        type="button"
-                                                        style={{ ...iconBtn, padding: 0, color: "var(--text-secondary)" }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            void handleRemoveMemberFromGroup(g, uid);
-                                                        }}
-                                                        title={`Remove ${getEmailForUid(uid)} from ${g.name}`}
-                                                    >
-                                                        <FiX size={13} />
-                                                    </button>
-                                                </span>
-                                            ))}
+                                                    {isCollapsed ? (
+                                                        <FiChevronRight size={15} style={{ color: "var(--text-secondary)" }} />
+                                                    ) : (
+                                                        <FiChevronDown size={15} style={{ color: "var(--text-secondary)" }} />
+                                                    )}
+                                                    <span style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 700 }}>
+                                                        {g.name}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    style={{
+                                                        background: "transparent",
+                                                        border: "none",
+                                                        color: "var(--accent)",
+                                                        textDecoration: "underline",
+                                                        fontSize: "0.76rem",
+                                                        fontWeight: 600,
+                                                        padding: "2px 0",
+                                                        cursor: sharing ? "not-allowed" : "pointer",
+                                                        opacity: sharing ? 0.6 : 1,
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleSendToGroup(g);
+                                                    }}
+                                                    disabled={sharing}
+                                                    title={`Send file directly to all members of ${g.name}`}
+                                                >
+                                                    Send to all
+                                                </button>
+                                            </div>
+
+                                            {/* Members pills with x icon on the right */}
+                                            {!isCollapsed && (
+                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", paddingTop: 2 }}>
+                                                    {g.memberUids.map((uid) => (
+                                                        <span
+                                                            key={uid}
+                                                            style={{
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                gap: 6,
+                                                                padding: "3px 8px 3px 10px",
+                                                                borderRadius: 999,
+                                                                border: "1px solid var(--border-color)",
+                                                                background: "var(--bg-card)",
+                                                                fontSize: "0.75rem",
+                                                                color: "var(--text-primary)",
+                                                            }}
+                                                        >
+                                                            <span>{getEmailForUid(uid)}</span>
+                                                            <button
+                                                                type="button"
+                                                                style={{ ...iconBtn, padding: 0, color: "var(--text-secondary)" }}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    void handleRemoveMemberFromGroup(g, uid);
+                                                                }}
+                                                                title={`Remove ${getEmailForUid(uid)} from ${g.name}`}
+                                                            >
+                                                                <FiX size={13} />
+                                                            </button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
 
