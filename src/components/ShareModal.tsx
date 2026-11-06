@@ -581,8 +581,17 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                             </span>
                                             <button
                                                 type="button"
-                                                className="btn-primary"
-                                                style={{ padding: "3px 12px", fontSize: "0.74rem" }}
+                                                style={{
+                                                    background: "transparent",
+                                                    border: "none",
+                                                    color: "var(--accent)",
+                                                    textDecoration: "underline",
+                                                    fontSize: "0.76rem",
+                                                    fontWeight: 600,
+                                                    padding: "2px 0",
+                                                    cursor: sharing ? "not-allowed" : "pointer",
+                                                    opacity: sharing ? 0.6 : 1,
+                                                }}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleSendToGroup(g);
