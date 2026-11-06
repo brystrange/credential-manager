@@ -69,6 +69,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
 
     // Collapsible group cards
     const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(new Set());
+    const [sentRecipients, setSentRecipients] = useState<ShareRecipient[]>([]);
 
     const [sharing, setSharing] = useState(false);
     const [progress, setProgress] = useState<{ percent: number; label: string } | null>(null);
@@ -108,6 +109,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         setError("");
         setDone(false);
         setProgress(null);
+        setSentRecipients([]);
         if (isPro) void refreshContacts();
     }, [isOpen, isPro]);
 
@@ -233,7 +235,8 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
 
         setSharing(true);
         setError("");
-        setSelected(recipients);
+        setSentRecipients(recipients);
+        setSelected([]);
 
         const itemLabel = items.length === 1
             ? `"${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
@@ -432,7 +435,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                         <FiCheck size={36} style={{ color: "var(--green, #22c55e)", marginBottom: 10 }} />
                         <h3 style={{ marginBottom: 8 }}>Sent successfully</h3>
                         <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                            Sent to {selected.map((s) => s.email).join(", ")}. They'll find it under <strong>Shared with me</strong>.
+                            Sent to {sentRecipients.map((s) => s.email).join(", ")}. They'll find it under <strong>Shared with me</strong>.
                         </p>
                         <div className="confirm-actions" style={{ marginTop: 18 }}>
                             <button type="button" className="btn-primary" onClick={onClose}>Done</button>
