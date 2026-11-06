@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useBlocker } from "react-router-dom";
 import { 
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
@@ -110,6 +110,90 @@ const resolveMimeType = (name: string, declaredType?: string): string => {
         return declaredType;
     }
     return declaredType || "application/octet-stream";
+};
+
+const formatDateModified = (val?: any): string => {
+    if (!val) return "-";
+    const d = val instanceof Date ? val : (val.toDate ? val.toDate() : new Date(val));
+    if (isNaN(d.getTime())) return "-";
+    const dateStr = d.toLocaleDateString();
+    let hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, "0");
+    const ampm = hours >= 12 ? "pm" : "am";
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${dateStr} ${hours}:${minutes} ${ampm}`;
+};
+
+const getFileTypeLabel = (name: string, isFolder: boolean, mimeType?: string): string => {
+    if (isFolder) return "File folder";
+    const n = (name || "").toLowerCase();
+    const ext = n.includes(".") ? n.split(".").pop() || "" : "";
+    
+    switch (ext) {
+        case "pdf": return "PDF Document";
+        case "docx": 
+        case "doc": return "Microsoft Word Document";
+        case "xlsx":
+        case "xls": return "Microsoft Excel Worksheet";
+        case "pptx":
+        case "ppt": return "Microsoft PowerPoint Presentation";
+        case "csv": return "CSV Document";
+        case "txt": return "Text Document";
+        case "md": return "Markdown Document";
+        case "json": return "JSON Source File";
+        case "js":
+        case "mjs":
+        case "cjs": return "JavaScript File";
+        case "jsx": return "JSX File";
+        case "ts": return "TypeScript File";
+        case "tsx": return "TSX File";
+        case "py":
+        case "pyw": return "Python Source File";
+        case "html":
+        case "htm": return "HTML Document";
+        case "css": return "Cascading Style Sheet";
+        case "xml": return "XML Document";
+        case "sql": return "SQL File";
+        case "sh": return "Shell Script";
+        case "bat":
+        case "cmd": return "Windows Batch File";
+        case "png": return "PNG image";
+        case "jpg":
+        case "jpeg": return "JPEG image";
+        case "gif": return "GIF image";
+        case "webp": return "WebP image";
+        case "svg": return "SVG image";
+        case "bmp": return "Bitmap image";
+        case "mp4": return "MP4 video";
+        case "mov": return "QuickTime video";
+        case "avi":
+        case "mkv":
+        case "webm": return "Video file";
+        case "mp3": return "MP3 audio";
+        case "wav": return "WAV audio";
+        case "ogg":
+        case "m4a":
+        case "flac": return "Audio file";
+        case "zip": return "Compressed (zipped) Folder";
+        case "rar": return "RAR archive";
+        case "7z": return "7Z archive";
+        case "tar":
+        case "gz": return "Archive file";
+        case "exe": return "Application";
+    }
+
+    if (mimeType) {
+        if (mimeType.startsWith("image/")) return "Image file";
+        if (mimeType.startsWith("video/")) return "Video file";
+        if (mimeType.startsWith("audio/")) return "Audio file";
+        if (mimeType.startsWith("text/")) return "Text Document";
+    }
+
+    if (ext) {
+        return `${ext.toUpperCase()} File`;
+    }
+    return "File";
 };
 
 const globalImageCache = new Map<string, string>();
@@ -240,6 +324,19 @@ export default function FileExplorer() {
     useEffect(() => {
         localStorage.setItem("fs_view_mode", viewMode);
     }, [viewMode]);
+
+    // Sort state
+    const [sortBy, setSortBy] = useState<"name" | "date" | "type" | "size">("name");
+    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
+    const handleSort = (column: "name" | "date" | "type" | "size") => {
+        if (sortBy === column) {
+            setSortOrder(prev => prev === "asc" ? "desc" : "asc");
+        } else {
+            setSortBy(column);
+            setSortOrder(column === "date" ? "desc" : "asc");
+        }
+    };
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{
@@ -1774,6 +1871,124 @@ export default function FileExplorer() {
         return <FiFile size={18} style={{ color: "var(--text-secondary)" }} />;
     };
 
+    const sortedFolders = useMemo(() => {
+        return [...folders].sort((a, b) => {
+            let cmp = 0;
+            if (sortBy === "name") {
+                cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "date") {
+                const dateA = (a.updatedAt || a.createdAt)?.getTime() || 0;
+                const dateB = (b.updatedAt || b.createdAt)?.getTime() || 0;
+                cmp = dateA - dateB;
+            } else if (sortBy === "type") {
+                cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "size") {
+                cmp = (folderCounts[a.id] || 0) - (folderCounts[b.id] || 0);
+            }
+            return sortOrder === "asc" ? cmp : -cmp;
+        });
+    }, [folders, sortBy, sortOrder, folderCounts]);
+
+    const sortedFiles = useMemo(() => {
+        return [...files].sort((a, b) => {
+            let cmp = 0;
+            if (sortBy === "name") {
+                cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "date") {
+                const dateA = (a.updatedAt || a.createdAt)?.getTime() || 0;
+                const dateB = (b.updatedAt || b.createdAt)?.getTime() || 0;
+                cmp = dateA - dateB;
+            } else if (sortBy === "type") {
+                const typeA = getFileTypeLabel(a.name, false, a.type);
+                const typeB = getFileTypeLabel(b.name, false, b.type);
+                cmp = typeA.localeCompare(typeB);
+                if (cmp === 0) cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "size") {
+                cmp = a.size - b.size;
+            }
+            return sortOrder === "asc" ? cmp : -cmp;
+        });
+    }, [files, sortBy, sortOrder]);
+
+    const sortedSharedItems = useMemo(() => {
+        return [...sharedItems].sort((a, b) => {
+            let cmp = 0;
+            const isFolderA = a.itemType === "folder";
+            const isFolderB = b.itemType === "folder";
+
+            if (sortBy === "name") {
+                cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "date") {
+                const dateA = a.createdAt?.getTime() || 0;
+                const dateB = b.createdAt?.getTime() || 0;
+                cmp = dateA - dateB;
+            } else if (sortBy === "type") {
+                const typeA = getFileTypeLabel(a.name, isFolderA, a.files[0]?.type);
+                const typeB = getFileTypeLabel(b.name, isFolderB, b.files[0]?.type);
+                cmp = typeA.localeCompare(typeB);
+                if (cmp === 0) cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "size") {
+                const sizeA = a.files.reduce((sum, f) => sum + (f.size || 0), 0);
+                const sizeB = b.files.reduce((sum, f) => sum + (f.size || 0), 0);
+                cmp = sizeA - sizeB;
+            }
+            return sortOrder === "asc" ? cmp : -cmp;
+        });
+    }, [sharedItems, sortBy, sortOrder]);
+
+    const getSortedShareFiles = (filesList: SharedFileEntry[]) => {
+        return [...filesList].sort((a, b) => {
+            let cmp = 0;
+            if (sortBy === "name") {
+                cmp = a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "type") {
+                const typeA = getFileTypeLabel(a.path, false, a.type);
+                const typeB = getFileTypeLabel(b.path, false, b.type);
+                cmp = typeA.localeCompare(typeB);
+                if (cmp === 0) cmp = a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: "base" });
+            } else if (sortBy === "size") {
+                cmp = a.size - b.size;
+            }
+            return sortOrder === "asc" ? cmp : -cmp;
+        });
+    };
+
+    const renderListHeader = () => {
+        if (viewMode !== "list") return null;
+        return (
+            <div className="file-list-header">
+                <div className="file-list-header-visual" />
+                <div className="file-list-header-info">
+                    <span 
+                        className="file-list-header-name sortable"
+                        onClick={() => handleSort("name")}
+                    >
+                        Name {sortBy === "name" && (sortOrder === "asc" ? "▲" : "▼")}
+                    </span>
+                    <span 
+                        className="file-list-header-col file-date sortable"
+                        onClick={() => handleSort("date")}
+                    >
+                        Date modified {sortBy === "date" && (sortOrder === "asc" ? "▲" : "▼")}
+                    </span>
+                    <span 
+                        className="file-list-header-col file-type sortable"
+                        onClick={() => handleSort("type")}
+                    >
+                        Type {sortBy === "type" && (sortOrder === "asc" ? "▲" : "▼")}
+                    </span>
+                    <span 
+                        className="file-list-header-col file-size sortable"
+                        onClick={() => handleSort("size")}
+                    >
+                        Size {sortBy === "size" && (sortOrder === "asc" ? "▲" : "▼")}
+                    </span>
+                </div>
+                <div className="file-list-header-actions" />
+            </div>
+        );
+    };
+
     return (
         <div className="file-explorer">
             {isDragOver && (
@@ -1932,8 +2147,9 @@ export default function FileExplorer() {
                                 )}
                             </div>
 
+                            {renderListHeader()}
                             <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
-                                {sharedItems.map((item) => {
+                                {sortedSharedItems.map((item) => {
                                     const isFolder = item.itemType === "folder";
                                     const totalSize = item.files.reduce((sum, f) => sum + (f.size || 0), 0);
                                     const isImage = !isFolder && item.files[0] && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(item.name);
@@ -1986,9 +2202,11 @@ export default function FileExplorer() {
                                             </div>
                                             <div className="file-card-info">
                                                 <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
-                                                <span className="file-size">
+                                                <span className="file-col file-date">{formatDateModified(item.createdAt)}</span>
+                                                <span className="file-col file-type">{getFileTypeLabel(item.name, isFolder, item.files[0]?.type)}</span>
+                                                <span className="file-col file-size">
                                                     {isFolder
-                                                        ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
+                                                        ? (viewMode === "list" ? "" : `${item.files.length} item${item.files.length === 1 ? "" : "s"}`)
                                                         : formatSize(totalSize)}
                                                 </span>
                                             </div>
@@ -2055,8 +2273,9 @@ export default function FileExplorer() {
                                 </div>
                             </div>
 
+                            {renderListHeader()}
                             <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
-                                {activeShare.files.map((fileEntry, idx) => {
+                                {getSortedShareFiles(activeShare.files).map((fileEntry, idx) => {
                                     const isFileImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path);
                                     const fileId = `${activeShare.id}:${fileEntry.storagePath}`;
                                     return (
@@ -2108,7 +2327,9 @@ export default function FileExplorer() {
                                             </div>
                                             <div className="file-card-info">
                                                 <span className="file-name" style={{ fontWeight: 'normal' }}>{fileEntry.path}</span>
-                                                <span className="file-size">{formatSize(fileEntry.size)}</span>
+                                                <span className="file-col file-date">{formatDateModified(activeShare.createdAt)}</span>
+                                                <span className="file-col file-type">{getFileTypeLabel(fileEntry.path, false, fileEntry.type)}</span>
+                                                <span className="file-col file-size">{formatSize(fileEntry.size)}</span>
                                             </div>
                                             <div 
                                                 className="file-actions" 
@@ -2138,126 +2359,137 @@ export default function FileExplorer() {
                     <p>This folder is empty.</p>
                 </div>
             ) : (
-                <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
-                    {currentFolderId === null && (
-                        <div 
-                            className="file-card"
-                            onClick={() => {
-                                if (selectedFiles.size > 0 || selectedFolders.size > 0) return;
-                                navigateToFolder("__shared__", "Shared with Me");
-                            }}
-                            style={{ borderColor: "var(--border-color)", outline: "none" }}
-                        >
-                            <div className="file-card-visual">
-                                {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
-                                <div className="file-card-icon" style={{ color: "var(--accent)" }}>
-                                    <FiUsers size={18} />
+                <>
+                    {renderListHeader()}
+                    <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
+                        {currentFolderId === null && (
+                            <div 
+                                className="file-card"
+                                onClick={() => {
+                                    if (selectedFiles.size > 0 || selectedFolders.size > 0) return;
+                                    navigateToFolder("__shared__", "Shared with Me");
+                                }}
+                                style={{ borderColor: "var(--border-color)", outline: "none" }}
+                            >
+                                <div className="file-card-visual">
+                                    {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
+                                    <div className="file-card-icon" style={{ color: "var(--accent)" }}>
+                                        <FiUsers size={18} />
+                                    </div>
+                                </div>
+                                <div className="file-card-info">
+                                    <span className="file-name" style={{ fontWeight: 'normal' }}>Shared with Me</span>
+                                    <span className="file-col file-date">-</span>
+                                    <span className="file-col file-type">File folder</span>
+                                    <span className="file-col file-size">
+                                        {viewMode === "list" ? "" : `${sharedItems.length} item${sharedItems.length === 1 ? "" : "s"}`}
+                                    </span>
+                                </div>
+                                <div className="file-actions" onClick={(e) => { e.stopPropagation(); navigateToFolder("__shared__", "Shared with Me"); }}>
+                                    <button title="Open">
+                                        <FiChevronRight size={14} />
+                                    </button>
                                 </div>
                             </div>
-                            <div className="file-card-info">
-                                <span className="file-name" style={{ fontWeight: 'normal' }}>Shared with Me</span>
-                                <span className="file-size">
-                                    {`${sharedItems.length} item${sharedItems.length === 1 ? "" : "s"}`}
-                                </span>
-                            </div>
-                            <div className="file-actions" onClick={(e) => { e.stopPropagation(); navigateToFolder("__shared__", "Shared with Me"); }}>
-                                <button title="Open">
-                                    <FiChevronRight size={14} />
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                    {folders.map(folder => (
-                        <div 
-                            key={folder.id} 
-                            className="file-card" 
-                            onClick={() => {
-                                if (selectedFiles.size > 0 || selectedFolders.size > 0) {
-                                    handleToggleFolderSelection(folder.id);
-                                } else {
-                                    navigateToFolder(folder.id, folder.name);
-                                }
-                            }}
-                            onContextMenu={(e) => handleContextMenu(e, { id: folder.id, name: folder.name, isFolder: true })}
-                            onTouchStart={(e) => handleTouchStart(e, { id: folder.id, name: folder.name, isFolder: true })}
-                            onTouchEnd={handleTouchEnd}
-                            onTouchMove={handleTouchMove}
-                        >
-                            <div className="file-card-visual">
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectedFolders.has(folder.id)} 
-                                    onChange={() => handleToggleFolderSelection(folder.id)} 
-                                    onClick={(e) => e.stopPropagation()} 
-                                    className="minimal-checkbox"
-                                />
-                                <div className="file-card-icon">
-                                    <FiFolder 
-                                        size={18} 
-                                        style={{ color: folder.color ? "transparent" : "var(--text-primary)" }}
-                                        fill={folder.color ? `url(#gradient-${folder.color})` : "none"}
+                        )}
+                        {sortedFolders.map(folder => (
+                            <div 
+                                key={folder.id} 
+                                className="file-card" 
+                                onClick={() => {
+                                    if (selectedFiles.size > 0 || selectedFolders.size > 0) {
+                                        handleToggleFolderSelection(folder.id);
+                                    } else {
+                                        navigateToFolder(folder.id, folder.name);
+                                    }
+                                }}
+                                onContextMenu={(e) => handleContextMenu(e, { id: folder.id, name: folder.name, isFolder: true })}
+                                onTouchStart={(e) => handleTouchStart(e, { id: folder.id, name: folder.name, isFolder: true })}
+                                onTouchEnd={handleTouchEnd}
+                                onTouchMove={handleTouchMove}
+                            >
+                                <div className="file-card-visual">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedFolders.has(folder.id)} 
+                                        onChange={() => handleToggleFolderSelection(folder.id)} 
+                                        onClick={(e) => e.stopPropagation()} 
+                                        className="minimal-checkbox"
                                     />
+                                    <div className="file-card-icon">
+                                        <FiFolder 
+                                            size={18} 
+                                            style={{ color: folder.color ? "transparent" : "var(--text-primary)" }}
+                                            fill={folder.color ? `url(#gradient-${folder.color})` : "none"}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="file-card-info">
+                                    <span className="file-name" style={{ fontWeight: 'normal' }}>{folder.name}</span>
+                                    <span className="file-col file-date">{formatDateModified(folder.updatedAt || folder.createdAt)}</span>
+                                    <span className="file-col file-type">File folder</span>
+                                    <span className="file-col file-size">
+                                        {viewMode === "list" 
+                                            ? "" 
+                                            : (folderCounts[folder.id] !== undefined 
+                                                ? `${folderCounts[folder.id]} item${folderCounts[folder.id] !== 1 ? 's' : ''}` 
+                                                : "Loading...")}
+                                    </span>
+                                </div>
+                                <div className="file-actions" onClick={(e) => { e.stopPropagation(); handleContextMenu(e, { id: folder.id, name: folder.name, isFolder: true }); }}>
+                                    <button title="Options">
+                                        <FiMoreHorizontal size={18} />
+                                    </button>
                                 </div>
                             </div>
-                            <div className="file-card-info">
-                                <span className="file-name" style={{ fontWeight: 'normal' }}>{folder.name}</span>
-                                <span className="file-size">
-                                    {folderCounts[folder.id] !== undefined 
-                                        ? `${folderCounts[folder.id]} item${folderCounts[folder.id] !== 1 ? 's' : ''}` 
-                                        : "Loading..."}
-                                </span>
-                            </div>
-                            <div className="file-actions" onClick={(e) => { e.stopPropagation(); handleContextMenu(e, { id: folder.id, name: folder.name, isFolder: true }); }}>
-                                <button title="Options">
-                                    <FiMoreHorizontal size={18} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                    {files.map(file => (
-                        <div 
-                            key={file.id} 
-                            className="file-card"
-                            onClick={() => {
-                                if (selectedFiles.size > 0 || selectedFolders.size > 0) {
-                                    handleToggleFileSelection(file.id);
-                                } else {
-                                    handleFileClick(file);
-                                }
-                            }}
-                            onContextMenu={(e) => handleContextMenu(e, { id: file.id, name: file.name, isFolder: false, file })}
-                            onTouchStart={(e) => handleTouchStart(e, { id: file.id, name: file.name, isFolder: false, file })}
-                            onTouchEnd={handleTouchEnd}
-                            onTouchMove={handleTouchMove}
-                        >
-                            <div className="file-card-visual">
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectedFiles.has(file.id)} 
-                                    onChange={() => handleToggleFileSelection(file.id)} 
-                                    onClick={(e) => e.stopPropagation()} 
-                                    className="minimal-checkbox"
-                                />
-                                <div className="file-card-icon">
-                                    {loadingFileId === file.id ? (
-                                        <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
-                                    ) : (
-                                        file.type.startsWith("image/") ? <ImageThumbnail file={file} /> : getFileIcon(file)
-                                    )}
+                        ))}
+                        {sortedFiles.map(file => (
+                            <div 
+                                key={file.id} 
+                                className="file-card"
+                                onClick={() => {
+                                    if (selectedFiles.size > 0 || selectedFolders.size > 0) {
+                                        handleToggleFileSelection(file.id);
+                                    } else {
+                                        handleFileClick(file);
+                                    }
+                                }}
+                                onContextMenu={(e) => handleContextMenu(e, { id: file.id, name: file.name, isFolder: false, file })}
+                                onTouchStart={(e) => handleTouchStart(e, { id: file.id, name: file.name, isFolder: false, file })}
+                                onTouchEnd={handleTouchEnd}
+                                onTouchMove={handleTouchMove}
+                            >
+                                <div className="file-card-visual">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedFiles.has(file.id)} 
+                                        onChange={() => handleToggleFileSelection(file.id)} 
+                                        onClick={(e) => e.stopPropagation()} 
+                                        className="minimal-checkbox"
+                                    />
+                                    <div className="file-card-icon">
+                                        {loadingFileId === file.id ? (
+                                            <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
+                                        ) : (
+                                            file.type.startsWith("image/") ? <ImageThumbnail file={file} /> : getFileIcon(file)
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="file-card-info">
+                                    <span className="file-name" style={{ fontWeight: 'normal' }}>{file.name}</span>
+                                    <span className="file-col file-date">{formatDateModified(file.updatedAt || file.createdAt)}</span>
+                                    <span className="file-col file-type">{getFileTypeLabel(file.name, false, file.type)}</span>
+                                    <span className="file-col file-size">{formatSize(file.size)}</span>
+                                </div>
+                                <div className="file-actions" onClick={(e) => { e.stopPropagation(); handleContextMenu(e, { id: file.id, name: file.name, isFolder: false, file }); }}>
+                                    <button title="Options">
+                                        <FiMoreHorizontal size={18} />
+                                    </button>
                                 </div>
                             </div>
-                            <div className="file-card-info">
-                                <span className="file-name" style={{ fontWeight: 'normal' }}>{file.name}</span>
-                                <span className="file-size">{formatSize(file.size)}</span>
-                            </div>
-                            <div className="file-actions" onClick={(e) => { e.stopPropagation(); handleContextMenu(e, { id: file.id, name: file.name, isFolder: false, file }); }}>
-                                <button title="Options">
-                                    <FiMoreHorizontal size={18} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                </>
             )}
 
             {contextMenu && (
