@@ -81,8 +81,11 @@ function call<Req, Res>(name: string) {
 /** Extracts a user-friendly message from a Firebase callable error. */
 export function shareErrorMessage(err: unknown): string {
     const e = err as { code?: string; message?: string };
-    if (e?.code === "functions/not-found" && /function/i.test(e.message || "")) {
+    if (e?.code === "functions/not-found" || /not found/i.test(e?.message || "")) {
         return "File sharing is not available yet. Please try again later.";
+    }
+    if (e?.code === "functions/internal" || e?.message === "internal") {
+        return "Unable to connect to sharing service. Please try again in a moment.";
     }
     return e?.message?.replace(/^.*?:\s*/, "") || "Something went wrong. Please try again.";
 }
