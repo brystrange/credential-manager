@@ -88,17 +88,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     const [pendingPassword, setPendingPassword] = useState("");
     const [recoveryKey, setRecoveryKey] = useState("");
     const [resetPasswordSuccess, setResetPasswordSuccess] = useState("");
-    const [showGoogleChoice, setShowGoogleChoice] = useState(false);
-    const [useDifferentGoogleAccount, setUseDifferentGoogleAccount] = useState(false);
-    const [googleEmailInput, setGoogleEmailInput] = useState("");
-    const [googleChoiceError, setGoogleChoiceError] = useState("");
-    const [lastGoogleEmail, setLastGoogleEmail] = useState<string>(() => {
-        try {
-            return localStorage.getItem("fs_last_google_email") || "";
-        } catch {
-            return "";
-        }
-    });
+    
 
     const resetFields = () => {
         setEmail("");
@@ -114,10 +104,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         setResetPasswordSuccess("");
         setRecoveryKey("");
         setShowSecurityInfo(false);
-        setShowGoogleChoice(false);
-        setUseDifferentGoogleAccount(false);
-        setGoogleEmailInput("");
-        setGoogleChoiceError("");
+        
     };
 
     const renderSecurityModal = () => {
@@ -208,159 +195,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         }
     };
 
-    const handleOpenGoogleChoice = () => {
-        setError("");
-        setGoogleChoiceError("");
-        setUseDifferentGoogleAccount(false);
-        setGoogleEmailInput("");
-        try {
-            setLastGoogleEmail(localStorage.getItem("fs_last_google_email") || "");
-        } catch {
-            // Ignore storage errors
-        }
-        setShowGoogleChoice(true);
-    };
-
-    const renderGoogleChoiceModal = () => {
-        if (!showGoogleChoice) return null;
-        return (
-            <div
-                className="modal-overlay"
-                onClick={() => !googleLoading && setShowGoogleChoice(false)}
-                style={{ zIndex: 9999 }}
-            >
-                <div
-                    className="modal-content"
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ maxWidth: "420px" }}
-                >
-                    <div className="modal-header">
-                        <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "1.15rem" }}>
-                            <FcGoogle size={22} /> Sign in with Google
-                        </h2>
-                        <button
-                            className="modal-close"
-                            onClick={() => setShowGoogleChoice(false)}
-                            disabled={googleLoading}
-                        >
-                            <FiX size={20} />
-                        </button>
-                    </div>
-
-                    <p style={{ fontSize: "0.88rem", color: "var(--text-secondary)", margin: "0 0 16px", lineHeight: 1.5 }}>
-                        Choose whether to continue with an existing Google account or log in using a different Google account.
-                    </p>
-
-                    {googleChoiceError && (
-                        <div className="auth-error" style={{ marginBottom: "12px" }}>
-                            {googleChoiceError}
-                        </div>
-                    )}
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        <button
-                            type="button"
-                            className="google-btn"
-                            style={{
-                                margin: 0,
-                                justifyContent: "flex-start",
-                                padding: "12px 14px",
-                                height: "auto",
-                                textAlign: "left",
-                                border: !useDifferentGoogleAccount ? "1px solid var(--accent)" : undefined,
-                            }}
-                            disabled={googleLoading}
-                            onClick={() => {
-                                setUseDifferentGoogleAccount(false);
-                                setGoogleChoiceError("");
-                                handleGoogleSignIn(lastGoogleEmail || undefined);
-                            }}
-                        >
-                            <FcGoogle size={20} style={{ flexShrink: 0 }} />
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" }}>
-                                <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
-                                    Continue with existing Google account
-                                </span>
-                                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                    {lastGoogleEmail ? lastGoogleEmail : "Select from your signed-in Google accounts"}
-                                </span>
-                            </div>
-                        </button>
-
-                        <button
-                            type="button"
-                            className="google-btn"
-                            style={{
-                                margin: 0,
-                                justifyContent: "flex-start",
-                                padding: "12px 14px",
-                                height: "auto",
-                                textAlign: "left",
-                                border: useDifferentGoogleAccount ? "1px solid var(--accent)" : undefined,
-                            }}
-                            disabled={googleLoading}
-                            onClick={() => {
-                                setUseDifferentGoogleAccount(true);
-                                setGoogleChoiceError("");
-                            }}
-                        >
-                            <FiMail size={18} style={{ flexShrink: 0, color: "var(--text-secondary)" }} />
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
-                                    Log in using a different Google account
-                                </span>
-                                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-                                    Type the Google email address you want to use
-                                </span>
-                            </div>
-                        </button>
-
-                        {useDifferentGoogleAccount && (
-                            <form
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    const trimmed = googleEmailInput.trim();
-                                    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-                                        setGoogleChoiceError("Please enter a valid Google email address.");
-                                        return;
-                                    }
-                                    setGoogleChoiceError("");
-                                    handleGoogleSignIn(trimmed);
-                                }}
-                                style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "10px" }}
-                            >
-                                <div className="form-group" style={{ margin: 0 }}>
-                                    <div className="input-icon">
-                                        <FiMail size={16} />
-                                    </div>
-                                    <input
-                                        type="email"
-                                        placeholder="Enter Google email address"
-                                        value={googleEmailInput}
-                                        onChange={(e) => setGoogleEmailInput(e.target.value)}
-                                        required
-                                        autoFocus
-                                        autoComplete="email"
-                                        disabled={googleLoading}
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    className="auth-submit"
-                                    disabled={googleLoading}
-                                    style={{ margin: 0 }}
-                                >
-                                    {googleLoading ? "Signing In..." : "Continue with this Google Account"}
-                                </button>
-                            </form>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    const handleGoogleSignIn = async (loginHint?: string) => {
+    const handleGoogleSignIn = async () => {
         setError("");
         setGoogleLoading(true);
         // Guard against VaultUnlockGate / dashboard flashing while Firebase
@@ -374,14 +209,12 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                 ? `http://127.0.0.1:5001/${projectId}/us-central1`
                 : `https://us-central1-${projectId}.cloudfunctions.net`;
             
-            const hintParam = loginHint && loginHint.trim() ? `&loginHint=${encodeURIComponent(loginHint.trim())}` : "";
-            window.location.href = `${functionBaseUrl}/googleAuthStart?returnUrl=${encodeURIComponent(window.location.origin + "/auth-callback")}${hintParam}`;
+            window.location.href = `${functionBaseUrl}/googleAuthStart?returnUrl=${encodeURIComponent(window.location.origin + "/auth-callback")}`;
             return;
         }
 
         try {
-            const result = await signInWithGoogle(loginHint);
-            setShowGoogleChoice(false);
+            const result = await signInWithGoogle();
             recordSuccess();
             if (result.status === "new") {
                 // Hand off to App.tsx to show the vault-setup screen
@@ -390,7 +223,12 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
             // For existing users, App.tsx VaultUnlockGate takes over naturally.
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : "Google sign-in failed. Please try again.";
-            setShowGoogleChoice(false);
+            if (
+                msg.includes("auth/popup-closed-by-user") ||
+                msg.includes("auth/cancelled-popup-request")
+            ) {
+                return;
+            }
             setError(friendlyError(msg));
         } finally {
             onAuthEnd?.();
@@ -439,8 +277,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         return (
             <div className="auth-container">
                 {renderSecurityModal()}
-                {renderGoogleChoiceModal()}
-            <div className="auth-card">
+                <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo" style={{ color: "var(--accent)" }}>
                             <FiMail size={64} />
@@ -524,8 +361,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
         return (
             <div className="auth-container">
                 {renderSecurityModal()}
-                {renderGoogleChoiceModal()}
-            <div className="auth-card">
+                <div className="auth-card">
                     <div className="auth-header">
                         <div className="auth-logo">
                             <img src="/logo.png" alt="Logo" />
@@ -581,7 +417,6 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     return (
         <div className="auth-container">
             {renderSecurityModal()}
-            {renderGoogleChoiceModal()}
             <div className="auth-card">
                 <div className="auth-header">
                     <div className="auth-logo">
@@ -773,8 +608,9 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                         </div>
 
                         <button
+                            type="button"
                             className="google-btn"
-                            onClick={handleOpenGoogleChoice}
+                            onClick={handleGoogleSignIn}
                             disabled={googleLoading}
                         >
                             {googleLoading ? "Signing In..." : (

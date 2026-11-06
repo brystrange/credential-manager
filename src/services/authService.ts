@@ -214,26 +214,22 @@ export async function resendVerificationEmail(email: string, password: string): 
  * - If the user has no Firestore record  → status "new"   (needs vault setup)
  * - If the user has an existing record   → status "existing" (needs vault unlock)
  */
-export async function signInWithGoogle(loginHint?: string): Promise<
+export async function signInWithGoogle(): Promise<
     | { status: "new"; uid: string }
     | { status: "existing"; uid: string }
 > {
+    try {
+        localStorage.removeItem("fs_last_google_email");
+    } catch {
+        // Ignore storage errors
+    }
+
     const provider = new GoogleAuthProvider();
-    const customParams: Record<string, string> = {
+    provider.setCustomParameters({
         prompt: "select_account",
-    };
-    if (loginHint && loginHint.trim()) {
-        customParams.login_hint = loginHint.trim();
-    }
-    provider.setCustomParameters(customParams);
+    });
+
     const result = await signInWithPopup(auth, provider);
-    if (result.user.email) {
-        try {
-            localStorage.setItem("fs_last_google_email", result.user.email);
-        } catch {
-            // Ignore storage errors
-        }
-    }
     const uid = result.user.uid;
 
     const userDoc = await getDoc(doc(db, "users", uid));
