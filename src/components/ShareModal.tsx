@@ -473,13 +473,13 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                                 border: "1px solid var(--border-color)",
                                                 background: "var(--bg-input)",
                                                 color: "var(--text-primary)",
-                                                maxWidth: 150,
+                                                maxWidth: 160,
                                             }}
                                         >
-                                            <option value="">New group...</option>
+                                            <option value="">+ New group...</option>
                                             {groups.map((g) => (
                                                 <option key={g.id} value={g.id}>
-                                                    Add to: {g.name}
+                                                    Add to group: {g.name}
                                                 </option>
                                             ))}
                                         </select>
@@ -488,7 +488,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                         <div className="form-group" style={{ flex: 1, margin: 0 }}>
                                             <input
                                                 type="text"
-                                                placeholder="Save recipients as a group (e.g. Family)"
+                                                placeholder="New group name (e.g. Work Team, Family)"
                                                 value={groupName}
                                                 maxLength={60}
                                                 onChange={(e) => setGroupName(e.target.value)}
@@ -498,7 +498,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                         </div>
                                     ) : (
                                         <div style={{ flex: 1, display: "flex", alignItems: "center", fontSize: "0.78rem", color: "var(--text-secondary)", paddingLeft: 4 }}>
-                                            Add selected to <strong>&nbsp;{groups.find((g) => g.id === targetGroupId)?.name}</strong>
+                                            Add selected to group <strong>&nbsp;{groups.find((g) => g.id === targetGroupId)?.name}</strong>
                                         </div>
                                     )}
                                     <button
@@ -507,7 +507,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                         onClick={handleSaveOrAddToGroup}
                                         disabled={!targetGroupId ? (!groupName.trim() || savingGroup || sharing) : (savingGroup || sharing)}
                                     >
-                                        {savingGroup ? <FiLoader size={14} className="spin" /> : targetGroupId ? "Add to group" : "Save group"}
+                                        {savingGroup ? <FiLoader size={14} className="spin" /> : targetGroupId ? "Add to group" : "Create group"}
                                     </button>
                                 </div>
                             </div>
@@ -532,100 +532,136 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                 groups.map((g) => {
                                     const isEditing = editingGroupId === g.id;
                                     const unaddedSelected = selected.filter((s) => !g.memberUids.includes(s.uid));
+                                    const allMembersSelected = g.memberUids.length > 0 && g.memberUids.every((uid) => selected.some((s) => s.uid === uid));
 
                                     if (isEditing) {
                                         return (
-                                            <div key={g.id} style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch", gap: 8, padding: "10px 12px" }}>
-                                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                            <div
+                                                key={g.id}
+                                                style={{
+                                                    display: "flex",
+                                                    flexDirection: "column",
+                                                    gap: 8,
+                                                    padding: "10px 12px",
+                                                    borderRadius: "var(--radius-sm)",
+                                                    border: "1px solid var(--accent)",
+                                                    background: "var(--bg-input)",
+                                                }}
+                                            >
+                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                                    <span style={{ fontSize: "0.76rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--accent)" }}>
+                                                        Editing Group
+                                                    </span>
+                                                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>
+                                                        {editMemberUids.length} {editMemberUids.length === 1 ? "user" : "users"} in group
+                                                    </span>
+                                                </div>
+
+                                                <div>
+                                                    <label style={{ display: "block", fontSize: "0.72rem", color: "var(--text-secondary)", marginBottom: 3, fontWeight: 600 }}>
+                                                        Group Name
+                                                    </label>
                                                     <input
                                                         type="text"
                                                         value={editGroupName}
                                                         onChange={(e) => setEditGroupName(e.target.value)}
                                                         maxLength={60}
-                                                        placeholder="Group name"
+                                                        placeholder="e.g. Work Team, Family"
                                                         style={{
-                                                            flex: 1,
-                                                            padding: "5px 10px",
+                                                            width: "100%",
+                                                            padding: "6px 10px",
                                                             fontSize: "0.82rem",
-                                                            fontWeight: 600,
                                                             borderRadius: "var(--radius-sm)",
                                                             border: "1px solid var(--border-color)",
-                                                            background: "var(--bg-input)",
+                                                            background: "var(--bg-card)",
                                                             color: "var(--text-primary)",
                                                         }}
                                                     />
                                                 </div>
 
-                                                <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>
-                                                    Members ({editMemberUids.length})
+                                                <div>
+                                                    <label style={{ display: "block", fontSize: "0.72rem", color: "var(--text-secondary)", marginBottom: 4, fontWeight: 600 }}>
+                                                        Group Members ({editMemberUids.length})
+                                                    </label>
+                                                    {editMemberUids.length === 0 ? (
+                                                        <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontStyle: "italic" }}>
+                                                            No members yet. Add at least one user email below.
+                                                        </div>
+                                                    ) : (
+                                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto" }}>
+                                                            {editMemberUids.map((uid) => (
+                                                                <span
+                                                                    key={uid}
+                                                                    style={{
+                                                                        display: "inline-flex",
+                                                                        alignItems: "center",
+                                                                        gap: 6,
+                                                                        padding: "3px 8px",
+                                                                        borderRadius: 999,
+                                                                        border: "1px solid var(--border-color)",
+                                                                        background: "var(--bg-card)",
+                                                                        fontSize: "0.74rem",
+                                                                        color: "var(--text-primary)",
+                                                                    }}
+                                                                >
+                                                                    {getEmailForUid(uid)}
+                                                                    <button
+                                                                        type="button"
+                                                                        style={{ ...iconBtn, padding: 0 }}
+                                                                        onClick={() => handleRemoveMemberFromEdit(uid)}
+                                                                        title="Remove user from group"
+                                                                    >
+                                                                        <FiX size={12} />
+                                                                    </button>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto" }}>
-                                                    {editMemberUids.map((uid) => (
-                                                        <span
-                                                            key={uid}
+
+                                                <div>
+                                                    <label style={{ display: "block", fontSize: "0.72rem", color: "var(--text-secondary)", marginBottom: 3, fontWeight: 600 }}>
+                                                        Add User to Group
+                                                    </label>
+                                                    <div style={{ display: "flex", gap: 6 }}>
+                                                        <input
+                                                            type="email"
+                                                            placeholder="Enter user email to add"
+                                                            value={editAddEmail}
+                                                            onChange={(e) => {
+                                                                setEditAddEmail(e.target.value);
+                                                                setEditError("");
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "Enter") {
+                                                                    e.preventDefault();
+                                                                    void handleAddEmailToEdit();
+                                                                }
+                                                            }}
                                                             style={{
-                                                                display: "inline-flex",
-                                                                alignItems: "center",
-                                                                gap: 6,
-                                                                padding: "3px 8px",
-                                                                borderRadius: 999,
+                                                                flex: 1,
+                                                                padding: "6px 10px",
+                                                                fontSize: "0.76rem",
+                                                                borderRadius: "var(--radius-sm)",
                                                                 border: "1px solid var(--border-color)",
                                                                 background: "var(--bg-card)",
-                                                                fontSize: "0.74rem",
                                                                 color: "var(--text-primary)",
                                                             }}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            className="btn-secondary"
+                                                            style={{ padding: "6px 12px", fontSize: "0.76rem" }}
+                                                            onClick={handleAddEmailToEdit}
+                                                            disabled={editSearching || !editAddEmail.trim()}
                                                         >
-                                                            {getEmailForUid(uid)}
-                                                            <button
-                                                                type="button"
-                                                                style={{ ...iconBtn, padding: 0 }}
-                                                                onClick={() => handleRemoveMemberFromEdit(uid)}
-                                                                title="Remove from group"
-                                                            >
-                                                                <FiX size={12} />
-                                                            </button>
-                                                        </span>
-                                                    ))}
-                                                </div>
-
-                                                <div style={{ display: "flex", gap: 6 }}>
-                                                    <input
-                                                        type="email"
-                                                        placeholder="Add user email to group"
-                                                        value={editAddEmail}
-                                                        onChange={(e) => {
-                                                            setEditAddEmail(e.target.value);
-                                                            setEditError("");
-                                                        }}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === "Enter") {
-                                                                e.preventDefault();
-                                                                void handleAddEmailToEdit();
-                                                            }
-                                                        }}
-                                                        style={{
-                                                            flex: 1,
-                                                            padding: "5px 10px",
-                                                            fontSize: "0.76rem",
-                                                            borderRadius: "var(--radius-sm)",
-                                                            border: "1px solid var(--border-color)",
-                                                            background: "var(--bg-input)",
-                                                            color: "var(--text-primary)",
-                                                        }}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        className="btn-secondary"
-                                                        style={{ padding: "4px 10px", fontSize: "0.76rem" }}
-                                                        onClick={handleAddEmailToEdit}
-                                                        disabled={editSearching || !editAddEmail.trim()}
-                                                    >
-                                                        {editSearching ? <FiLoader size={12} className="spin" /> : "Add"}
-                                                    </button>
+                                                            {editSearching ? <FiLoader size={12} className="spin" /> : "Add user"}
+                                                        </button>
+                                                    </div>
                                                 </div>
 
                                                 {editError && (
-                                                    <div style={{ fontSize: "0.72rem", color: "var(--danger)" }}>{editError}</div>
+                                                    <div style={{ fontSize: "0.74rem", color: "var(--danger)" }}>{editError}</div>
                                                 )}
 
                                                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 4 }}>
@@ -641,11 +677,11 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                                     <button
                                                         type="button"
                                                         className="btn-primary"
-                                                        style={{ padding: "4px 12px", fontSize: "0.76rem" }}
+                                                        style={{ padding: "4px 14px", fontSize: "0.76rem" }}
                                                         onClick={() => handleSaveGroupEdit(g)}
                                                         disabled={savingGroup || !editGroupName.trim() || editMemberUids.length === 0}
                                                     >
-                                                        {savingGroup ? <FiLoader size={12} className="spin" /> : "Save"}
+                                                        {savingGroup ? <FiLoader size={12} className="spin" /> : "Save group"}
                                                     </button>
                                                 </div>
                                             </div>
@@ -653,47 +689,115 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                     }
 
                                     return (
-                                        <div key={g.id} style={rowStyle}>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ fontSize: "0.84rem", color: "var(--text-primary)", fontWeight: 600 }}>{g.name}</div>
-                                                <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                    {g.memberUids.map((uid) => getEmailForUid(uid)).join(", ")}
+                                        <div
+                                            key={g.id}
+                                            style={{
+                                                display: "flex",
+                                                flexDirection: "column",
+                                                gap: 8,
+                                                padding: "10px 12px",
+                                                borderRadius: "var(--radius-sm)",
+                                                border: "1px solid var(--border-color)",
+                                                background: "var(--bg-input)",
+                                            }}
+                                        >
+                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+                                                    <span style={{ fontSize: "0.88rem", color: "var(--text-primary)", fontWeight: 700 }}>
+                                                        {g.name}
+                                                    </span>
+                                                    <span
+                                                        style={{
+                                                            fontSize: "0.68rem",
+                                                            fontWeight: 700,
+                                                            letterSpacing: "0.04em",
+                                                            textTransform: "uppercase",
+                                                            padding: "2px 6px",
+                                                            borderRadius: 4,
+                                                            background: "rgba(59, 130, 246, 0.15)",
+                                                            color: "var(--accent, #3b82f6)",
+                                                            border: "1px solid rgba(59, 130, 246, 0.3)",
+                                                        }}
+                                                    >
+                                                        Group
+                                                    </span>
+                                                    <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)" }}>
+                                                        • {g.memberUids.length} {g.memberUids.length === 1 ? "user" : "users"}
+                                                    </span>
                                                 </div>
-                                            </div>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                                                {unaddedSelected.length > 0 && (
+
+                                                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                                                    {unaddedSelected.length > 0 && (
+                                                        <button
+                                                            type="button"
+                                                            className="btn-secondary"
+                                                            style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--accent)" }}
+                                                            onClick={() => handleAddSelectedToGroup(g)}
+                                                            disabled={savingGroup}
+                                                            title={`Add selected recipient(s) to group "${g.name}"`}
+                                                        >
+                                                            + Add selected
+                                                        </button>
+                                                    )}
                                                     <button
                                                         type="button"
                                                         className="btn-secondary"
-                                                        style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--accent)" }}
-                                                        onClick={() => handleAddSelectedToGroup(g)}
-                                                        disabled={savingGroup}
-                                                        title={`Add ${unaddedSelected.map((s) => s.email).join(", ")} to ${g.name}`}
+                                                        style={{ padding: "4px 8px", fontSize: "0.75rem" }}
+                                                        onClick={() => startEditGroup(g)}
+                                                        title="Edit group name or members"
                                                     >
-                                                        + Add to group
+                                                        Edit
                                                     </button>
-                                                )}
-                                                <button
-                                                    type="button"
-                                                    className="btn-secondary"
-                                                    style={{ padding: "4px 8px", fontSize: "0.75rem" }}
-                                                    onClick={() => startEditGroup(g)}
-                                                    title="Edit members or rename"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="btn-secondary"
-                                                    style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--danger)" }}
-                                                    onClick={() => handleDeleteGroup(g)}
-                                                    title="Delete group"
-                                                >
-                                                    Delete
-                                                </button>
-                                                <button type="button" className="btn-secondary" style={{ padding: "4px 12px", fontSize: "0.75rem" }} onClick={() => addGroup(g)}>
-                                                    Add all
-                                                </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-secondary"
+                                                        style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--danger)" }}
+                                                        onClick={() => handleDeleteGroup(g)}
+                                                        title="Delete group"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                    {allMembersSelected ? (
+                                                        <span style={{ fontSize: "0.75rem", color: "var(--accent)", fontWeight: 600, padding: "4px 8px" }}>
+                                                            Added
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            className="btn-secondary"
+                                                            style={{ padding: "4px 10px", fontSize: "0.75rem" }}
+                                                            onClick={() => addGroup(g)}
+                                                            title="Add all members of this group to recipients"
+                                                        >
+                                                            Add all
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                                <div style={{ fontSize: "0.70rem", textTransform: "uppercase", letterSpacing: "0.03em", color: "var(--text-secondary)", fontWeight: 600 }}>
+                                                    Group Members:
+                                                </div>
+                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                                    {g.memberUids.map((uid) => (
+                                                        <span
+                                                            key={uid}
+                                                            style={{
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                padding: "2px 8px",
+                                                                borderRadius: 999,
+                                                                background: "var(--bg-card)",
+                                                                border: "1px solid var(--border-color)",
+                                                                fontSize: "0.74rem",
+                                                                color: "var(--text-primary)",
+                                                            }}
+                                                        >
+                                                            {getEmailForUid(uid)}
+                                                        </span>
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
                                     );
