@@ -78,8 +78,8 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [done, setDone] = useState(false);
 
     const title = items.length === 1
-        ? `Shared "${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
-        : `Shared ${items.length} items`;
+        ? `${done ? "Shared" : "Share"} "${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
+        : `${done ? "Shared" : "Share"} ${items.length} items`;
 
     const refreshContacts = async () => {
         setLoadingContacts(true);
