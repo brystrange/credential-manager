@@ -82,31 +82,73 @@ const isExcelFile = (type: string) =>
 const isPptxFile = (type: string) =>
     type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
+const resolveMimeType = (name: string, declaredType?: string): string => {
+    const n = (name || "").toLowerCase();
+    if (n.endsWith(".pdf")) return "application/pdf";
+    if (n.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (n.endsWith(".doc")) return "application/msword";
+    if (n.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (n.endsWith(".xls")) return "application/vnd.ms-excel";
+    if (n.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    if (n.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+    if (n.endsWith(".csv")) return "text/csv";
+    if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+    if (n.endsWith(".png")) return "image/png";
+    if (n.endsWith(".gif")) return "image/gif";
+    if (n.endsWith(".webp")) return "image/webp";
+    if (n.endsWith(".svg")) return "image/svg+xml";
+    if (n.endsWith(".bmp")) return "image/bmp";
+    if (n.endsWith(".mp4")) return "video/mp4";
+    if (n.endsWith(".webm")) return "video/webm";
+    if (n.endsWith(".mov")) return "video/quicktime";
+    if (n.endsWith(".mp3")) return "audio/mpeg";
+    if (n.endsWith(".wav")) return "audio/wav";
+    if (n.endsWith(".ogg")) return "audio/ogg";
+    if (n.endsWith(".txt")) return "text/plain";
+    if (n.endsWith(".md")) return "text/markdown";
+    if (declaredType && declaredType !== "application/octet-stream" && declaredType !== "") {
+        return declaredType;
+    }
+    return declaredType || "application/octet-stream";
+};
+
 const globalImageCache = new Map<string, string>();
 
 const ImageThumbnail = ({ file }: { file: VaultFile }) => {
     const [url, setUrl] = useState<string | null>(globalImageCache.get(file.id) || null);
+    const [loading, setLoading] = useState<boolean>(!globalImageCache.has(file.id));
 
     useEffect(() => {
-        if (!file.type.startsWith("image/")) return;
+        if (!file.type.startsWith("image/")) {
+            setLoading(false);
+            return;
+        }
         if (globalImageCache.has(file.id)) {
             setUrl(globalImageCache.get(file.id)!);
+            setLoading(false);
             return;
         }
         let isMounted = true;
+        setLoading(true);
         downloadVaultFile(file).then(blob => {
             if (isMounted) {
                 const objectUrl = URL.createObjectURL(blob);
                 globalImageCache.set(file.id, objectUrl);
                 setUrl(objectUrl);
+                setLoading(false);
             }
         }).catch(err => {
             console.error("Failed to load thumbnail", err);
+            if (isMounted) setLoading(false);
         });
         return () => {
             isMounted = false;
         };
     }, [file]);
+
+    if (loading) {
+        return <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />;
+    }
 
     if (!url) {
         return <FiImage size={18} style={{ color: "#4caf50" }} />;
@@ -120,25 +162,38 @@ const ImageThumbnail = ({ file }: { file: VaultFile }) => {
 const SharedImageThumbnail = ({ share, fileEntry }: { share: SharedItem; fileEntry: SharedFileEntry }) => {
     const cacheKey = `${share.id}:${fileEntry.storagePath}`;
     const [url, setUrl] = useState<string | null>(globalImageCache.get(cacheKey) || null);
+    const [loading, setLoading] = useState<boolean>(!globalImageCache.has(cacheKey));
 
     useEffect(() => {
-        if (!/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path)) return;
+        if (!/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path)) {
+            setLoading(false);
+            return;
+        }
         if (globalImageCache.has(cacheKey)) {
             setUrl(globalImageCache.get(cacheKey)!);
+            setLoading(false);
             return;
         }
         let isMounted = true;
+        setLoading(true);
         downloadSharedFile(share, fileEntry).then(blob => {
             if (isMounted) {
                 const objectUrl = URL.createObjectURL(blob);
                 globalImageCache.set(cacheKey, objectUrl);
                 setUrl(objectUrl);
+                setLoading(false);
             }
-        }).catch(() => {});
+        }).catch(() => {
+            if (isMounted) setLoading(false);
+        });
         return () => {
             isMounted = false;
         };
     }, [share, fileEntry, cacheKey]);
+
+    if (loading) {
+        return <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />;
+    }
 
     if (!url) {
         return <FiImage size={18} style={{ color: "#4caf50" }} />;
@@ -209,7 +264,16 @@ export default function FileExplorer() {
     };
 
     // Image Viewer
-    const [selectedImage, setSelectedImage] = useState<{ file: VaultFile, url: string, pdfData?: Uint8Array, officeData?: ArrayBuffer, excelHtml?: string, pptxThumbnailUrl?: string } | null>(null);
+    const [selectedImage, setSelectedImage] = useState<{ 
+        file: VaultFile; 
+        url: string; 
+        pdfData?: Uint8Array; 
+        officeData?: ArrayBuffer; 
+        excelHtml?: string; 
+        pptxThumbnailUrl?: string;
+        sharedItem?: SharedItem;
+        sharedFileEntry?: SharedFileEntry;
+    } | null>(null);
     const officeContainerRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [imageCache, setImageCache] = useState<Record<string, string>>({});
@@ -569,9 +633,12 @@ export default function FileExplorer() {
             setRenameTarget(null);
             setNewName("");
 
-            setSelectedImage(prev => prev && prev.file.id === renameTarget.id 
-                ? { ...prev, file: { ...prev.file, name: finalName } } 
-                : prev);
+            setSelectedImage(prev => {
+                if (!prev) return null;
+                const matches = prev.file.id === renameTarget.id || 
+                    (renameTarget.sharedItem && prev.sharedItem?.id === renameTarget.sharedItem.id);
+                return matches ? { ...prev, file: { ...prev.file, name: finalName } } : prev;
+            });
         } catch (err) {
             console.error(err);
         } finally {
@@ -642,7 +709,12 @@ export default function FileExplorer() {
             }
             setMoveTarget(null);
 
-            setSelectedImage(prev => prev && prev.file.id === target.id ? null : prev);
+            setSelectedImage(prev => {
+                if (!prev) return null;
+                const matches = prev.file.id === target.id || 
+                    Boolean(target.sharedItem && prev.sharedItem?.id === target.sharedItem.id);
+                return matches ? null : prev;
+            });
             finishTask(taskId, { status: "success", title: `Moved "${target.name}"` });
         } catch (err) {
             console.error(err);
@@ -1003,6 +1075,14 @@ export default function FileExplorer() {
                 document.body.removeChild(a);
                 return;
             }
+            const matchingShare = sharedItems.find(s => s.id === file.id || file.id.startsWith(`${s.id}:`));
+            if (matchingShare) {
+                const fileEntry = matchingShare.files.find(f => `${matchingShare.id}:${f.storagePath}` === file.id) || matchingShare.files[0];
+                if (fileEntry) {
+                    await handleDownloadSharedFile(matchingShare, fileEntry);
+                    return;
+                }
+            }
             const blob = await downloadVaultFile(file);
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -1174,12 +1254,169 @@ export default function FileExplorer() {
                 navigateToFolder("__shared__", "Shared with Me");
             }
             setConfirmRemoveShare(null);
+            setSelectedImage(prev => prev && prev.sharedItem?.id === confirmRemoveShare.id ? null : prev);
             await refreshShares();
         } catch (err) {
             console.error("Failed to remove share:", err);
             alert("Failed to remove share.");
         } finally {
             setActionLoading(false);
+        }
+    };
+
+    const handleSharedFileViewClick = async (share: SharedItem, fileEntry: SharedFileEntry, fileId: string, displayName: string) => {
+        const fileType = resolveMimeType(displayName, fileEntry.type);
+        const syntheticFile: VaultFile = {
+            id: fileId,
+            name: displayName,
+            type: fileType,
+            size: fileEntry.size,
+            folderId: null,
+            storagePath: fileEntry.storagePath,
+            createdAt: share.createdAt,
+            updatedAt: share.createdAt,
+        };
+
+        if (imageCache[fileId]) {
+            if (isOfficeFile(fileType) && officeDataCache[fileId]) {
+                setSelectedImage({ 
+                    file: syntheticFile, 
+                    url: imageCache[fileId], 
+                    officeData: officeDataCache[fileId].arrayBuffer,
+                    excelHtml: officeDataCache[fileId].excelHtml,
+                    pptxThumbnailUrl: officeDataCache[fileId].pptxThumbnailUrl,
+                    sharedItem: share,
+                    sharedFileEntry: fileEntry,
+                });
+            } else {
+                setSelectedImage({ 
+                    file: syntheticFile, 
+                    url: imageCache[fileId],
+                    sharedItem: share,
+                    sharedFileEntry: fileEntry,
+                });
+            }
+            return;
+        }
+
+        setActionLoading(true);
+        setLoadingFileId(fileId);
+        try {
+            const blob = await downloadSharedFile(share, fileEntry);
+            const url = URL.createObjectURL(blob);
+            setImageCache(prev => ({ ...prev, [fileId]: url }));
+
+            if (fileType === "application/pdf") {
+                const arrayBuffer = await blob.arrayBuffer();
+                setSelectedImage({ 
+                    file: syntheticFile, 
+                    url, 
+                    pdfData: new Uint8Array(arrayBuffer),
+                    sharedItem: share,
+                    sharedFileEntry: fileEntry,
+                });
+            } else if (isOfficeFile(fileType)) {
+                const arrayBuffer = await blob.arrayBuffer();
+                let excelHtml = undefined;
+                let pptxThumbnailUrl = undefined;
+                
+                if (isExcelFile(fileType)) {
+                    try {
+                        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        worksheet['!ref'] = 'A1:AJ50';
+                        let rawHtml = XLSX.utils.sheet_to_html(worksheet);
+                        if (worksheet['!ref']) {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(rawHtml, 'text/html');
+                            const table = doc.querySelector('table');
+                            if (table) {
+                                const range = XLSX.utils.decode_range(worksheet['!ref']);
+                                const colCount = range.e.c;
+                                
+                                const headerRow = doc.createElement('tr');
+                                const cornerTh = doc.createElement('th');
+                                cornerTh.style.background = '#f3f4f6';
+                                cornerTh.style.border = '1px solid #ccc';
+                                cornerTh.style.minWidth = '40px';
+                                headerRow.appendChild(cornerTh);
+                                
+                                for (let i = 0; i <= colCount; i++) {
+                                    const th = doc.createElement('th');
+                                    th.textContent = XLSX.utils.encode_col(i);
+                                    th.style.background = '#f3f4f6';
+                                    th.style.border = '1px solid #ccc';
+                                    th.style.padding = '4px 8px';
+                                    th.style.textAlign = 'center';
+                                    headerRow.appendChild(th);
+                                }
+                                table.prepend(headerRow);
+                                
+                                const rows = table.querySelectorAll('tr');
+                                for (let i = 1; i < rows.length; i++) {
+                                    const th = doc.createElement('th');
+                                    th.textContent = i.toString();
+                                    th.style.background = '#f3f4f6';
+                                    th.style.border = '1px solid #ccc';
+                                    th.style.padding = '4px 8px';
+                                    th.style.textAlign = 'center';
+                                    rows[i].prepend(th);
+                                }
+                                
+                                const cells = table.querySelectorAll('td, th');
+                                cells.forEach(cell => {
+                                    (cell as HTMLElement).style.border = '1px solid #ccc';
+                                });
+                                
+                                table.style.borderCollapse = 'collapse';
+                                excelHtml = table.outerHTML;
+                            } else {
+                                excelHtml = rawHtml;
+                            }
+                        } else {
+                            excelHtml = rawHtml;
+                        }
+                    } catch (e) {
+                        console.error("Excel parse failed", e);
+                    }
+                } else if (isPptxFile(fileType)) {
+                    try {
+                        const zip = await JSZip.loadAsync(arrayBuffer);
+                        const thumbnailFile = zip.file("docProps/thumbnail.jpeg");
+                        if (thumbnailFile) {
+                            const thumbBlob = await thumbnailFile.async("blob");
+                            pptxThumbnailUrl = URL.createObjectURL(thumbBlob);
+                        }
+                    } catch (e) {
+                        console.error("PPTX thumb parse failed", e);
+                    }
+                }
+
+                setOfficeDataCache(prev => ({ ...prev, [fileId]: { arrayBuffer, excelHtml, pptxThumbnailUrl } }));
+                setSelectedImage({ 
+                    file: syntheticFile, 
+                    url, 
+                    officeData: arrayBuffer, 
+                    excelHtml, 
+                    pptxThumbnailUrl,
+                    sharedItem: share,
+                    sharedFileEntry: fileEntry,
+                });
+            } else {
+                setSelectedImage({ 
+                    file: syntheticFile, 
+                    url,
+                    sharedItem: share,
+                    sharedFileEntry: fileEntry,
+                });
+            }
+        } catch (err) {
+            console.error("Failed to load shared file", err);
+            alert("Failed to load file.");
+        } finally {
+            setActionLoading(false);
+            setLoadingFileId(null);
         }
     };
 
@@ -1190,65 +1427,56 @@ export default function FileExplorer() {
         }
         if (!item.files[0]) return;
         const fileEntry = item.files[0];
-        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(item.name);
-        if (isImage) {
-            setActionLoading(true);
-            setLoadingFileId(item.id);
-            try {
-                const blob = await downloadSharedFile(item, fileEntry);
-                const url = URL.createObjectURL(blob);
-                const syntheticFile: VaultFile = {
-                    id: item.id,
-                    name: item.name,
-                    type: fileEntry.type || "image/png",
-                    size: fileEntry.size,
-                    folderId: null,
-                    storagePath: fileEntry.storagePath,
-                    createdAt: item.createdAt,
-                    updatedAt: item.createdAt,
-                };
-                setSelectedImage({ file: syntheticFile, url });
-            } catch (err) {
-                console.error("Failed to preview image:", err);
-                void handleDownloadSharedFile(item, fileEntry);
-            } finally {
-                setActionLoading(false);
-                setLoadingFileId(null);
-            }
+        const fileType = resolveMimeType(item.name, fileEntry.type);
+        const previewable = fileType.startsWith("image/") || 
+                            fileType === "application/pdf" ||
+                            fileType.startsWith("video/") ||
+                            fileType.startsWith("audio/") ||
+                            fileType.startsWith("text/") ||
+                            isOfficeFile(fileType);
+                            
+        if (previewable) {
+            void handleSharedFileViewClick(item, fileEntry, item.id, item.name);
         } else {
-            void handleDownloadSharedFile(item, fileEntry);
+            const syntheticFile: VaultFile = {
+                id: item.id,
+                name: item.name,
+                type: fileType,
+                size: fileEntry.size,
+                folderId: null,
+                storagePath: fileEntry.storagePath,
+                createdAt: item.createdAt,
+                updatedAt: item.createdAt,
+            };
+            setDownloadPromptFile(syntheticFile);
         }
     };
 
     const handleSharedFileEntryClick = async (share: SharedItem, fileEntry: SharedFileEntry) => {
-        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.name || fileEntry.path);
-        const key = `${share.id}:${fileEntry.storagePath}`;
-        if (isImage) {
-            setActionLoading(true);
-            setLoadingFileId(key);
-            try {
-                const blob = await downloadSharedFile(share, fileEntry);
-                const url = URL.createObjectURL(blob);
-                const syntheticFile: VaultFile = {
-                    id: key,
-                    name: fileEntry.name || fileEntry.path,
-                    type: fileEntry.type || "image/png",
-                    size: fileEntry.size,
-                    folderId: null,
-                    storagePath: fileEntry.storagePath,
-                    createdAt: share.createdAt,
-                    updatedAt: share.createdAt,
-                };
-                setSelectedImage({ file: syntheticFile, url });
-            } catch (err) {
-                console.error("Failed to preview image:", err);
-                void handleDownloadSharedFile(share, fileEntry);
-            } finally {
-                setActionLoading(false);
-                setLoadingFileId(null);
-            }
+        const fileId = `${share.id}:${fileEntry.storagePath}`;
+        const displayName = fileEntry.name || fileEntry.path;
+        const fileType = resolveMimeType(displayName, fileEntry.type);
+        const previewable = fileType.startsWith("image/") || 
+                            fileType === "application/pdf" ||
+                            fileType.startsWith("video/") ||
+                            fileType.startsWith("audio/") ||
+                            fileType.startsWith("text/") ||
+                            isOfficeFile(fileType);
+                            
+        if (previewable) {
+            void handleSharedFileViewClick(share, fileEntry, fileId, displayName);
         } else {
-            void handleDownloadSharedFile(share, fileEntry);
+            const syntheticFile: VaultFile = {
+                id: fileId,
+                name: displayName,
+                type: fileType,
+                size: fileEntry.size,
+                folderId: null,
+                storagePath: fileEntry.storagePath,
+                createdAt: share.createdAt,
+                updatedAt: share.createdAt,
+            };
+            setDownloadPromptFile(syntheticFile);
         }
     };
 
@@ -1747,7 +1975,9 @@ export default function FileExplorer() {
                                                     className="minimal-checkbox"
                                                 />
                                                 <div className="file-card-icon">
-                                                    {isImage ? (
+                                                    {loadingFileId === item.id ? (
+                                                        <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
+                                                    ) : isImage ? (
                                                         <SharedImageThumbnail share={item} fileEntry={item.files[0]} />
                                                     ) : (
                                                         getSharedItemIcon(item.name, isFolder, sharedFolderColors[item.id])
@@ -1867,7 +2097,9 @@ export default function FileExplorer() {
                                                     className="minimal-checkbox"
                                                 />
                                                 <div className="file-card-icon">
-                                                    {isFileImage ? (
+                                                    {loadingFileId === fileId ? (
+                                                        <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
+                                                    ) : isFileImage ? (
                                                         <SharedImageThumbnail share={activeShare} fileEntry={fileEntry} />
                                                     ) : (
                                                         getSharedItemIcon(fileEntry.path, false)
@@ -2359,13 +2591,54 @@ export default function FileExplorer() {
                                 )}
                             </button>
                             <button onClick={() => { 
-                                setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                if (selectedImage.sharedItem) {
+                                    setRenameTarget({
+                                        id: selectedImage.file.id,
+                                        name: selectedImage.file.name,
+                                        isFolder: false,
+                                        sharedItem: selectedImage.sharedItem,
+                                        sharedFileEntry: selectedImage.sharedFileEntry,
+                                    });
+                                } else {
+                                    setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                }
                                 setNewName(getNameWithoutExtension(selectedImage.file.name)); 
                                 setRenameModalOpen(true); 
                             }}><FiEdit2 /> Rename</button>
-                            <button onClick={() => { setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); }}><FiCornerUpRight /> Move</button>
-                            <button onClick={() => { setItemsToShare([{ kind: "file", file: selectedImage.file }]); setShareModalOpen(true); }}><FiShare2 /> Share</button>
-                            <button className="danger" onClick={() => { setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); }}><FiTrash2 /> Delete</button>
+                            <button onClick={() => { 
+                                if (selectedImage.sharedItem) {
+                                    setMoveTarget({
+                                        id: selectedImage.file.id,
+                                        name: selectedImage.file.name,
+                                        isFolder: false,
+                                        sharedItem: selectedImage.sharedItem,
+                                        sharedFileEntry: selectedImage.sharedFileEntry,
+                                    });
+                                } else {
+                                    setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                }
+                            }}><FiCornerUpRight /> Move</button>
+                            <button onClick={() => { 
+                                if (selectedImage.sharedItem) {
+                                    handleShareTarget({
+                                        id: selectedImage.file.id,
+                                        name: selectedImage.file.name,
+                                        isFolder: false,
+                                        sharedItem: selectedImage.sharedItem,
+                                        sharedFileEntry: selectedImage.sharedFileEntry,
+                                    });
+                                } else {
+                                    setItemsToShare([{ kind: "file", file: selectedImage.file }]); 
+                                    setShareModalOpen(true); 
+                                }
+                            }}><FiShare2 /> Share</button>
+                            <button className="danger" onClick={() => { 
+                                if (selectedImage.sharedItem) {
+                                    setConfirmRemoveShare(selectedImage.sharedItem);
+                                } else {
+                                    setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); 
+                                }
+                            }}><FiTrash2 /> Delete</button>
                             <button className="close-btn" onClick={() => { setSelectedImage(null); setZoomLevel(1); setPan({x:0, y:0}); }}><FiX size={24} /></button>
                         </div>
                         
@@ -2396,14 +2669,58 @@ export default function FileExplorer() {
                                         )}
                                     </button>
                                     <button onClick={() => { 
-                                        setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                        if (selectedImage.sharedItem) {
+                                            setRenameTarget({
+                                                id: selectedImage.file.id,
+                                                name: selectedImage.file.name,
+                                                isFolder: false,
+                                                sharedItem: selectedImage.sharedItem,
+                                                sharedFileEntry: selectedImage.sharedFileEntry,
+                                            });
+                                        } else {
+                                            setRenameTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                        }
                                         setNewName(getNameWithoutExtension(selectedImage.file.name)); 
                                         setRenameModalOpen(true); 
                                         setImageMenuOpen(false); 
                                     }}><FiEdit2 /> Rename</button>
-                                    <button onClick={() => { setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); setImageMenuOpen(false); }}><FiCornerUpRight /> Move</button>
-                                    <button onClick={() => { setItemsToShare([{ kind: "file", file: selectedImage.file }]); setShareModalOpen(true); setImageMenuOpen(false); }}><FiShare2 /> Share</button>
-                                    <button className="danger" onClick={() => { setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); setImageMenuOpen(false); }}><FiTrash2 /> Delete</button>
+                                    <button onClick={() => { 
+                                        if (selectedImage.sharedItem) {
+                                            setMoveTarget({
+                                                id: selectedImage.file.id,
+                                                name: selectedImage.file.name,
+                                                isFolder: false,
+                                                sharedItem: selectedImage.sharedItem,
+                                                sharedFileEntry: selectedImage.sharedFileEntry,
+                                            });
+                                        } else {
+                                            setMoveTarget({id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false}); 
+                                        }
+                                        setImageMenuOpen(false); 
+                                    }}><FiCornerUpRight /> Move</button>
+                                    <button onClick={() => { 
+                                        if (selectedImage.sharedItem) {
+                                            handleShareTarget({
+                                                id: selectedImage.file.id,
+                                                name: selectedImage.file.name,
+                                                isFolder: false,
+                                                sharedItem: selectedImage.sharedItem,
+                                                sharedFileEntry: selectedImage.sharedFileEntry,
+                                            });
+                                        } else {
+                                            setItemsToShare([{ kind: "file", file: selectedImage.file }]); 
+                                            setShareModalOpen(true); 
+                                        }
+                                        setImageMenuOpen(false); 
+                                    }}><FiShare2 /> Share</button>
+                                    <button className="danger" onClick={() => { 
+                                        if (selectedImage.sharedItem) {
+                                            setConfirmRemoveShare(selectedImage.sharedItem);
+                                        } else {
+                                            setDeleteTarget({ id: selectedImage.file.id, name: selectedImage.file.name, isFolder: false, file: selectedImage.file }); 
+                                        }
+                                        setImageMenuOpen(false); 
+                                    }}><FiTrash2 /> Delete</button>
                                 </div>
                             )}
                         </div>
