@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-    FiSearch, FiStar, FiX, FiUsers, FiUserPlus, FiLoader, FiLock, FiShare2, FiTrash2, FiCheck, FiClock,
-} from "react-icons/fi";
+import { FiX, FiLoader, FiLock, FiCheck } from "react-icons/fi";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useTaskToast } from "../context/TaskToastContext";
 import {
     lookupRecipient,
     getShareContacts,
-    setFavoriteRecipient,
     saveShareGroup,
     deleteShareGroup,
     shareItems,
@@ -22,13 +19,13 @@ interface ShareModalProps {
     onShared?: () => void;
 }
 
-type Tab = "frequent" | "favorites" | "groups";
+type Tab = "frequent" | "groups";
 
 const rowStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "8px 10px",
+    padding: "8px 12px",
     borderRadius: "var(--radius-sm)",
     border: "1px solid var(--border-color)",
     background: "var(--bg-input)",
@@ -43,18 +40,6 @@ const iconBtn: React.CSSProperties = {
     alignItems: "center",
     padding: 4,
 };
-
-function Avatar({ label }: { label: string }) {
-    return (
-        <div style={{
-            width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-            background: "var(--accent)", color: "#000", fontWeight: 700, fontSize: "0.75rem",
-            display: "flex", alignItems: "center", justifyContent: "center", textTransform: "uppercase",
-        }}>
-            {(label || "?").charAt(0)}
-        </div>
-    );
-}
 
 export default function ShareModal({ isOpen, items, onClose, onShared }: ShareModalProps) {
     const { isPro } = useSubscription();
@@ -73,7 +58,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [selected, setSelected] = useState<ShareRecipient[]>([]);
     const [groupName, setGroupName] = useState("");
     const [savingGroup, setSavingGroup] = useState(false);
-    const [busyFavorite, setBusyFavorite] = useState<string | null>(null);
 
     const [sharing, setSharing] = useState(false);
     const [progress, setProgress] = useState<{ percent: number; label: string } | null>(null);
@@ -112,13 +96,9 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
 
     const frequent = useMemo(
         () => contacts
-            .filter((c) => c.shareCount > 0)
-            .sort((a, b) => b.shareCount - a.shareCount || (b.lastSharedAt ?? 0) - (a.lastSharedAt ?? 0))
+            .slice()
+            .sort((a, b) => b.shareCount - a.shareCount || (b.lastSharedAt ?? 0) - (a.lastSharedAt ?? 0) || a.email.localeCompare(b.email))
             .slice(0, 8),
-        [contacts]
-    );
-    const favorites = useMemo(
-        () => contacts.filter((c) => c.favorite).sort((a, b) => a.email.localeCompare(b.email)),
         [contacts]
     );
     const contactByUid = useMemo(() => new Map(contacts.map((c) => [c.uid, c])), [contacts]);
@@ -126,8 +106,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     if (!isOpen) return null;
 
     const isSelected = (uid: string) => selected.some((s) => s.uid === uid);
-    const isFavorite = (uid: string) =>
-        contactByUid.get(uid)?.favorite ?? (searchResult?.uid === uid ? !!searchResult.favorite : false);
 
     const addRecipient = (r: ShareRecipient) => {
         setError("");
@@ -158,20 +136,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
             setSearchMessage(shareErrorMessage(err));
         } finally {
             setSearching(false);
-        }
-    };
-
-    const toggleFavorite = async (r: ShareRecipient) => {
-        const next = !isFavorite(r.uid);
-        setBusyFavorite(r.uid);
-        try {
-            await setFavoriteRecipient(r.uid, next);
-            if (searchResult?.uid === r.uid) setSearchResult({ ...searchResult, favorite: next });
-            await refreshContacts();
-        } catch (err) {
-            setError(shareErrorMessage(err));
-        } finally {
-            setBusyFavorite(null);
         }
     };
 
@@ -254,50 +218,38 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
 
     const renderContactRow = (c: ShareRecipient, extra?: React.ReactNode) => (
         <div key={c.uid} style={rowStyle}>
-            <Avatar label={c.displayName || c.email} />
             <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "0.82rem", color: "var(--text-primary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: "0.84rem", color: "var(--text-primary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {c.displayName || c.email}
                 </div>
-                <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {c.email}{extra}
                 </div>
             </div>
-            <button
-                type="button"
-                style={{ ...iconBtn, color: isFavorite(c.uid) ? "#facc15" : "var(--text-secondary)" }}
-                onClick={() => toggleFavorite(c)}
-                disabled={busyFavorite === c.uid}
-                title={isFavorite(c.uid) ? "Remove from favorites" : "Add to favorites"}
-            >
-                {busyFavorite === c.uid
-                    ? <FiLoader size={15} className="spin" />
-                    : <FiStar size={15} fill={isFavorite(c.uid) ? "#facc15" : "none"} />}
-            </button>
             {isSelected(c.uid) ? (
-                <span style={{ fontSize: "0.75rem", color: "var(--accent)", display: "flex", alignItems: "center", gap: 4 }}>
-                    <FiCheck size={14} /> Added
+                <span style={{ fontSize: "0.78rem", color: "var(--accent)", fontWeight: 600 }}>
+                    Added
                 </span>
             ) : (
-                <button type="button" className="btn-secondary" style={{ padding: "4px 10px", fontSize: "0.75rem" }} onClick={() => addRecipient(c)}>
+                <button type="button" className="btn-secondary" style={{ padding: "4px 12px", fontSize: "0.78rem" }} onClick={() => addRecipient(c)}>
                     Add
                 </button>
             )}
         </div>
     );
 
-    const tabBtn = (t: Tab, label: string, icon: React.ReactNode) => (
+    const tabBtn = (t: Tab, label: string) => (
         <button
             type="button"
             onClick={() => setTab(t)}
             style={{
-                flex: 1, padding: "6px 8px", fontSize: "0.78rem", fontWeight: 600, cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                flex: 1, padding: "8px", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
                 border: "none", borderBottom: `2px solid ${tab === t ? "var(--accent)" : "transparent"}`,
                 background: "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-secondary)",
             }}
         >
-            {icon} {label}
+            {label}
         </button>
     );
 
@@ -305,11 +257,10 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         <div className="modal-overlay" onClick={close}>
             <div
                 className="confirm-dialog"
-                style={{ maxWidth: 520, maxHeight: "90vh", overflowY: "auto" }}
+                style={{ maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }}
                 onClick={(e) => e.stopPropagation()}
             >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <FiShare2 size={18} style={{ color: "var(--accent)" }} />
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                     <h3 style={{ margin: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</h3>
                     <button type="button" style={iconBtn} onClick={close} title="Close"><FiX size={18} /></button>
                 </div>
@@ -343,11 +294,11 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                         </p>
 
                         {/* Search by email */}
-                        <form onSubmit={handleSearch} style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                        <form onSubmit={handleSearch} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                             <div className="form-group" style={{ flex: 1, margin: 0 }}>
                                 <input
                                     type="email"
-                                    placeholder="Search recipient email address"
+                                    placeholder="Enter recipient email address"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     disabled={sharing}
@@ -355,14 +306,14 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                     autoFocus
                                 />
                             </div>
-                            <button type="submit" className="btn-primary" disabled={searching || sharing || !email.trim()} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                {searching ? <FiLoader size={14} className="spin" /> : <FiSearch size={14} />} Search
+                            <button type="submit" className="btn-primary" disabled={searching || sharing || !email.trim()}>
+                                {searching ? <FiLoader size={14} className="spin" /> : "Search"}
                             </button>
                         </form>
 
-                        {searchResult && <div style={{ marginBottom: 10 }}>{renderContactRow(searchResult)}</div>}
+                        {searchResult && <div style={{ marginBottom: 12 }}>{renderContactRow(searchResult)}</div>}
                         {searchMessage && (
-                            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: 10 }}>{searchMessage}</p>
+                            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: 12 }}>{searchMessage}</p>
                         )}
 
                         {/* Selected recipients */}
@@ -374,7 +325,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                     {selected.map((s) => (
                                         <span key={s.uid} style={{
-                                            display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 10px",
+                                            display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px 4px 10px",
                                             borderRadius: 999, border: "1px solid var(--accent)", fontSize: "0.75rem", color: "var(--text-primary)",
                                         }}>
                                             {s.email}
@@ -396,47 +347,47 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                             style={{ paddingLeft: 12 }}
                                         />
                                     </div>
-                                    <button type="button" className="btn-secondary" onClick={handleSaveGroup} disabled={!groupName.trim() || savingGroup || sharing} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                        {savingGroup ? <FiLoader size={14} className="spin" /> : <FiUserPlus size={14} />} Save group
+                                    <button type="button" className="btn-secondary" onClick={handleSaveGroup} disabled={!groupName.trim() || savingGroup || sharing}>
+                                        {savingGroup ? <FiLoader size={14} className="spin" /> : "Save group"}
                                     </button>
                                 </div>
                             </div>
                         )}
 
-                        {/* Frequent / Favorites / Groups */}
+                        {/* Tabs: Frequent / Groups */}
                         <div style={{ display: "flex", borderBottom: "1px solid var(--border-color)", marginBottom: 10 }}>
-                            {tabBtn("frequent", "Frequent", <FiClock size={13} />)}
-                            {tabBtn("favorites", "Favorites", <FiStar size={13} />)}
-                            {tabBtn("groups", "Groups", <FiUsers size={13} />)}
+                            {tabBtn("frequent", "Frequent")}
+                            {tabBtn("groups", "Groups")}
                         </div>
 
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 80, maxHeight: 240, overflowY: "auto", marginBottom: 14 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 70, maxHeight: 220, overflowY: "auto", marginBottom: 14 }}>
                             {loadingContacts ? (
                                 <div style={{ textAlign: "center", padding: 16 }}><FiLoader className="spin" /></div>
                             ) : tab === "frequent" ? (
                                 frequent.length === 0
-                                    ? <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>People you share with most often will appear here.</p>
-                                    : frequent.map((c) => renderContactRow(c, ` · shared ${c.shareCount}×`))
-                            ) : tab === "favorites" ? (
-                                favorites.length === 0
-                                    ? <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>Tap the star next to a recipient to add them to favorites.</p>
-                                    : favorites.map((c) => renderContactRow(c))
+                                    ? <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>People you share with will appear here.</p>
+                                    : frequent.map((c) => renderContactRow(c, c.shareCount > 0 ? ` · shared ${c.shareCount}×` : undefined))
                             ) : groups.length === 0 ? (
-                                <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>Add recipients above, then save them as a custom group.</p>
+                                <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>Add recipients above, then save them as a custom group.</p>
                             ) : (
                                 groups.map((g) => (
                                     <div key={g.id} style={rowStyle}>
-                                        <FiUsers size={18} style={{ color: "var(--accent)", flexShrink: 0 }} />
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: "0.82rem", color: "var(--text-primary)", fontWeight: 600 }}>{g.name}</div>
-                                            <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            <div style={{ fontSize: "0.84rem", color: "var(--text-primary)", fontWeight: 600 }}>{g.name}</div>
+                                            <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                                 {g.memberUids.map((uid) => contactByUid.get(uid)?.email || "Unknown").join(", ")}
                                             </div>
                                         </div>
-                                        <button type="button" style={iconBtn} onClick={() => handleDeleteGroup(g)} title="Delete group">
-                                            <FiTrash2 size={14} />
+                                        <button
+                                            type="button"
+                                            className="btn-secondary"
+                                            style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--danger)" }}
+                                            onClick={() => handleDeleteGroup(g)}
+                                            title="Delete group"
+                                        >
+                                            Delete
                                         </button>
-                                        <button type="button" className="btn-secondary" style={{ padding: "4px 10px", fontSize: "0.75rem" }} onClick={() => addGroup(g)}>
+                                        <button type="button" className="btn-secondary" style={{ padding: "4px 12px", fontSize: "0.75rem" }} onClick={() => addGroup(g)}>
                                             Add all
                                         </button>
                                     </div>
@@ -466,9 +417,9 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                 className="btn-primary"
                                 onClick={handleShare}
                                 disabled={sharing || selected.length === 0}
-                                style={{ display: "flex", alignItems: "center", gap: 8 }}
+                                style={{ minWidth: 90 }}
                             >
-                                {sharing ? <><FiLoader size={14} className="spin" /> Sharing…</> : <><FiShare2 size={14} /> Share</>}
+                                {sharing ? <><FiLoader size={14} className="spin" /> Sharing…</> : "Share"}
                             </button>
                         </div>
                     </>
@@ -477,4 +428,3 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         </div>
     );
 }
-
