@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FiX, FiLoader, FiLock, FiCheck } from "react-icons/fi";
+import { FiX, FiLoader, FiLock, FiCheck, FiMoreHorizontal } from "react-icons/fi";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useTaskToast } from "../context/TaskToastContext";
 import {
@@ -66,6 +66,13 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [quickAddSearching, setQuickAddSearching] = useState(false);
     const [quickAddError, setQuickAddError] = useState("");
 
+    // 3-dot dropdown menu state on contact row
+    const [activeMenuUid, setActiveMenuUid] = useState<string | null>(null);
+    const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+    const [showGroupPicker, setShowGroupPicker] = useState(false);
+    const [creatingNewGroup, setCreatingNewGroup] = useState(false);
+    const [newGroupName, setNewGroupName] = useState("");
+
     const [sharing, setSharing] = useState(false);
     const [progress, setProgress] = useState<{ percent: number; label: string } | null>(null);
     const [error, setError] = useState("");
@@ -99,6 +106,11 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         setAddingToGroupId(null);
         setQuickAddEmail("");
         setQuickAddError("");
+        setActiveMenuUid(null);
+        setMenuPos(null);
+        setShowGroupPicker(false);
+        setCreatingNewGroup(false);
+        setNewGroupName("");
         setError("");
         setDone(false);
         setProgress(null);
@@ -331,6 +343,62 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         void sendToRecipients(members);
     };
 
+    const handleOpenMenu = (e: React.MouseEvent, c: ShareRecipient) => {
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (activeMenuUid === c.uid) {
+            setActiveMenuUid(null);
+            setMenuPos(null);
+            setShowGroupPicker(false);
+            setCreatingNewGroup(false);
+        } else {
+            setActiveMenuUid(c.uid);
+            setMenuPos({ top: rect.bottom + 4, right: Math.max(10, window.innerWidth - rect.right) });
+            setShowGroupPicker(false);
+            setCreatingNewGroup(false);
+            setNewGroupName("");
+        }
+    };
+
+    const handleAddUserToExistingGroup = async (g: ShareGroup, c: ShareRecipient) => {
+        if (g.memberUids.includes(c.uid)) return;
+        setSavingGroup(true);
+        setError("");
+        try {
+            setContacts((prev) => (prev.some((p) => p.uid === c.uid) ? prev : [...prev, { ...c, favorite: false, shareCount: 0, lastSharedAt: null }]));
+            const merged = [...g.memberUids, c.uid];
+            await saveShareGroup(g.name, merged, g.id);
+            await refreshContacts();
+            setActiveMenuUid(null);
+            setMenuPos(null);
+            setShowGroupPicker(false);
+        } catch (err) {
+            setError(shareErrorMessage(err));
+        } finally {
+            setSavingGroup(false);
+        }
+    };
+
+    const handleCreateGroupWithUser = async (c: ShareRecipient) => {
+        if (!newGroupName.trim()) return;
+        setSavingGroup(true);
+        setError("");
+        try {
+            setContacts((prev) => (prev.some((p) => p.uid === c.uid) ? prev : [...prev, { ...c, favorite: false, shareCount: 0, lastSharedAt: null }]));
+            await saveShareGroup(newGroupName.trim(), [c.uid]);
+            await refreshContacts();
+            setNewGroupName("");
+            setCreatingNewGroup(false);
+            setActiveMenuUid(null);
+            setMenuPos(null);
+            setShowGroupPicker(false);
+        } catch (err) {
+            setError(shareErrorMessage(err));
+        } finally {
+            setSavingGroup(false);
+        }
+    };
+
     const close = () => {
         if (sharing) return;
         onClose();
@@ -346,15 +414,31 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                     {c.email}{extra}
                 </div>
             </div>
-            <button
-                type="button"
-                className="btn-primary"
-                style={{ padding: "4px 14px", fontSize: "0.78rem" }}
-                onClick={() => handleSendToUser(c)}
-                disabled={sharing}
-            >
-                Send
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button
+                    type="button"
+                    className="btn-primary"
+                    style={{ padding: "4px 14px", fontSize: "0.78rem" }}
+                    onClick={() => handleSendToUser(c)}
+                    disabled={sharing}
+                >
+                    Send
+                </button>
+                <button
+                    type="button"
+                    style={{
+                        ...iconBtn,
+                        padding: "5px 6px",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border-color)",
+                        background: activeMenuUid === c.uid ? "var(--bg-card)" : "transparent",
+                    }}
+                    onClick={(e) => handleOpenMenu(e, c)}
+                    title="More options"
+                >
+                    <FiMoreHorizontal size={16} />
+                </button>
+            </div>
         </div>
     );
 
@@ -742,6 +826,174 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                     </>
                 )}
             </div>
+
+            {activeMenuUid && menuPos && (
+                <>
+                    <div
+                        style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuUid(null);
+                            setMenuPos(null);
+                            setShowGroupPicker(false);
+                            setCreatingNewGroup(false);
+                        }}
+                    />
+                    <div
+                        className="context-menu"
+                        style={{
+                            position: "fixed",
+                            top: menuPos.top,
+                            right: menuPos.right,
+                            zIndex: 9999,
+                            minWidth: 170,
+                            padding: showGroupPicker ? "8px" : "4px 0",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {!showGroupPicker ? (
+                            <button
+                                type="button"
+                                className="context-menu-item"
+                                style={{ padding: "8px 14px", fontSize: "0.78rem" }}
+                                onClick={() => setShowGroupPicker(true)}
+                            >
+                                <span>Add to group</span>
+                                <span style={{ marginLeft: "auto", fontSize: "0.7rem", color: "var(--text-secondary)" }}>▸</span>
+                            </button>
+                        ) : (
+                            <div style={{ minWidth: 190 }}>
+                                <div style={{ fontSize: "0.70rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6, padding: "2px 4px" }}>
+                                    Add to Group
+                                </div>
+
+                                {groups.length === 0 ? (
+                                    <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontStyle: "italic", padding: "4px" }}>
+                                        No groups yet.
+                                    </div>
+                                ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 130, overflowY: "auto", marginBottom: 6 }}>
+                                        {groups.map((g) => {
+                                            const activeContact = contacts.find((c) => c.uid === activeMenuUid) || (searchResult?.uid === activeMenuUid ? searchResult : null);
+                                            const inGroup = activeContact ? g.memberUids.includes(activeContact.uid) : false;
+                                            return (
+                                                <button
+                                                    key={g.id}
+                                                    type="button"
+                                                    disabled={inGroup || savingGroup}
+                                                    onClick={() => {
+                                                        if (activeContact) void handleAddUserToExistingGroup(g, activeContact);
+                                                    }}
+                                                    style={{
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "space-between",
+                                                        padding: "6px 8px",
+                                                        borderRadius: "var(--radius-sm)",
+                                                        border: "none",
+                                                        background: "transparent",
+                                                        color: inGroup ? "var(--text-secondary)" : "var(--text-primary)",
+                                                        fontSize: "0.76rem",
+                                                        cursor: inGroup ? "default" : "pointer",
+                                                        textAlign: "left",
+                                                        width: "100%",
+                                                    }}
+                                                    onMouseEnter={(e) => {
+                                                        if (!inGroup) e.currentTarget.style.background = "var(--bg-input)";
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        e.currentTarget.style.background = "transparent";
+                                                    }}
+                                                >
+                                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                        {g.name}
+                                                    </span>
+                                                    {inGroup && (
+                                                        <span style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>In group</span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {creatingNewGroup ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                                        <input
+                                            type="text"
+                                            placeholder="New group name"
+                                            value={newGroupName}
+                                            onChange={(e) => setNewGroupName(e.target.value)}
+                                            maxLength={60}
+                                            autoFocus
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                    e.preventDefault();
+                                                    const activeContact = contacts.find((c) => c.uid === activeMenuUid) || (searchResult?.uid === activeMenuUid ? searchResult : null);
+                                                    if (activeContact) void handleCreateGroupWithUser(activeContact);
+                                                }
+                                            }}
+                                            style={{
+                                                padding: "4px 8px",
+                                                fontSize: "0.74rem",
+                                                borderRadius: "var(--radius-sm)",
+                                                border: "1px solid var(--border-color)",
+                                                background: "var(--bg-input)",
+                                                color: "var(--text-primary)",
+                                            }}
+                                        />
+                                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                                            <button
+                                                type="button"
+                                                className="btn-secondary"
+                                                style={{ padding: "2px 8px", fontSize: "0.70rem" }}
+                                                onClick={() => setCreatingNewGroup(false)}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn-primary"
+                                                style={{ padding: "2px 10px", fontSize: "0.70rem" }}
+                                                onClick={() => {
+                                                    const activeContact = contacts.find((c) => c.uid === activeMenuUid) || (searchResult?.uid === activeMenuUid ? searchResult : null);
+                                                    if (activeContact) void handleCreateGroupWithUser(activeContact);
+                                                }}
+                                                disabled={!newGroupName.trim() || savingGroup}
+                                            >
+                                                Create
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        style={{
+                                            width: "100%",
+                                            padding: "6px 8px",
+                                            border: "none",
+                                            borderRadius: "var(--radius-sm)",
+                                            background: "transparent",
+                                            color: "var(--accent)",
+                                            fontSize: "0.74rem",
+                                            fontWeight: 600,
+                                            textAlign: "left",
+                                            cursor: "pointer",
+                                            borderTop: "1px solid var(--border-color)",
+                                            marginTop: 2,
+                                        }}
+                                        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-input)")}
+                                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                                        onClick={() => setCreatingNewGroup(true)}
+                                    >
+                                        + Create new group
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
         </div>
     );
 }
