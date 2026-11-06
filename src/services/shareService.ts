@@ -233,7 +233,7 @@ export async function shareItems(
 
     const missingKey = recipients.find((r) => !r.publicKeyJwk);
     if (missingKey) {
-        throw new Error(`${missingKey.email} hasn't enabled file sharing yet. Ask them to sign in to Fort Sterling once.`);
+        throw new Error(`${missingKey.email} hasn't registered their sharing keys yet. Please sign in to this account once to activate end-to-end encryption.`);
     }
 
     await ensureSharingKeys();

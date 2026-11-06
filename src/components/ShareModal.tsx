@@ -110,7 +110,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const addRecipient = (r: ShareRecipient) => {
         setError("");
         if (!r.publicKeyJwk) {
-            setError(`${r.email} hasn't enabled file sharing yet. Ask them to sign in to Fort Sterling once.`);
+            setError(`${r.email} hasn't registered their sharing keys yet. Because file sharing was just deployed on the server, please sign in to this account once to activate end-to-end encryption.`);
             return;
         }
         setSelected((prev) => (prev.some((p) => p.uid === r.uid) ? prev : [...prev, r]));
