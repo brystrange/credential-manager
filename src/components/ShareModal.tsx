@@ -60,12 +60,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [targetGroupId, setTargetGroupId] = useState("");
     const [savingGroup, setSavingGroup] = useState(false);
 
-    // Inline quick-add user to group
-    const [addingToGroupId, setAddingToGroupId] = useState<string | null>(null);
-    const [quickAddEmail, setQuickAddEmail] = useState("");
-    const [quickAddSearching, setQuickAddSearching] = useState(false);
-    const [quickAddError, setQuickAddError] = useState("");
-
     // 3-dot dropdown menu state on contact row
     const [activeMenuUid, setActiveMenuUid] = useState<string | null>(null);
     const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -103,9 +97,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         setSelected([]);
         setGroupName("");
         setTargetGroupId("");
-        setAddingToGroupId(null);
-        setQuickAddEmail("");
-        setQuickAddError("");
         setActiveMenuUid(null);
         setMenuPos(null);
         setShowGroupPicker(false);
@@ -205,22 +196,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         }
     };
 
-    const handleAddSelectedToGroup = async (g: ShareGroup) => {
-        const unadded = selected.filter((s) => !g.memberUids.includes(s.uid));
-        if (unadded.length === 0) return;
-        setSavingGroup(true);
-        setError("");
-        try {
-            const merged = Array.from(new Set([...g.memberUids, ...unadded.map((s) => s.uid)]));
-            await saveShareGroup(g.name, merged, g.id);
-            await refreshContacts();
-        } catch (err) {
-            setError(shareErrorMessage(err));
-        } finally {
-            setSavingGroup(false);
-        }
-    };
-
     const handleRemoveMemberFromGroup = async (g: ShareGroup, uidToRemove: string) => {
         const remainingUids = g.memberUids.filter((uid) => uid !== uidToRemove);
         setSavingGroup(true);
@@ -241,34 +216,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
             setError(shareErrorMessage(err));
         } finally {
             setSavingGroup(false);
-        }
-    };
-
-    const handleQuickAddEmail = async (g: ShareGroup) => {
-        const raw = quickAddEmail.trim().toLowerCase();
-        if (!raw) return;
-        setQuickAddError("");
-        setQuickAddSearching(true);
-        try {
-            const res = await lookupRecipient(raw);
-            if (!res) {
-                setQuickAddError(`No account found for "${raw}".`);
-                return;
-            }
-            if (g.memberUids.includes(res.uid)) {
-                setQuickAddError("User is already in this group.");
-                return;
-            }
-            setContacts((prev) => (prev.some((c) => c.uid === res.uid) ? prev : [...prev, { ...res, favorite: false, shareCount: 0, lastSharedAt: null }]));
-            const merged = [...g.memberUids, res.uid];
-            await saveShareGroup(g.name, merged, g.id);
-            await refreshContacts();
-            setQuickAddEmail("");
-            setAddingToGroupId(null);
-        } catch (err) {
-            setQuickAddError(shareErrorMessage(err));
-        } finally {
-            setQuickAddSearching(false);
         }
     };
 
@@ -611,188 +558,76 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                             ) : groups.length === 0 ? (
                                 <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>Add recipients above, then save them as a custom group.</p>
                             ) : (
-                                groups.map((g) => {
-                                    const unaddedSelected = selected.filter((s) => !g.memberUids.includes(s.uid));
-
-                                    return (
-                                        <div
-                                            key={g.id}
-                                            style={{
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                gap: 6,
-                                                padding: "8px 12px",
-                                                borderRadius: "var(--radius-sm)",
-                                                border: "1px solid var(--border-color)",
-                                                background: "var(--bg-input)",
-                                                cursor: "pointer",
-                                            }}
-                                            onClick={() => addGroup(g)}
-                                            title="Click to select this group"
-                                        >
-                                            {/* Header: Group Name and user count + selection status */}
-                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                    <span style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 700 }}>
-                                                        {g.name}
-                                                    </span>
-                                                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>
-                                                        • {g.memberUids.length} {g.memberUids.length === 1 ? "user" : "users"}
-                                                    </span>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    className="btn-primary"
-                                                    style={{ padding: "3px 12px", fontSize: "0.74rem" }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleSendToGroup(g);
-                                                    }}
-                                                    disabled={sharing}
-                                                    title={`Send file directly to ${g.name}`}
-                                                >
-                                                    Send
-                                                </button>
-                                            </div>
-
-                                            {/* Members pills with x icon on the right */}
-                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                                                {g.memberUids.map((uid) => (
-                                                    <span
-                                                        key={uid}
-                                                        style={{
-                                                            display: "inline-flex",
-                                                            alignItems: "center",
-                                                            gap: 6,
-                                                            padding: "3px 8px 3px 10px",
-                                                            borderRadius: 999,
-                                                            border: "1px solid var(--border-color)",
-                                                            background: "var(--bg-card)",
-                                                            fontSize: "0.75rem",
-                                                            color: "var(--text-primary)",
-                                                        }}
-                                                    >
-                                                        <span>{getEmailForUid(uid)}</span>
-                                                        <button
-                                                            type="button"
-                                                            style={{ ...iconBtn, padding: 0, color: "var(--text-secondary)" }}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                void handleRemoveMemberFromGroup(g, uid);
-                                                            }}
-                                                            title={`Remove ${getEmailForUid(uid)} from ${g.name}`}
-                                                        >
-                                                            <FiX size={13} />
-                                                        </button>
-                                                    </span>
-                                                ))}
-
-                                                {/* Add selected recipients to this group if any aren't members */}
-                                                {unaddedSelected.length > 0 && (
-                                                    <button
-                                                        type="button"
-                                                        className="btn-secondary"
-                                                        style={{
-                                                            padding: "2px 8px",
-                                                            fontSize: "0.72rem",
-                                                            color: "var(--accent)",
-                                                            borderColor: "var(--accent)",
-                                                            borderRadius: 999,
-                                                        }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            void handleAddSelectedToGroup(g);
-                                                        }}
-                                                        disabled={savingGroup}
-                                                        title={`Add selected to ${g.name}`}
-                                                    >
-                                                        + Add selected
-                                                    </button>
-                                                )}
-
-                                                {/* Inline add user */}
-                                                {addingToGroupId === g.id ? (
-                                                    <div
-                                                        style={{ display: "inline-flex", gap: 4, alignItems: "center" }}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    >
-                                                        <input
-                                                            type="email"
-                                                            placeholder="User email"
-                                                            value={quickAddEmail}
-                                                            onChange={(e) => {
-                                                                setQuickAddEmail(e.target.value);
-                                                                setQuickAddError("");
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "Enter") {
-                                                                    e.preventDefault();
-                                                                    void handleQuickAddEmail(g);
-                                                                }
-                                                            }}
-                                                            autoFocus
-                                                            style={{
-                                                                padding: "2px 8px",
-                                                                fontSize: "0.74rem",
-                                                                borderRadius: "var(--radius-sm)",
-                                                                border: "1px solid var(--border-color)",
-                                                                background: "var(--bg-card)",
-                                                                color: "var(--text-primary)",
-                                                                width: 160,
-                                                            }}
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            className="btn-secondary"
-                                                            style={{ padding: "2px 8px", fontSize: "0.72rem" }}
-                                                            onClick={() => void handleQuickAddEmail(g)}
-                                                            disabled={quickAddSearching || !quickAddEmail.trim()}
-                                                        >
-                                                            {quickAddSearching ? <FiLoader size={11} className="spin" /> : "Add"}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            style={{ ...iconBtn, padding: 2 }}
-                                                            onClick={() => {
-                                                                setAddingToGroupId(null);
-                                                                setQuickAddEmail("");
-                                                                setQuickAddError("");
-                                                            }}
-                                                            title="Cancel"
-                                                        >
-                                                            <FiX size={13} />
-                                                        </button>
-                                                        {quickAddError && (
-                                                            <span style={{ fontSize: "0.70rem", color: "var(--danger)" }}>{quickAddError}</span>
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    <button
-                                                        type="button"
-                                                        style={{
-                                                            background: "transparent",
-                                                            border: "1px dashed var(--border-color)",
-                                                            borderRadius: 999,
-                                                            padding: "2px 8px",
-                                                            fontSize: "0.72rem",
-                                                            color: "var(--text-secondary)",
-                                                            cursor: "pointer",
-                                                        }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setAddingToGroupId(g.id);
-                                                            setQuickAddEmail("");
-                                                            setQuickAddError("");
-                                                        }}
-                                                        title="Add a user to this group"
-                                                    >
-                                                        + Add user
-                                                    </button>
-                                                )}
-                                            </div>
+                                groups.map((g) => (
+                                    <div
+                                        key={g.id}
+                                        style={{
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            gap: 6,
+                                            padding: "8px 12px",
+                                            borderRadius: "var(--radius-sm)",
+                                            border: "1px solid var(--border-color)",
+                                            background: "var(--bg-input)",
+                                            cursor: "pointer",
+                                        }}
+                                        onClick={() => addGroup(g)}
+                                        title="Click to select this group"
+                                    >
+                                        {/* Header: Group Name and action */}
+                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                            <span style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 700 }}>
+                                                {g.name}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                className="btn-primary"
+                                                style={{ padding: "3px 12px", fontSize: "0.74rem" }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleSendToGroup(g);
+                                                }}
+                                                disabled={sharing}
+                                                title={`Send file directly to all members of ${g.name}`}
+                                            >
+                                                Send to all
+                                            </button>
                                         </div>
-                                    );
-                                })
+
+                                        {/* Members pills with x icon on the right */}
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                                            {g.memberUids.map((uid) => (
+                                                <span
+                                                    key={uid}
+                                                    style={{
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        gap: 6,
+                                                        padding: "3px 8px 3px 10px",
+                                                        borderRadius: 999,
+                                                        border: "1px solid var(--border-color)",
+                                                        background: "var(--bg-card)",
+                                                        fontSize: "0.75rem",
+                                                        color: "var(--text-primary)",
+                                                    }}
+                                                >
+                                                    <span>{getEmailForUid(uid)}</span>
+                                                    <button
+                                                        type="button"
+                                                        style={{ ...iconBtn, padding: 0, color: "var(--text-secondary)" }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            void handleRemoveMemberFromGroup(g, uid);
+                                                        }}
+                                                        title={`Remove ${getEmailForUid(uid)} from ${g.name}`}
+                                                    >
+                                                        <FiX size={13} />
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))
                             )}
                         </div>
 
