@@ -57,7 +57,16 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
 
     const [selected, setSelected] = useState<ShareRecipient[]>([]);
     const [groupName, setGroupName] = useState("");
+    const [targetGroupId, setTargetGroupId] = useState("");
     const [savingGroup, setSavingGroup] = useState(false);
+
+    // Group editing state
+    const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+    const [editGroupName, setEditGroupName] = useState("");
+    const [editMemberUids, setEditMemberUids] = useState<string[]>([]);
+    const [editAddEmail, setEditAddEmail] = useState("");
+    const [editSearching, setEditSearching] = useState(false);
+    const [editError, setEditError] = useState("");
 
     const [sharing, setSharing] = useState(false);
     const [progress, setProgress] = useState<{ percent: number; label: string } | null>(null);
@@ -88,6 +97,12 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         setSearchMessage("");
         setSelected([]);
         setGroupName("");
+        setTargetGroupId("");
+        setEditingGroupId(null);
+        setEditGroupName("");
+        setEditMemberUids([]);
+        setEditAddEmail("");
+        setEditError("");
         setError("");
         setDone(false);
         setProgress(null);
@@ -102,6 +117,15 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         [contacts]
     );
     const contactByUid = useMemo(() => new Map(contacts.map((c) => [c.uid, c])), [contacts]);
+
+    const getEmailForUid = (uid: string) => {
+        const c = contactByUid.get(uid);
+        if (c?.email) return c.email;
+        const s = selected.find((sel) => sel.uid === uid);
+        if (s?.email) return s.email;
+        if (searchResult?.uid === uid) return searchResult.email;
+        return "Unknown";
+    };
 
     if (!isOpen) return null;
 
@@ -154,13 +178,27 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
             : "");
     };
 
-    const handleSaveGroup = async () => {
-        if (!groupName.trim() || selected.length === 0) return;
+    const handleSaveOrAddToGroup = async () => {
+        if (selected.length === 0) return;
         setSavingGroup(true);
         setError("");
         try {
-            await saveShareGroup(groupName.trim(), selected.map((s) => s.uid));
-            setGroupName("");
+            if (targetGroupId) {
+                const target = groups.find((g) => g.id === targetGroupId);
+                if (!target) return;
+                const newUids = selected.map((s) => s.uid).filter((uid) => !target.memberUids.includes(uid));
+                if (newUids.length === 0) {
+                    setError(`Selected recipient(s) are already in "${target.name}".`);
+                    return;
+                }
+                const merged = [...target.memberUids, ...newUids];
+                await saveShareGroup(target.name, merged, target.id);
+                setTargetGroupId("");
+            } else {
+                if (!groupName.trim()) return;
+                await saveShareGroup(groupName.trim(), selected.map((s) => s.uid));
+                setGroupName("");
+            }
             await refreshContacts();
             setTab("groups");
         } catch (err) {
@@ -170,10 +208,94 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         }
     };
 
+    const handleAddSelectedToGroup = async (g: ShareGroup) => {
+        const unadded = selected.filter((s) => !g.memberUids.includes(s.uid));
+        if (unadded.length === 0) return;
+        setSavingGroup(true);
+        setError("");
+        try {
+            const merged = Array.from(new Set([...g.memberUids, ...unadded.map((s) => s.uid)]));
+            await saveShareGroup(g.name, merged, g.id);
+            await refreshContacts();
+        } catch (err) {
+            setError(shareErrorMessage(err));
+        } finally {
+            setSavingGroup(false);
+        }
+    };
+
+    const startEditGroup = (g: ShareGroup) => {
+        setEditingGroupId(g.id);
+        setEditGroupName(g.name);
+        setEditMemberUids([...g.memberUids]);
+        setEditAddEmail("");
+        setEditError("");
+    };
+
+    const cancelEditGroup = () => {
+        setEditingGroupId(null);
+        setEditGroupName("");
+        setEditMemberUids([]);
+        setEditAddEmail("");
+        setEditError("");
+    };
+
+    const handleRemoveMemberFromEdit = (uid: string) => {
+        setEditMemberUids((prev) => prev.filter((id) => id !== uid));
+    };
+
+    const handleAddEmailToEdit = async () => {
+        const raw = editAddEmail.trim().toLowerCase();
+        if (!raw) return;
+        setEditError("");
+        setEditSearching(true);
+        try {
+            const res = await lookupRecipient(raw);
+            if (!res) {
+                setEditError(`No Fort Sterling account found for "${raw}".`);
+                return;
+            }
+            if (editMemberUids.includes(res.uid)) {
+                setEditError(`${res.email} is already in this group.`);
+                return;
+            }
+            setContacts((prev) => (prev.some((c) => c.uid === res.uid) ? prev : [...prev, { ...res, favorite: false, shareCount: 0, lastSharedAt: null }]));
+            setEditMemberUids((prev) => [...prev, res.uid]);
+            setEditAddEmail("");
+        } catch (err) {
+            setEditError(shareErrorMessage(err));
+        } finally {
+            setEditSearching(false);
+        }
+    };
+
+    const handleSaveGroupEdit = async (g: ShareGroup) => {
+        if (!editGroupName.trim()) {
+            setEditError("Group name cannot be empty.");
+            return;
+        }
+        if (editMemberUids.length === 0) {
+            setEditError("Group must have at least one member.");
+            return;
+        }
+        setSavingGroup(true);
+        setEditError("");
+        try {
+            await saveShareGroup(editGroupName.trim(), editMemberUids, g.id);
+            await refreshContacts();
+            setEditingGroupId(null);
+        } catch (err) {
+            setEditError(shareErrorMessage(err));
+        } finally {
+            setSavingGroup(false);
+        }
+    };
+
     const handleDeleteGroup = async (g: ShareGroup) => {
         if (!window.confirm(`Delete the group "${g.name}"?`)) return;
         try {
             await deleteShareGroup(g.id);
+            if (editingGroupId === g.id) setEditingGroupId(null);
             await refreshContacts();
         } catch (err) {
             setError(shareErrorMessage(err));
@@ -336,19 +458,56 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                     ))}
                                 </div>
                                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                                    <div className="form-group" style={{ flex: 1, margin: 0 }}>
-                                        <input
-                                            type="text"
-                                            placeholder="Save recipients as a group (e.g. Family)"
-                                            value={groupName}
-                                            maxLength={60}
-                                            onChange={(e) => setGroupName(e.target.value)}
+                                    {groups.length > 0 && (
+                                        <select
+                                            value={targetGroupId}
+                                            onChange={(e) => {
+                                                setTargetGroupId(e.target.value);
+                                                if (e.target.value) setGroupName("");
+                                            }}
                                             disabled={sharing || savingGroup}
-                                            style={{ paddingLeft: 12 }}
-                                        />
-                                    </div>
-                                    <button type="button" className="btn-secondary" onClick={handleSaveGroup} disabled={!groupName.trim() || savingGroup || sharing}>
-                                        {savingGroup ? <FiLoader size={14} className="spin" /> : "Save group"}
+                                            style={{
+                                                padding: "6px 10px",
+                                                fontSize: "0.78rem",
+                                                borderRadius: "var(--radius-sm)",
+                                                border: "1px solid var(--border-color)",
+                                                background: "var(--bg-input)",
+                                                color: "var(--text-primary)",
+                                                maxWidth: 150,
+                                            }}
+                                        >
+                                            <option value="">New group...</option>
+                                            {groups.map((g) => (
+                                                <option key={g.id} value={g.id}>
+                                                    Add to: {g.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
+                                    {!targetGroupId ? (
+                                        <div className="form-group" style={{ flex: 1, margin: 0 }}>
+                                            <input
+                                                type="text"
+                                                placeholder="Save recipients as a group (e.g. Family)"
+                                                value={groupName}
+                                                maxLength={60}
+                                                onChange={(e) => setGroupName(e.target.value)}
+                                                disabled={sharing || savingGroup}
+                                                style={{ paddingLeft: 12 }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div style={{ flex: 1, display: "flex", alignItems: "center", fontSize: "0.78rem", color: "var(--text-secondary)", paddingLeft: 4 }}>
+                                            Add selected to <strong>&nbsp;{groups.find((g) => g.id === targetGroupId)?.name}</strong>
+                                        </div>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="btn-secondary"
+                                        onClick={handleSaveOrAddToGroup}
+                                        disabled={!targetGroupId ? (!groupName.trim() || savingGroup || sharing) : (savingGroup || sharing)}
+                                    >
+                                        {savingGroup ? <FiLoader size={14} className="spin" /> : targetGroupId ? "Add to group" : "Save group"}
                                     </button>
                                 </div>
                             </div>
@@ -360,7 +519,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                             {tabBtn("groups", "Groups")}
                         </div>
 
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 70, maxHeight: 220, overflowY: "auto", marginBottom: 14 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 70, maxHeight: 280, overflowY: "auto", marginBottom: 14 }}>
                             {loadingContacts ? (
                                 <div style={{ textAlign: "center", padding: 16 }}><FiLoader className="spin" /></div>
                             ) : tab === "frequent" ? (
@@ -370,28 +529,175 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                             ) : groups.length === 0 ? (
                                 <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>Add recipients above, then save them as a custom group.</p>
                             ) : (
-                                groups.map((g) => (
-                                    <div key={g.id} style={rowStyle}>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: "0.84rem", color: "var(--text-primary)", fontWeight: 600 }}>{g.name}</div>
-                                            <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                {g.memberUids.map((uid) => contactByUid.get(uid)?.email || "Unknown").join(", ")}
+                                groups.map((g) => {
+                                    const isEditing = editingGroupId === g.id;
+                                    const unaddedSelected = selected.filter((s) => !g.memberUids.includes(s.uid));
+
+                                    if (isEditing) {
+                                        return (
+                                            <div key={g.id} style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch", gap: 8, padding: "10px 12px" }}>
+                                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                                    <input
+                                                        type="text"
+                                                        value={editGroupName}
+                                                        onChange={(e) => setEditGroupName(e.target.value)}
+                                                        maxLength={60}
+                                                        placeholder="Group name"
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: "5px 10px",
+                                                            fontSize: "0.82rem",
+                                                            fontWeight: 600,
+                                                            borderRadius: "var(--radius-sm)",
+                                                            border: "1px solid var(--border-color)",
+                                                            background: "var(--bg-input)",
+                                                            color: "var(--text-primary)",
+                                                        }}
+                                                    />
+                                                </div>
+
+                                                <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>
+                                                    Members ({editMemberUids.length})
+                                                </div>
+                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto" }}>
+                                                    {editMemberUids.map((uid) => (
+                                                        <span
+                                                            key={uid}
+                                                            style={{
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                gap: 6,
+                                                                padding: "3px 8px",
+                                                                borderRadius: 999,
+                                                                border: "1px solid var(--border-color)",
+                                                                background: "var(--bg-card)",
+                                                                fontSize: "0.74rem",
+                                                                color: "var(--text-primary)",
+                                                            }}
+                                                        >
+                                                            {getEmailForUid(uid)}
+                                                            <button
+                                                                type="button"
+                                                                style={{ ...iconBtn, padding: 0 }}
+                                                                onClick={() => handleRemoveMemberFromEdit(uid)}
+                                                                title="Remove from group"
+                                                            >
+                                                                <FiX size={12} />
+                                                            </button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+
+                                                <div style={{ display: "flex", gap: 6 }}>
+                                                    <input
+                                                        type="email"
+                                                        placeholder="Add user email to group"
+                                                        value={editAddEmail}
+                                                        onChange={(e) => {
+                                                            setEditAddEmail(e.target.value);
+                                                            setEditError("");
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                void handleAddEmailToEdit();
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: "5px 10px",
+                                                            fontSize: "0.76rem",
+                                                            borderRadius: "var(--radius-sm)",
+                                                            border: "1px solid var(--border-color)",
+                                                            background: "var(--bg-input)",
+                                                            color: "var(--text-primary)",
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className="btn-secondary"
+                                                        style={{ padding: "4px 10px", fontSize: "0.76rem" }}
+                                                        onClick={handleAddEmailToEdit}
+                                                        disabled={editSearching || !editAddEmail.trim()}
+                                                    >
+                                                        {editSearching ? <FiLoader size={12} className="spin" /> : "Add"}
+                                                    </button>
+                                                </div>
+
+                                                {editError && (
+                                                    <div style={{ fontSize: "0.72rem", color: "var(--danger)" }}>{editError}</div>
+                                                )}
+
+                                                <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 4 }}>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-secondary"
+                                                        style={{ padding: "4px 10px", fontSize: "0.76rem" }}
+                                                        onClick={cancelEditGroup}
+                                                        disabled={savingGroup}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-primary"
+                                                        style={{ padding: "4px 12px", fontSize: "0.76rem" }}
+                                                        onClick={() => handleSaveGroupEdit(g)}
+                                                        disabled={savingGroup || !editGroupName.trim() || editMemberUids.length === 0}
+                                                    >
+                                                        {savingGroup ? <FiLoader size={12} className="spin" /> : "Save"}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div key={g.id} style={rowStyle}>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: "0.84rem", color: "var(--text-primary)", fontWeight: 600 }}>{g.name}</div>
+                                                <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                    {g.memberUids.map((uid) => getEmailForUid(uid)).join(", ")}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                                                {unaddedSelected.length > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-secondary"
+                                                        style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--accent)" }}
+                                                        onClick={() => handleAddSelectedToGroup(g)}
+                                                        disabled={savingGroup}
+                                                        title={`Add ${unaddedSelected.map((s) => s.email).join(", ")} to ${g.name}`}
+                                                    >
+                                                        + Add to group
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    className="btn-secondary"
+                                                    style={{ padding: "4px 8px", fontSize: "0.75rem" }}
+                                                    onClick={() => startEditGroup(g)}
+                                                    title="Edit members or rename"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn-secondary"
+                                                    style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--danger)" }}
+                                                    onClick={() => handleDeleteGroup(g)}
+                                                    title="Delete group"
+                                                >
+                                                    Delete
+                                                </button>
+                                                <button type="button" className="btn-secondary" style={{ padding: "4px 12px", fontSize: "0.75rem" }} onClick={() => addGroup(g)}>
+                                                    Add all
+                                                </button>
                                             </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            className="btn-secondary"
-                                            style={{ padding: "4px 8px", fontSize: "0.75rem", color: "var(--danger)" }}
-                                            onClick={() => handleDeleteGroup(g)}
-                                            title="Delete group"
-                                        >
-                                            Delete
-                                        </button>
-                                        <button type="button" className="btn-secondary" style={{ padding: "4px 12px", fontSize: "0.75rem" }} onClick={() => addGroup(g)}>
-                                            Add all
-                                        </button>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
 
