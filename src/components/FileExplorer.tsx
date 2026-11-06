@@ -4,7 +4,7 @@ import {
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
     FiChevronRight, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
-    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers
+    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers, FiUploadCloud
 } from "react-icons/fi";
 import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv } from "react-icons/fa";
 import { 
@@ -232,6 +232,90 @@ export default function FileExplorer() {
 
     // Block navigation during upload
     useBlocker(uploadProgress !== null);
+
+    // ── Drag & drop upload (Google Drive style) ──
+    // Window-level listeners so a file dropped ANYWHERE on the page is uploaded
+    // to the folder currently being viewed.
+    const [isDragOver, setIsDragOver] = useState(false);
+    const dragDepth = useRef(0);
+    const dropEnabledRef = useRef(true);
+    const dropHandlerRef = useRef<(files: File[]) => void>(() => {});
+
+    useEffect(() => {
+        const hasFiles = (e: DragEvent) =>
+            !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+
+        const onDragEnter = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            dragDepth.current++;
+            if (dropEnabledRef.current) setIsDragOver(true);
+        };
+
+        const onDragOver = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            // Must preventDefault or the browser will not fire "drop" (and would open the file)
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = dropEnabledRef.current ? "copy" : "none";
+        };
+
+        const onDragLeave = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            dragDepth.current = Math.max(0, dragDepth.current - 1);
+            if (dragDepth.current === 0) setIsDragOver(false);
+        };
+
+        const onDrop = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            dragDepth.current = 0;
+            setIsDragOver(false);
+            if (!dropEnabledRef.current) return;
+
+            // Collect files synchronously (DataTransfer is cleared after the handler returns)
+            const dropped: File[] = [];
+            let skippedFolder = false;
+            const items = e.dataTransfer?.items;
+            if (items && items.length > 0) {
+                for (const item of Array.from(items)) {
+                    if (item.kind !== "file") continue;
+                    const entry = (item as DataTransferItem & { webkitGetAsEntry?: () => { isDirectory: boolean } | null }).webkitGetAsEntry?.();
+                    if (entry?.isDirectory) {
+                        skippedFolder = true;
+                        continue;
+                    }
+                    const f = item.getAsFile();
+                    if (f) dropped.push(f);
+                }
+            } else if (e.dataTransfer?.files) {
+                dropped.push(...Array.from(e.dataTransfer.files));
+            }
+
+            if (dropped.length === 0) {
+                if (skippedFolder) alert("Folders can't be uploaded by drag and drop yet. Please drop individual files.");
+                return;
+            }
+            dropHandlerRef.current(dropped);
+        };
+
+        const reset = () => {
+            dragDepth.current = 0;
+            setIsDragOver(false);
+        };
+
+        window.addEventListener("dragenter", onDragEnter);
+        window.addEventListener("dragover", onDragOver);
+        window.addEventListener("dragleave", onDragLeave);
+        window.addEventListener("drop", onDrop);
+        window.addEventListener("dragend", reset);
+        return () => {
+            window.removeEventListener("dragenter", onDragEnter);
+            window.removeEventListener("dragover", onDragOver);
+            window.removeEventListener("dragleave", onDragLeave);
+            window.removeEventListener("drop", onDrop);
+            window.removeEventListener("dragend", reset);
+        };
+    }, []);
 
     useEffect(() => {
         const handleResize = () => {
@@ -522,8 +606,7 @@ export default function FileExplorer() {
         fileInputRef.current?.click();
     };
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const uploadFiles = Array.from(e.target.files || []);
+    const uploadFileList = async (uploadFiles: File[]) => {
         if (uploadFiles.length === 0) return;
 
         // Check file sizes
@@ -617,6 +700,15 @@ export default function FileExplorer() {
             if (fileInputRef.current) fileInputRef.current.value = "";
         }
     };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        await uploadFileList(Array.from(e.target.files || []));
+    };
+
+    // Keep the window-level drop listener pointed at the latest closure / state
+    dropEnabledRef.current =
+        uploadProgress === null && !isStorageAtLimit && !currentFolderId?.startsWith("__shared__");
+    dropHandlerRef.current = (dropped) => { void uploadFileList(dropped); };
 
     const handleFileViewClick = async (file: VaultFile) => {
         const isImage = file.type.startsWith("image/");
@@ -1041,6 +1133,15 @@ export default function FileExplorer() {
 
     return (
         <div className="file-explorer">
+            {isDragOver && (
+                <div className="file-drop-overlay">
+                    <div className="file-drop-card">
+                        <FiUploadCloud size={56} className="file-drop-icon" />
+                        <h3>Drop files to upload</h3>
+                        <p>Files will be uploaded to <strong>{breadcrumbs[breadcrumbs.length - 1]?.name || "Home"}</strong></p>
+                    </div>
+                </div>
+            )}
             <svg width="0" height="0" style={{ position: 'absolute' }}>
                 <defs>
                     {gradientColorsList.map(c => (
