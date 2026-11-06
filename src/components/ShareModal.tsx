@@ -77,8 +77,14 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
     const [error, setError] = useState("");
     const [done, setDone] = useState(false);
 
+    const getItemName = (item: ShareableItem) => {
+        if (item.kind === "file") return item.file.name;
+        if (item.kind === "folder") return item.folder.name;
+        return item.fileEntry?.name || item.share.name;
+    };
+
     const title = items.length === 1
-        ? `${done ? "Shared" : "Share"} "${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
+        ? `${done ? "Shared" : "Share"} "${getItemName(items[0])}"`
         : `${done ? "Shared" : "Share"} ${items.length} items`;
 
     const refreshContacts = async () => {
@@ -243,7 +249,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         setSelected([]);
 
         const itemLabel = items.length === 1
-            ? `"${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
+            ? `"${getItemName(items[0])}"`
             : `${items.length} items`;
         const recipientLabel = targetGroupName || (recipients.length === 1 ? recipients[0].email : `${recipients.length} people`);
         const taskId = startTask({

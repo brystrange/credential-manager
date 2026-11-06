@@ -66,7 +66,8 @@ export interface SharedItem {
 
 export type ShareableItem =
     | { kind: "file"; file: VaultFile }
-    | { kind: "folder"; folder: VaultFolder };
+    | { kind: "folder"; folder: VaultFolder }
+    | { kind: "shared"; share: SharedItem; fileEntry?: SharedFileEntry };
 
 // ─── Callable helpers ────────────────────────────────────────────────────────
 
@@ -184,13 +185,18 @@ export async function deleteShareGroup(groupId: string): Promise<void> {
 // ─── Sharing ─────────────────────────────────────────────────────────────────
 
 interface CollectedFile {
-    file: VaultFile;
+    file?: VaultFile;
+    sharedFile?: SharedFileEntry;
+    share?: SharedItem;
+    name: string;
+    size: number;
+    type: string;
     relativePath: string;
 }
 
-async function collectFolderFiles(folder: VaultFolder): Promise<CollectedFile[]> {
+async function collectFolderFiles(folder: VaultFolder): Promise<{ file: VaultFile; relativePath: string }[]> {
     const allFolders = await getAllFolders();
-    const results: CollectedFile[] = [];
+    const results: { file: VaultFile; relativePath: string }[] = [];
 
     const walk = async (folderId: string, prefix: string) => {
         const files = await getFilesInFolder(folderId);
@@ -243,18 +249,74 @@ export async function shareItems(
     );
 
     // Resolve all files first so progress can be reported across everything.
-    const plans: { item: ShareableItem; name: string; files: CollectedFile[] }[] = [];
+    const plans: { item: ShareableItem; name: string; itemType: "file" | "folder"; files: CollectedFile[] }[] = [];
     for (const item of items) {
         if (item.kind === "file") {
-            plans.push({ item, name: item.file.name, files: [{ file: item.file, relativePath: item.file.name }] });
-        } else {
+            plans.push({
+                item,
+                name: item.file.name,
+                itemType: "file",
+                files: [{ file: item.file, name: item.file.name, size: item.file.size, type: item.file.type, relativePath: item.file.name }]
+            });
+        } else if (item.kind === "folder") {
             const files = await collectFolderFiles(item.folder);
             if (files.length === 0) throw new Error(`Folder "${item.folder.name}" is empty.`);
-            plans.push({ item, name: item.folder.name, files });
+            plans.push({
+                item,
+                name: item.folder.name,
+                itemType: "folder",
+                files: files.map(f => ({ file: f.file, name: f.file.name, size: f.file.size, type: f.file.type, relativePath: f.relativePath }))
+            });
+        } else if (item.kind === "shared") {
+            const share = item.share;
+            if (item.fileEntry) {
+                plans.push({
+                    item,
+                    name: item.fileEntry.name,
+                    itemType: "file",
+                    files: [{
+                        sharedFile: item.fileEntry,
+                        share,
+                        name: item.fileEntry.name,
+                        size: item.fileEntry.size,
+                        type: item.fileEntry.type,
+                        relativePath: item.fileEntry.name
+                    }]
+                });
+            } else if (share.itemType === "file" && share.files[0]) {
+                plans.push({
+                    item,
+                    name: share.name,
+                    itemType: "file",
+                    files: [{
+                        sharedFile: share.files[0],
+                        share,
+                        name: share.files[0].name,
+                        size: share.files[0].size,
+                        type: share.files[0].type,
+                        relativePath: share.files[0].name
+                    }]
+                });
+            } else {
+                if (share.files.length === 0) throw new Error(`Folder "${share.name}" is empty.`);
+                plans.push({
+                    item,
+                    name: share.name,
+                    itemType: "folder",
+                    files: share.files.map(f => ({
+                        sharedFile: f,
+                        share,
+                        name: f.name,
+                        size: f.size,
+                        type: f.type,
+                        relativePath: f.path || f.name
+                    }))
+                });
+            }
         }
     }
 
-    const totalBytes = plans.reduce((sum, p) => sum + p.files.reduce((s, f) => s + (f.file.size || 0), 0), 0) || 1;
+    const totalBytes = plans.reduce((sum, p) => sum + p.files.reduce((s, f) => s + (f.size || 0), 0), 0) || 1;
     let doneBytes = 0;
 
     for (const plan of plans) {
@@ -268,25 +330,25 @@ export async function shareItems(
             size: number;
         }[] = [];
 
-        for (const { file, relativePath } of plan.files) {
-            onProgress?.(Math.min(99, (doneBytes / totalBytes) * 100), `Sharing ${file.name}…`);
-            const plainBlob = await downloadVaultFile(file);
+        for (const cf of plan.files) {
+            onProgress?.(Math.min(99, (doneBytes / totalBytes) * 100), `Sharing ${cf.name}…`);
+            const plainBlob = cf.file ? await downloadVaultFile(cf.file) : await downloadSharedFile(cf.share!, cf.sharedFile!);
             const encryptedBlob = await encryptFile(await plainBlob.arrayBuffer(), shareKey);
             const storagePath = `users/${uid}/shared/${shareId}/${crypto.randomUUID()}`;
             const base = doneBytes;
 
             await uploadBlob(storagePath, encryptedBlob, (bytes) => {
                 const fraction = encryptedBlob.size > 0 ? bytes / encryptedBlob.size : 1;
-                onProgress?.(Math.min(99, ((base + fraction * file.size) / totalBytes) * 100), `Sharing ${file.name}…`);
+                onProgress?.(Math.min(99, ((base + fraction * cf.size) / totalBytes) * 100), `Sharing ${cf.name}…`);
             });
-            doneBytes += file.size || 0;
+            doneBytes += cf.size || 0;
 
             uploaded.push({
                 storagePath,
-                encryptedName: await encryptPassword(file.name, shareKey),
-                encryptedType: await encryptPassword(file.type || "application/octet-stream", shareKey),
-                encryptedPath: await encryptPassword(relativePath, shareKey),
-                size: file.size || 0,
+                encryptedName: await encryptPassword(cf.name, shareKey),
+                encryptedType: await encryptPassword(cf.type || "application/octet-stream", shareKey),
+                encryptedPath: await encryptPassword(cf.relativePath, shareKey),
+                size: cf.size || 0,
             });
         }
 
@@ -297,7 +359,7 @@ export async function shareItems(
 
         await call<unknown, { ok: boolean }>("createShare")({
             shareId,
-            itemType: plan.item.kind,
+            itemType: plan.itemType,
             encryptedName: await encryptPassword(plan.name, shareKey),
             files: uploaded,
             recipientUids: recipients.map((r) => r.uid),
