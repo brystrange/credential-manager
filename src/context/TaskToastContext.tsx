@@ -184,36 +184,18 @@ function TaskToastHost() {
     if (tasks.length === 0) return null;
 
     const running = tasks.filter((t) => t.status === "running");
-    const failed = tasks.filter((t) => t.status === "error");
     const hasRunning = running.length > 0;
-
-    let headerTitle: string;
-    if (hasRunning) {
-        headerTitle = running.length === 1 ? running[0].title : `${running.length} tasks in progress`;
-    } else if (failed.length > 0) {
-        headerTitle = failed.length === 1 ? failed[0].title : `${failed.length} tasks failed`;
-    } else {
-        headerTitle = tasks.length === 1 ? tasks[0].title : `${tasks.length} tasks completed`;
-    }
 
     // Aggregate progress for the minimized bar
     const determinate = running.filter((t) => typeof t.progress === "number");
-    const hasIndeterminate = running.some((t) => typeof t.progress !== "number");
+    const allIndeterminate = hasRunning && determinate.length === 0;
     const overall = determinate.length
         ? determinate.reduce((sum, t) => sum + clampPercent(t.progress as number), 0) / determinate.length
         : 0;
 
-    const headerIcon = hasRunning
-        ? <FiLoader size={16} className="spin task-toast-icon running" />
-        : failed.length > 0
-            ? <FiAlertCircle size={16} className="task-toast-icon error" />
-            : <FiCheckCircle size={16} className="task-toast-icon success" />;
-
     return (
         <div className="task-toast" role="status" aria-live="polite">
-            <div className="task-toast-header">
-                {headerIcon}
-                <span className="task-toast-header-title" title={headerTitle}>{headerTitle}</span>
+            <div className="task-toast-controls">
                 <button
                     type="button"
                     className="task-toast-btn"
@@ -240,8 +222,8 @@ function TaskToastHost() {
                 hasRunning && (
                     <div className="task-toast-progress task-toast-progress-mini">
                         <div
-                            className={`task-toast-progress-bar ${hasIndeterminate && determinate.length === 0 ? "indeterminate" : ""}`}
-                            style={hasIndeterminate && determinate.length === 0 ? undefined : { width: `${overall}%` }}
+                            className={`task-toast-progress-bar ${allIndeterminate ? "indeterminate" : ""}`}
+                            style={allIndeterminate ? undefined : { width: `${overall}%` }}
                         />
                     </div>
                 )
@@ -283,3 +265,4 @@ function TaskRow({ task }: { task: ToastTask }) {
         </div>
     );
 }
+
