@@ -116,6 +116,38 @@ const ImageThumbnail = ({ file }: { file: VaultFile }) => {
     );
 };
 
+const SharedImageThumbnail = ({ share, fileEntry }: { share: SharedItem; fileEntry: SharedFileEntry }) => {
+    const cacheKey = `${share.id}:${fileEntry.storagePath}`;
+    const [url, setUrl] = useState<string | null>(globalImageCache.get(cacheKey) || null);
+
+    useEffect(() => {
+        if (!/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path)) return;
+        if (globalImageCache.has(cacheKey)) {
+            setUrl(globalImageCache.get(cacheKey)!);
+            return;
+        }
+        let isMounted = true;
+        downloadSharedFile(share, fileEntry).then(blob => {
+            if (isMounted) {
+                const objectUrl = URL.createObjectURL(blob);
+                globalImageCache.set(cacheKey, objectUrl);
+                setUrl(objectUrl);
+            }
+        }).catch(() => {});
+        return () => {
+            isMounted = false;
+        };
+    }, [share, fileEntry, cacheKey]);
+
+    if (!url) {
+        return <FiImage size={18} style={{ color: "#4caf50" }} />;
+    }
+
+    return (
+        <img src={url} alt={fileEntry.path} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} />
+    );
+};
+
 const globalFolderCountsCache: Record<string, number> = {};
 let globalFoldersCache: VaultFolder[] | null = null;
 let globalFilesCache: VaultFile[] | null = null;
@@ -157,7 +189,7 @@ export default function FileExplorer() {
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
-        target: { id: string, name: string, isFolder: boolean, file?: VaultFile };
+        target: { id: string, name: string, isFolder: boolean, file?: VaultFile, sharedItem?: SharedItem, sharedFileEntry?: SharedFileEntry };
     } | null>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -200,6 +232,7 @@ export default function FileExplorer() {
     const [sentShares, setSentShares] = useState<SharedItem[]>([]);
     const [loadingShares, setLoadingShares] = useState(false);
     const [sharedTab, setSharedTab] = useState<"received" | "sent">("received");
+    const [selectedSharedIds, setSelectedSharedIds] = useState<Set<string>>(new Set());
     const [confirmRemoveShare, setConfirmRemoveShare] = useState<SharedItem | null>(null);
     const [downloadingSharedId, setDownloadingSharedId] = useState<string | null>(null);
 
@@ -448,6 +481,9 @@ export default function FileExplorer() {
 
     const navigateToFolder = (folderId: string | null, folderName: string) => {
         setCurrentFolderId(folderId);
+        setSelectedFiles(new Set());
+        setSelectedFolders(new Set());
+        setSelectedSharedIds(new Set());
         if (folderId === null) {
             setBreadcrumbs([{ id: null, name: "Home" }]);
         } else {
@@ -580,7 +616,7 @@ export default function FileExplorer() {
         }
     };
 
-    const openContextMenu = (clientX: number, clientY: number, target: { id: string, name: string, isFolder: boolean, file?: VaultFile }) => {
+    const openContextMenu = (clientX: number, clientY: number, target: { id: string, name: string, isFolder: boolean, file?: VaultFile, sharedItem?: SharedItem, sharedFileEntry?: SharedFileEntry }) => {
         let x = clientX;
         let y = clientY;
 
@@ -591,12 +627,12 @@ export default function FileExplorer() {
         setContextMenu({ x, y, target });
     };
 
-    const handleContextMenu = (e: React.MouseEvent, target: { id: string, name: string, isFolder: boolean, file?: VaultFile }) => {
+    const handleContextMenu = (e: React.MouseEvent, target: { id: string, name: string, isFolder: boolean, file?: VaultFile, sharedItem?: SharedItem, sharedFileEntry?: SharedFileEntry }) => {
         e.preventDefault();
         openContextMenu(e.clientX, e.clientY, target);
     };
 
-    const handleTouchStart = (e: React.TouchEvent, target: { id: string, name: string, isFolder: boolean, file?: VaultFile }) => {
+    const handleTouchStart = (e: React.TouchEvent, target: { id: string, name: string, isFolder: boolean, file?: VaultFile, sharedItem?: SharedItem, sharedFileEntry?: SharedFileEntry }) => {
         const touch = e.touches[0];
         longPressTimer.current = setTimeout(() => {
             openContextMenu(touch.clientX, touch.clientY, target);
@@ -1355,7 +1391,7 @@ export default function FileExplorer() {
                     <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-color)", paddingBottom: "12px", marginBottom: "20px" }}>
                         <button
                             type="button"
-                            onClick={() => setSharedTab("received")}
+                            onClick={() => { setSharedTab("received"); setSelectedSharedIds(new Set()); }}
                             style={{
                                 padding: "8px 16px",
                                 borderRadius: "var(--radius-sm)",
@@ -1371,7 +1407,7 @@ export default function FileExplorer() {
                         </button>
                         <button
                             type="button"
-                            onClick={() => setSharedTab("sent")}
+                            onClick={() => { setSharedTab("sent"); setSelectedSharedIds(new Set()); }}
                             style={{
                                 padding: "8px 16px",
                                 borderRadius: "var(--radius-sm)",
@@ -1401,86 +1437,71 @@ export default function FileExplorer() {
                             {(sharedTab === "received" ? sharedItems : sentShares).map((item) => {
                                 const isFolder = item.itemType === "folder";
                                 const totalSize = item.files.reduce((sum, f) => sum + (f.size || 0), 0);
+                                const isImage = !isFolder && item.files[0] && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(item.name);
                                 return (
                                     <div
                                         key={item.id}
                                         className="file-card"
                                         title={`${item.name} (${item.isSender ? `Shared with: ${item.recipients.map(r => r.displayName || r.email).join(", ")}` : `From: ${item.senderName || item.senderEmail}`})`}
                                         onClick={() => {
-                                            if (isFolder) {
+                                            if (selectedSharedIds.size > 0) {
+                                                setSelectedSharedIds(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(item.id)) next.delete(item.id);
+                                                    else next.add(item.id);
+                                                    return next;
+                                                });
+                                            } else if (isFolder) {
                                                 navigateToFolder(`__shared__:${item.id}`, item.name);
                                             } else if (item.files[0]) {
                                                 void handleDownloadSharedFile(item, item.files[0]);
                                             }
                                         }}
+                                        onContextMenu={(e) => handleContextMenu(e, { id: item.id, name: item.name, isFolder, sharedItem: item })}
+                                        onTouchStart={(e) => handleTouchStart(e, { id: item.id, name: item.name, isFolder, sharedItem: item })}
+                                        onTouchEnd={handleTouchEnd}
+                                        onTouchMove={handleTouchMove}
                                     >
                                         <div className="file-card-visual">
-                                            {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
+                                            <input 
+                                                type="checkbox" 
+                                                checked={selectedSharedIds.has(item.id)} 
+                                                onChange={() => {
+                                                    setSelectedSharedIds(prev => {
+                                                        const next = new Set(prev);
+                                                        if (next.has(item.id)) next.delete(item.id);
+                                                        else next.add(item.id);
+                                                        return next;
+                                                    });
+                                                }} 
+                                                onClick={(e) => e.stopPropagation()} 
+                                                className="minimal-checkbox"
+                                            />
                                             <div className="file-card-icon">
-                                                {getSharedItemIcon(item.name, isFolder)}
+                                                {isImage ? (
+                                                    <SharedImageThumbnail share={item} fileEntry={item.files[0]} />
+                                                ) : (
+                                                    getSharedItemIcon(item.name, isFolder)
+                                                )}
                                             </div>
                                         </div>
                                         <div className="file-card-info">
-                                            {viewMode === "list" ? (
-                                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                                                    <span className="file-name" style={{ fontWeight: 'normal' }}>
-                                                        {item.name}
-                                                    </span>
-                                                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                        {item.isSender
-                                                            ? `Shared with ${item.recipients.map(r => r.displayName || r.email).join(", ")}`
-                                                            : `From: ${item.senderName || item.senderEmail}`}
-                                                        {" • "}
-                                                        {item.createdAt.toLocaleDateString()}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
-                                                    <span className="file-size">
-                                                        {isFolder
-                                                            ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
-                                                            : formatSize(totalSize)}
-                                                    </span>
-                                                    <span style={{ display: "block", fontSize: "0.68rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
-                                                        {item.isSender
-                                                            ? item.recipients.map(r => r.displayName || r.email.split('@')[0]).join(", ")
-                                                            : (item.senderName || item.senderEmail.split('@')[0])}
-                                                    </span>
-                                                </>
-                                            )}
-                                            {viewMode === "list" && (
-                                                <span className="file-size">
-                                                    {isFolder
-                                                        ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
-                                                        : formatSize(totalSize)}
-                                                </span>
-                                            )}
+                                            <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
+                                            <span className="file-size">
+                                                {isFolder
+                                                    ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
+                                                    : formatSize(totalSize)}
+                                            </span>
                                         </div>
-                                        <div className="file-actions" onClick={e => e.stopPropagation()}>
-                                            {item.itemType === "file" && item.files[0] ? (
-                                                <button
-                                                    title="Download"
-                                                    onClick={() => handleDownloadSharedFile(item, item.files[0])}
-                                                    disabled={downloadingSharedId === `${item.id}:${item.files[0].storagePath}`}
-                                                >
-                                                    {downloadingSharedId === `${item.id}:${item.files[0].storagePath}` ? <FiLoader className="spin" size={14} /> : <FiDownload size={14} />}
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    title="Download All (ZIP)"
-                                                    onClick={() => handleDownloadAllShared(item)}
-                                                    disabled={downloadingSharedId === item.id}
-                                                >
-                                                    {downloadingSharedId === item.id ? <FiLoader className="spin" size={14} /> : <FiArchive size={14} />}
-                                                </button>
-                                            )}
-                                            <button
-                                                title={item.isSender ? "Revoke share" : "Remove from my list"}
-                                                onClick={() => setConfirmRemoveShare(item)}
-                                                style={{ color: "var(--danger)" }}
-                                            >
-                                                <FiTrash2 size={14} />
+                                        <div 
+                                            className="file-actions" 
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                handleContextMenu(e, { id: item.id, name: item.name, isFolder, sharedItem: item }); 
+                                            }}
+                                        >
+                                            <button title="Options">
+                                                <FiMoreHorizontal size={18} />
                                             </button>
                                         </div>
                                     </div>
@@ -1535,38 +1556,72 @@ export default function FileExplorer() {
                             </div>
 
                             <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
-                                {activeShare.files.map((fileEntry, idx) => (
-                                    <div
-                                        key={idx}
-                                        className="file-card"
-                                        title={fileEntry.path}
-                                        onClick={() => void handleDownloadSharedFile(activeShare, fileEntry)}
-                                    >
-                                        <div className="file-card-visual">
-                                            {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
-                                            <div className="file-card-icon">
-                                                {getSharedItemIcon(fileEntry.path, false)}
+                                {activeShare.files.map((fileEntry, idx) => {
+                                    const isFileImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path);
+                                    const fileId = `${activeShare.id}:${fileEntry.storagePath}`;
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className="file-card"
+                                            title={fileEntry.path}
+                                            onClick={() => {
+                                                if (selectedSharedIds.size > 0) {
+                                                    setSelectedSharedIds(prev => {
+                                                        const next = new Set(prev);
+                                                        if (next.has(fileId)) next.delete(fileId);
+                                                        else next.add(fileId);
+                                                        return next;
+                                                    });
+                                                } else {
+                                                    void handleDownloadSharedFile(activeShare, fileEntry);
+                                                }
+                                            }}
+                                            onContextMenu={(e) => handleContextMenu(e, { id: fileId, name: fileEntry.path, isFolder: false, sharedItem: activeShare, sharedFileEntry: fileEntry })}
+                                            onTouchStart={(e) => handleTouchStart(e, { id: fileId, name: fileEntry.path, isFolder: false, sharedItem: activeShare, sharedFileEntry: fileEntry })}
+                                            onTouchEnd={handleTouchEnd}
+                                            onTouchMove={handleTouchMove}
+                                        >
+                                            <div className="file-card-visual">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={selectedSharedIds.has(fileId)} 
+                                                    onChange={() => {
+                                                        setSelectedSharedIds(prev => {
+                                                            const next = new Set(prev);
+                                                            if (next.has(fileId)) next.delete(fileId);
+                                                            else next.add(fileId);
+                                                            return next;
+                                                        });
+                                                    }} 
+                                                    onClick={(e) => e.stopPropagation()} 
+                                                    className="minimal-checkbox"
+                                                />
+                                                <div className="file-card-icon">
+                                                    {isFileImage ? (
+                                                        <SharedImageThumbnail share={activeShare} fileEntry={fileEntry} />
+                                                    ) : (
+                                                        getSharedItemIcon(fileEntry.path, false)
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="file-card-info">
+                                                <span className="file-name" style={{ fontWeight: 'normal' }}>{fileEntry.path}</span>
+                                                <span className="file-size">{formatSize(fileEntry.size)}</span>
+                                            </div>
+                                            <div 
+                                                className="file-actions" 
+                                                onClick={(e) => { 
+                                                    e.stopPropagation(); 
+                                                    handleContextMenu(e, { id: fileId, name: fileEntry.path, isFolder: false, sharedItem: activeShare, sharedFileEntry: fileEntry }); 
+                                                }}
+                                            >
+                                                <button title="Options">
+                                                    <FiMoreHorizontal size={18} />
+                                                </button>
                                             </div>
                                         </div>
-                                        <div className="file-card-info">
-                                            <span className="file-name" style={{ fontWeight: 'normal' }}>{fileEntry.path}</span>
-                                            <span className="file-size">{formatSize(fileEntry.size)}</span>
-                                        </div>
-                                        <div className="file-actions" onClick={e => e.stopPropagation()}>
-                                            <button
-                                                title="Download"
-                                                onClick={() => handleDownloadSharedFile(activeShare, fileEntry)}
-                                                disabled={downloadingSharedId === `${activeShare.id}:${fileEntry.storagePath}`}
-                                            >
-                                                {downloadingSharedId === `${activeShare.id}:${fileEntry.storagePath}` ? (
-                                                    <FiLoader className="spin" size={14} />
-                                                ) : (
-                                                    <FiDownload size={14} />
-                                                )}
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     );
@@ -1709,33 +1764,68 @@ export default function FileExplorer() {
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    {!contextMenu.target.isFolder && (
-                        <button className="context-menu-item" onClick={() => { handleDownload(contextMenu.target.file!); setContextMenu(null); }}>
-                            {loadingFileId === contextMenu.target.id ? <FiLoader className="spin" /> : <FiDownload />} Download
-                        </button>
+                    {contextMenu.target.sharedItem ? (
+                        <>
+                            <button 
+                                className="context-menu-item" 
+                                onClick={() => { 
+                                    const share = contextMenu.target.sharedItem!;
+                                    const entry = contextMenu.target.sharedFileEntry;
+                                    if (entry) {
+                                        void handleDownloadSharedFile(share, entry);
+                                    } else if (share.itemType === "file" && share.files[0]) {
+                                        void handleDownloadSharedFile(share, share.files[0]);
+                                    } else {
+                                        void handleDownloadAllShared(share);
+                                    }
+                                    setContextMenu(null); 
+                                }}
+                            >
+                                <FiDownload /> Download
+                            </button>
+                            {!contextMenu.target.sharedFileEntry && (
+                                <button 
+                                    className="context-menu-item danger" 
+                                    onClick={() => { 
+                                        setConfirmRemoveShare(contextMenu.target.sharedItem!); 
+                                        setContextMenu(null); 
+                                    }}
+                                >
+                                    <FiTrash2 /> {contextMenu.target.sharedItem.isSender ? "Revoke" : "Delete"}
+                                </button>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            {!contextMenu.target.isFolder && (
+                                <button className="context-menu-item" onClick={() => { handleDownload(contextMenu.target.file!); setContextMenu(null); }}>
+                                    {loadingFileId === contextMenu.target.id ? <FiLoader className="spin" /> : <FiDownload />} Download
+                                </button>
+                            )}
+                            <button className="context-menu-item" onClick={() => { 
+                                setRenameTarget(contextMenu.target); 
+                                setNewName(contextMenu.target.isFolder ? contextMenu.target.name : getNameWithoutExtension(contextMenu.target.name)); 
+                                setRenameModalOpen(true); 
+                                setContextMenu(null); 
+                            }}>
+                                <FiEdit2 /> Rename
+                            </button>
+                            <button className="context-menu-item" onClick={() => { setMoveTarget(contextMenu.target); setContextMenu(null); }}>
+                                <FiCornerUpRight /> Move
+                            </button>
+                            <button className="context-menu-item" onClick={() => { handleShareTarget(contextMenu.target); setContextMenu(null); }}>
+                                <FiShare2 /> Share
+                            </button>
+                            {contextMenu.target.isFolder && (
+                                <button className="context-menu-item" onClick={() => { setColorPickerTarget({ id: contextMenu.target.id, name: contextMenu.target.name }); setContextMenu(null); }}>
+                                    <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: 'linear-gradient(135deg, #ffd1dc, #ffdfba, #bae1ff)' }} /> Color
+                                </button>
+                            )}
+                            <button className="context-menu-item danger" onClick={() => { setDeleteTarget(contextMenu.target); setContextMenu(null); }}>
+                                <FiTrash2 /> Delete
+                            </button>
+                        </>
                     )}
-                    <button className="context-menu-item" onClick={() => { 
-                        setRenameTarget(contextMenu.target); 
-                        setNewName(contextMenu.target.isFolder ? contextMenu.target.name : getNameWithoutExtension(contextMenu.target.name)); 
-                        setRenameModalOpen(true); 
-                        setContextMenu(null); 
-                    }}>
-                        <FiEdit2 /> Rename
-                    </button>
-                    <button className="context-menu-item" onClick={() => { setMoveTarget(contextMenu.target); setContextMenu(null); }}>
-                        <FiCornerUpRight /> Move
-                    </button>
-                    <button className="context-menu-item" onClick={() => { handleShareTarget(contextMenu.target); setContextMenu(null); }}>
-                        <FiShare2 /> Share
-                    </button>
-                    {contextMenu.target.isFolder && (
-                        <button className="context-menu-item" onClick={() => { setColorPickerTarget({ id: contextMenu.target.id, name: contextMenu.target.name }); setContextMenu(null); }}>
-                            <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: 'linear-gradient(135deg, #ffd1dc, #ffdfba, #bae1ff)' }} /> Color
-                        </button>
-                    )}
-                    <button className="context-menu-item danger" onClick={() => { setDeleteTarget(contextMenu.target); setContextMenu(null); }}>
-                        <FiTrash2 /> Delete
-                    </button>
                 </div>
             )}
 
@@ -1773,6 +1863,67 @@ export default function FileExplorer() {
                     </button>
                     <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
                     <button onClick={() => { setSelectedFiles(new Set()); setSelectedFolders(new Set()); }} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
+                        <FiX size={16} /> Clear
+                    </button>
+                </div>
+            )}
+
+            {selectedSharedIds.size > 0 && (
+                <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', gap: '20px', alignItems: 'center', zIndex: 100, border: '1px solid var(--border-color)' }}>
+                    <button 
+                        onClick={async () => {
+                            setActionLoading(true);
+                            const taskId = startTask({ title: "Downloading selected", detail: "Downloading shared items…" });
+                            try {
+                                const currentList = sharedTab === "received" ? sharedItems : sentShares;
+                                const selectedItems = currentList.filter(item => selectedSharedIds.has(item.id));
+                                for (const item of selectedItems) {
+                                    if (item.itemType === "file" && item.files[0]) {
+                                        await handleDownloadSharedFile(item, item.files[0]);
+                                    } else {
+                                        await handleDownloadAllShared(item);
+                                    }
+                                }
+                                finishTask(taskId, { status: "success", title: "Download complete" });
+                            } catch (e) {
+                                console.error(e);
+                                finishTask(taskId, { status: "error", title: "Download failed" });
+                            } finally {
+                                setActionLoading(false);
+                            }
+                        }} 
+                        disabled={actionLoading} 
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
+                    >
+                        <FiDownload size={16} /> Download
+                    </button>
+                    <button 
+                        onClick={async () => {
+                            setActionLoading(true);
+                            const taskId = startTask({ title: "Removing selected", detail: "Removing shared items…" });
+                            try {
+                                const currentList = sharedTab === "received" ? sharedItems : sentShares;
+                                const selectedItems = currentList.filter(item => selectedSharedIds.has(item.id));
+                                for (const item of selectedItems) {
+                                    await removeShare(item.id);
+                                }
+                                setSelectedSharedIds(new Set());
+                                await refreshShares();
+                                finishTask(taskId, { status: "success", title: "Removed selected items" });
+                            } catch (e) {
+                                console.error(e);
+                                finishTask(taskId, { status: "error", title: "Failed to remove items" });
+                            } finally {
+                                setActionLoading(false);
+                            }
+                        }} 
+                        disabled={actionLoading} 
+                        style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
+                    >
+                        <FiTrash2 size={16} /> {sharedTab === "sent" ? "Revoke" : "Delete"}
+                    </button>
+                    <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
+                    <button onClick={() => setSelectedSharedIds(new Set())} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
                         <FiX size={16} /> Clear
                     </button>
                 </div>
