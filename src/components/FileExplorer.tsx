@@ -1210,6 +1210,22 @@ export default function FileExplorer() {
         return <FiFile size={18} style={{ color: "var(--text-secondary)" }} />;
     };
 
+    const getSharedItemIcon = (name: string, isFolder: boolean) => {
+        if (isFolder) return <FiFolder size={18} style={{ color: "var(--accent)" }} />;
+        const n = (name || '').toLowerCase();
+        if (n.endsWith('.doc') || n.endsWith('.docx') || n.includes('word')) return <FaFileWord size={18} style={{ color: "#2b579a" }} />;
+        if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.includes('excel') || n.includes('spreadsheet')) return <FaFileExcel size={18} style={{ color: "#217346" }} />;
+        if (n.endsWith('.ppt') || n.endsWith('.pptx') || n.includes('powerpoint') || n.includes('presentation')) return <FaFilePowerpoint size={18} style={{ color: "#d24726" }} />;
+        if (n.endsWith('.csv') || n.includes('csv')) return <FaFileCsv size={18} style={{ color: "#4caf50" }} />;
+
+        if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(n) || n.includes('image')) return <FiImage size={18} style={{ color: "#4caf50" }} />;
+        if (/\.(mp4|mov|avi|mkv|webm)$/i.test(n) || n.includes('video')) return <FiVideo size={18} style={{ color: "#f44336" }} />;
+        if (/\.(mp3|wav|ogg|m4a|flac)$/i.test(n) || n.includes('audio')) return <FiMusic size={18} style={{ color: "#9c27b0" }} />;
+        if (/\.(pdf|txt|md|rtf)$/i.test(n) || n.includes('pdf') || n.includes('document')) return <FiFileText size={18} style={{ color: "#2196f3" }} />;
+        if (/\.(zip|tar|gz|rar|7z)$/i.test(n) || n.includes('zip') || n.includes('archive')) return <FiArchive size={18} style={{ color: "#ff9800" }} />;
+        return <FiFile size={18} style={{ color: "var(--text-secondary)" }} />;
+    };
+
     return (
         <div className="file-explorer">
             {isDragOver && (
@@ -1346,7 +1362,7 @@ export default function FileExplorer() {
                                 border: "none",
                                 cursor: "pointer",
                                 background: sharedTab === "received" ? "var(--accent)" : "transparent",
-                                color: sharedTab === "received" ? "#000" : "var(--text-secondary)",
+                                color: sharedTab === "received" ? "#fff" : "var(--text-secondary)",
                                 fontWeight: 600,
                                 fontSize: "0.875rem",
                             }}
@@ -1362,7 +1378,7 @@ export default function FileExplorer() {
                                 border: "none",
                                 cursor: "pointer",
                                 background: sharedTab === "sent" ? "var(--accent)" : "transparent",
-                                color: sharedTab === "sent" ? "#000" : "var(--text-secondary)",
+                                color: sharedTab === "sent" ? "#fff" : "var(--text-secondary)",
                                 fontWeight: 600,
                                 fontSize: "0.875rem",
                             }}
@@ -1382,65 +1398,94 @@ export default function FileExplorer() {
                         </div>
                     ) : (
                         <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
-                            {(sharedTab === "received" ? sharedItems : sentShares).map((item) => (
-                                <div
-                                    key={item.id}
-                                    className="file-card"
-                                    onClick={() => {
-                                        if (item.itemType === "folder") {
-                                            navigateToFolder(`__shared__:${item.id}`, item.name);
-                                        } else if (item.files[0]) {
-                                            void handleDownloadSharedFile(item, item.files[0]);
-                                        }
-                                    }}
-                                >
-                                    <div className="file-card-visual">
-                                        <div className="file-card-icon" style={{ color: "var(--accent)" }}>
-                                            {item.itemType === "folder" ? <FiFolder size={18} /> : <FiFile size={18} />}
+                            {(sharedTab === "received" ? sharedItems : sentShares).map((item) => {
+                                const isFolder = item.itemType === "folder";
+                                const totalSize = item.files.reduce((sum, f) => sum + (f.size || 0), 0);
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className="file-card"
+                                        title={`${item.name} (${item.isSender ? `Shared with: ${item.recipients.map(r => r.displayName || r.email).join(", ")}` : `From: ${item.senderName || item.senderEmail}`})`}
+                                        onClick={() => {
+                                            if (isFolder) {
+                                                navigateToFolder(`__shared__:${item.id}`, item.name);
+                                            } else if (item.files[0]) {
+                                                void handleDownloadSharedFile(item, item.files[0]);
+                                            }
+                                        }}
+                                    >
+                                        <div className="file-card-visual">
+                                            {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
+                                            <div className="file-card-icon">
+                                                {getSharedItemIcon(item.name, isFolder)}
+                                            </div>
+                                        </div>
+                                        <div className="file-card-info">
+                                            {viewMode === "list" ? (
+                                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                                    <span className="file-name" style={{ fontWeight: 'normal' }}>
+                                                        {item.name}
+                                                    </span>
+                                                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                        {item.isSender
+                                                            ? `Shared with ${item.recipients.map(r => r.displayName || r.email).join(", ")}`
+                                                            : `From: ${item.senderName || item.senderEmail}`}
+                                                        {" • "}
+                                                        {item.createdAt.toLocaleDateString()}
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
+                                                    <span className="file-size">
+                                                        {isFolder
+                                                            ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
+                                                            : formatSize(totalSize)}
+                                                    </span>
+                                                    <span style={{ display: "block", fontSize: "0.68rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+                                                        {item.isSender
+                                                            ? item.recipients.map(r => r.displayName || r.email.split('@')[0]).join(", ")
+                                                            : (item.senderName || item.senderEmail.split('@')[0])}
+                                                    </span>
+                                                </>
+                                            )}
+                                            {viewMode === "list" && (
+                                                <span className="file-size">
+                                                    {isFolder
+                                                        ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
+                                                        : formatSize(totalSize)}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="file-actions" onClick={e => e.stopPropagation()}>
+                                            {item.itemType === "file" && item.files[0] ? (
+                                                <button
+                                                    title="Download"
+                                                    onClick={() => handleDownloadSharedFile(item, item.files[0])}
+                                                    disabled={downloadingSharedId === `${item.id}:${item.files[0].storagePath}`}
+                                                >
+                                                    {downloadingSharedId === `${item.id}:${item.files[0].storagePath}` ? <FiLoader className="spin" size={14} /> : <FiDownload size={14} />}
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    title="Download All (ZIP)"
+                                                    onClick={() => handleDownloadAllShared(item)}
+                                                    disabled={downloadingSharedId === item.id}
+                                                >
+                                                    {downloadingSharedId === item.id ? <FiLoader className="spin" size={14} /> : <FiArchive size={14} />}
+                                                </button>
+                                            )}
+                                            <button
+                                                title={item.isSender ? "Revoke share" : "Remove from my list"}
+                                                onClick={() => setConfirmRemoveShare(item)}
+                                                style={{ color: "var(--danger)" }}
+                                            >
+                                                <FiTrash2 size={14} />
+                                            </button>
                                         </div>
                                     </div>
-                                    <div className="file-card-info" style={{ flex: 1, minWidth: 0 }}>
-                                        <span className="file-name" style={{ fontWeight: 600 }}>{item.name}</span>
-                                        <span className="file-size" style={{ display: "block", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                                            {item.isSender
-                                                ? `Shared with ${item.recipients.map(r => r.email).join(", ")}`
-                                                : `From: ${item.senderEmail}`}
-                                            {" • "}
-                                            {item.files.length} {item.files.length === 1 ? "file" : "files"}
-                                            {" • "}
-                                            {item.createdAt.toLocaleDateString()}
-                                        </span>
-                                    </div>
-                                    <div className="file-actions" onClick={e => e.stopPropagation()} style={{ display: "flex", gap: "6px" }}>
-                                        {item.itemType === "file" && item.files[0] ? (
-                                            <button
-                                                title="Download"
-                                                onClick={() => handleDownloadSharedFile(item, item.files[0])}
-                                                disabled={downloadingSharedId === `${item.id}:${item.files[0].storagePath}`}
-                                                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", padding: "4px" }}
-                                            >
-                                                {downloadingSharedId === `${item.id}:${item.files[0].storagePath}` ? <FiLoader className="spin" size={16} /> : <FiDownload size={16} />}
-                                            </button>
-                                        ) : (
-                                            <button
-                                                title="Download All (ZIP)"
-                                                onClick={() => handleDownloadAllShared(item)}
-                                                disabled={downloadingSharedId === item.id}
-                                                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", padding: "4px" }}
-                                            >
-                                                {downloadingSharedId === item.id ? <FiLoader className="spin" size={16} /> : <FiArchive size={16} />}
-                                            </button>
-                                        )}
-                                        <button
-                                            title={item.isSender ? "Revoke share" : "Remove from my list"}
-                                            onClick={() => setConfirmRemoveShare(item)}
-                                            style={{ background: "transparent", border: "none", color: "var(--danger)", cursor: "pointer", padding: "4px" }}
-                                        >
-                                            <FiTrash2 size={16} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -1494,15 +1539,17 @@ export default function FileExplorer() {
                                     <div
                                         key={idx}
                                         className="file-card"
+                                        title={fileEntry.path}
                                         onClick={() => void handleDownloadSharedFile(activeShare, fileEntry)}
                                     >
                                         <div className="file-card-visual">
+                                            {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
                                             <div className="file-card-icon">
-                                                <FiFile size={18} />
+                                                {getSharedItemIcon(fileEntry.path, false)}
                                             </div>
                                         </div>
-                                        <div className="file-card-info" style={{ flex: 1, minWidth: 0 }}>
-                                            <span className="file-name">{fileEntry.path}</span>
+                                        <div className="file-card-info">
+                                            <span className="file-name" style={{ fontWeight: 'normal' }}>{fileEntry.path}</span>
                                             <span className="file-size">{formatSize(fileEntry.size)}</span>
                                         </div>
                                         <div className="file-actions" onClick={e => e.stopPropagation()}>
@@ -1510,12 +1557,11 @@ export default function FileExplorer() {
                                                 title="Download"
                                                 onClick={() => handleDownloadSharedFile(activeShare, fileEntry)}
                                                 disabled={downloadingSharedId === `${activeShare.id}:${fileEntry.storagePath}`}
-                                                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", padding: "4px" }}
                                             >
                                                 {downloadingSharedId === `${activeShare.id}:${fileEntry.storagePath}` ? (
-                                                    <FiLoader className="spin" size={16} />
+                                                    <FiLoader className="spin" size={14} />
                                                 ) : (
-                                                    <FiDownload size={16} />
+                                                    <FiDownload size={14} />
                                                 )}
                                             </button>
                                         </div>
