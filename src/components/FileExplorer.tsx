@@ -232,6 +232,7 @@ export default function FileExplorer() {
     const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
     const [bulkMoveModalOpen, setBulkMoveModalOpen] = useState(false);
     const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+    const [bulkMoveSharedModalOpen, setBulkMoveSharedModalOpen] = useState(false);
 
     // Sharing State
     const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -1251,6 +1252,140 @@ export default function FileExplorer() {
         }
     };
 
+    const getSelectedSharedTargets = () => {
+        const targets: { share: SharedItem; fileEntry?: SharedFileEntry }[] = [];
+        
+        sharedItems.forEach(item => {
+            if (selectedSharedIds.has(item.id)) {
+                targets.push({ share: item, fileEntry: item.itemType === "file" ? item.files[0] : undefined });
+            }
+        });
+
+        if (currentFolderId?.startsWith("__shared__:")) {
+            const shareId = currentFolderId.replace("__shared__:", "");
+            const activeShare = sharedItems.find(s => s.id === shareId);
+            if (activeShare) {
+                activeShare.files.forEach(f => {
+                    const key = `${activeShare.id}:${f.storagePath}`;
+                    if (selectedSharedIds.has(key)) {
+                        targets.push({ share: activeShare, fileEntry: f });
+                    }
+                });
+            }
+        }
+
+        return targets;
+    };
+
+    const handleBulkDownloadShared = async () => {
+        const targets = getSelectedSharedTargets();
+        if (targets.length === 0) return;
+        setActionLoading(true);
+        const taskId = startTask({ title: "Downloading selected", detail: "Downloading shared items…" });
+        try {
+            for (const t of targets) {
+                if (t.fileEntry) {
+                    await handleDownloadSharedFile(t.share, t.fileEntry);
+                } else {
+                    await handleDownloadAllShared(t.share);
+                }
+            }
+            finishTask(taskId, { status: "success", title: "Download complete" });
+        } catch (e) {
+            console.error(e);
+            finishTask(taskId, { status: "error", title: "Download failed" });
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleBulkMoveShared = async (targetFolderId: string | null) => {
+        setBulkMoveSharedModalOpen(false);
+        const targets = getSelectedSharedTargets();
+        if (targets.length === 0) return;
+        const total = targets.length;
+        setActionLoading(true);
+        const taskId = startTask({
+            title: total === 1 ? "Moving 1 item" : `Moving ${total} items`,
+            detail: `0 of ${total} moved`,
+            progress: 0,
+        });
+        let done = 0;
+        const tick = () => {
+            done++;
+            updateTask(taskId, { progress: (done / total) * 100, detail: `${done} of ${total} moved` });
+        };
+        try {
+            const sharesToRemove = new Set<string>();
+            for (const t of targets) {
+                if (t.fileEntry) {
+                    const blob = await downloadSharedFile(t.share, t.fileEntry);
+                    const fileObj = new File([blob], t.fileEntry.name, { type: t.fileEntry.type });
+                    await uploadVaultFile(fileObj, targetFolderId);
+                    if (t.share.itemType === "file" && !t.share.isSender) {
+                        sharesToRemove.add(t.share.id);
+                    }
+                } else if (t.share.itemType === "folder") {
+                    const newFolderId = await createFolder(t.share.name, targetFolderId);
+                    for (const f of t.share.files) {
+                        const blob = await downloadSharedFile(t.share, f);
+                        const fileObj = new File([blob], f.name, { type: f.type });
+                        await uploadVaultFile(fileObj, newFolderId);
+                    }
+                    if (!t.share.isSender) {
+                        sharesToRemove.add(t.share.id);
+                    }
+                }
+                tick();
+            }
+            for (const shareId of sharesToRemove) {
+                await removeShare(shareId);
+            }
+            setSelectedSharedIds(new Set());
+            await refreshShares();
+            finishTask(taskId, { status: "success", title: total === 1 ? "Moved 1 item" : `Moved ${total} items` });
+        } catch (e) {
+            console.error(e);
+            finishTask(taskId, { status: "error", title: "Couldn't move some items", detail: `${done} of ${total} moved. Please try again.` });
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleBulkShareShared = () => {
+        const targets = getSelectedSharedTargets();
+        if (targets.length === 0) return;
+        const items: ShareableItem[] = targets.map(t => ({
+            kind: "shared",
+            share: t.share,
+            fileEntry: t.fileEntry,
+        }));
+        setItemsToShare(items);
+        setShareModalOpen(true);
+    };
+
+    const handleBulkDeleteShared = async () => {
+        const targets = getSelectedSharedTargets();
+        if (targets.length === 0) return;
+        setActionLoading(true);
+        const taskId = startTask({ title: "Deleting selected", detail: "Removing shared items…" });
+        try {
+            const shareIds = new Set<string>();
+            targets.forEach(t => shareIds.add(t.share.id));
+            for (const shareId of shareIds) {
+                await removeShare(shareId);
+            }
+            setSelectedSharedIds(new Set());
+            await refreshShares();
+            finishTask(taskId, { status: "success", title: "Deleted selected items" });
+        } catch (e) {
+            console.error(e);
+            finishTask(taskId, { status: "error", title: "Failed to delete items" });
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
     const handleBulkMove = async (targetFolderId: string | null) => {
         setBulkMoveModalOpen(false);
         if (targetFolderId === currentFolderId) return;
@@ -1999,6 +2134,15 @@ export default function FileExplorer() {
                 actionLoading={actionLoading}
             />
 
+            <FolderPickerModal
+                isOpen={bulkMoveSharedModalOpen}
+                onClose={() => setBulkMoveSharedModalOpen(false)}
+                onSelect={(folderId) => handleBulkMoveShared(folderId)}
+                currentFolderId={currentFolderId}
+                movingFolderIds={[]}
+                actionLoading={actionLoading}
+            />
+
             {(selectedFiles.size > 0 || selectedFolders.size > 0) && (
                 <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', gap: '20px', alignItems: 'center', zIndex: 100, border: '1px solid var(--border-color)' }}>
                     <button onClick={handleBulkDownload} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
@@ -2023,50 +2167,28 @@ export default function FileExplorer() {
             {selectedSharedIds.size > 0 && (
                 <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', gap: '20px', alignItems: 'center', zIndex: 100, border: '1px solid var(--border-color)' }}>
                     <button 
-                        onClick={async () => {
-                            setActionLoading(true);
-                            const taskId = startTask({ title: "Downloading selected", detail: "Downloading shared items…" });
-                            try {
-                                const selectedItems = sharedItems.filter(item => selectedSharedIds.has(item.id));
-                                for (const item of selectedItems) {
-                                    if (item.itemType === "file" && item.files[0]) {
-                                        await handleDownloadSharedFile(item, item.files[0]);
-                                    } else {
-                                        await handleDownloadAllShared(item);
-                                    }
-                                }
-                                finishTask(taskId, { status: "success", title: "Download complete" });
-                            } catch (e) {
-                                console.error(e);
-                                finishTask(taskId, { status: "error", title: "Download failed" });
-                            } finally {
-                                setActionLoading(false);
-                            }
-                        }} 
+                        onClick={handleBulkDownloadShared} 
                         disabled={actionLoading} 
                         style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
                     >
                         <FiDownload size={16} /> Download
                     </button>
                     <button 
-                        onClick={async () => {
-                            setActionLoading(true);
-                            const taskId = startTask({ title: "Deleting selected", detail: "Removing shared items…" });
-                            try {
-                                const selectedItems = sharedItems.filter(item => selectedSharedIds.has(item.id));
-                                for (const item of selectedItems) {
-                                    await removeShare(item.id);
-                                }
-                                setSelectedSharedIds(new Set());
-                                await refreshShares();
-                                finishTask(taskId, { status: "success", title: "Deleted selected items" });
-                            } catch (e) {
-                                console.error(e);
-                                finishTask(taskId, { status: "error", title: "Failed to delete items" });
-                            } finally {
-                                setActionLoading(false);
-                            }
-                        }} 
+                        onClick={() => setBulkMoveSharedModalOpen(true)} 
+                        disabled={actionLoading} 
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
+                    >
+                        <FiCornerUpRight size={16} /> Move
+                    </button>
+                    <button 
+                        onClick={handleBulkShareShared} 
+                        disabled={actionLoading} 
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
+                    >
+                        <FiShare2 size={16} /> Share
+                    </button>
+                    <button 
+                        onClick={handleBulkDeleteShared} 
                         disabled={actionLoading} 
                         style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
                     >
