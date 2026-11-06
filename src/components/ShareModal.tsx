@@ -151,21 +151,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         }
     };
 
-    const addGroup = (g: ShareGroup) => {
-        const members = g.memberUids.map((uid) => contactByUid.get(uid)).filter((c): c is ShareContact => !!c);
-        const noKey = members.filter((m) => !m.publicKeyJwk);
-        setSelected((prev) => {
-            const next = [...prev];
-            members.filter((m) => m.publicKeyJwk).forEach((m) => {
-                if (!next.some((n) => n.uid === m.uid)) next.push(m);
-            });
-            return next;
-        });
-        setError(noKey.length > 0
-            ? `Skipped ${noKey.map((m) => m.email).join(", ")} — they haven't enabled file sharing yet.`
-            : "");
-    };
-
     const handleSaveOrAddToGroup = async () => {
         if (selected.length === 0) return;
         setSavingGroup(true);
@@ -569,10 +554,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                             borderRadius: "var(--radius-sm)",
                                             border: "1px solid var(--border-color)",
                                             background: "var(--bg-input)",
-                                            cursor: "pointer",
                                         }}
-                                        onClick={() => addGroup(g)}
-                                        title="Click to select this group"
                                     >
                                         {/* Header: Group Name and action */}
                                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
