@@ -17,6 +17,7 @@ import type { VaultFolder, VaultFile } from "../services/fileService";
 import ConfirmDialog from "./ConfirmDialog";
 import FolderPickerModal from "./FolderPickerModal";
 import ShareModal from "./ShareModal";
+import { useTaskToast } from "../context/TaskToastContext";
 import {
     listShares,
     downloadSharedFile,
@@ -120,6 +121,7 @@ let globalFoldersCache: VaultFolder[] | null = null;
 let globalFilesCache: VaultFile[] | null = null;
 
 export default function FileExplorer() {
+    const { startTask, updateTask, finishTask, dismissTask } = useTaskToast();
     const { storageUsed, storageLimit, isStorageAtLimit, isPro } = useSubscription();
     
     const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -519,18 +521,22 @@ export default function FileExplorer() {
 
     const handleDelete = async () => {
         if (!deleteTarget) return;
+        const target = deleteTarget;
         setActionLoading(true);
+        const taskId = startTask({ title: `Deleting "${target.name}"`, detail: target.isFolder ? "Removing folder and its contents…" : "Removing file…" });
         try {
-            if (deleteTarget.isFolder) {
-                await deleteFolder(deleteTarget.id);
-            } else if (deleteTarget.file) {
-                await deleteVaultFile(deleteTarget.file);
+            if (target.isFolder) {
+                await deleteFolder(target.id);
+            } else if (target.file) {
+                await deleteVaultFile(target.file);
             }
             setDeleteTarget(null);
 
-            setSelectedImage(prev => prev && prev.file.id === deleteTarget.id ? null : prev);
+            setSelectedImage(prev => prev && prev.file.id === target.id ? null : prev);
+            finishTask(taskId, { status: "success", title: `Deleted "${target.name}"` });
         } catch (err) {
             console.error(err);
+            finishTask(taskId, { status: "error", title: `Couldn't delete "${target.name}"`, detail: "Something went wrong. Please try again." });
         } finally {
             setActionLoading(false);
         }
@@ -538,19 +544,22 @@ export default function FileExplorer() {
 
     const handleMove = async (destinationFolderId: string | null) => {
         if (!moveTarget) return;
+        const target = moveTarget;
         setActionLoading(true);
+        const taskId = startTask({ title: `Moving "${target.name}"`, detail: "Moving to the selected folder…" });
         try {
-            if (moveTarget.isFolder) {
-                await moveFolder(moveTarget.id, destinationFolderId);
+            if (target.isFolder) {
+                await moveFolder(target.id, destinationFolderId);
             } else {
-                await moveVaultFile(moveTarget.id, destinationFolderId);
+                await moveVaultFile(target.id, destinationFolderId);
             }
             setMoveTarget(null);
 
-            setSelectedImage(prev => prev && prev.file.id === moveTarget.id ? null : prev);
+            setSelectedImage(prev => prev && prev.file.id === target.id ? null : prev);
+            finishTask(taskId, { status: "success", title: `Moved "${target.name}"` });
         } catch (err) {
             console.error(err);
-            alert("Failed to move item.");
+            finishTask(taskId, { status: "error", title: `Couldn't move "${target.name}"`, detail: "Something went wrong. Please try again." });
         } finally {
             setActionLoading(false);
         }
@@ -626,6 +635,16 @@ export default function FileExplorer() {
             return;
         }
 
+        const fileCount = uploadFiles.length;
+        const taskId = startTask({
+            title: fileCount === 1 ? `Uploading "${uploadFiles[0].name}"` : `Uploading ${fileCount} files`,
+            detail: "Preparing…",
+            progress: 0,
+        });
+        let uploadedCount = 0;
+        let lastUploadedName = "";
+        let stopMessage: string | null = null;
+
         try {
             let currentStorageUsed = storageUsed;
             let uploadedBytes = 0;
@@ -633,6 +652,9 @@ export default function FileExplorer() {
             
             for (let i = 0; i < uploadFiles.length; i++) {
                 const file = uploadFiles[i];
+                updateTask(taskId, {
+                    detail: fileCount > 1 ? `File ${i + 1} of ${fileCount} · ${file.name}` : "Encrypting and uploading…",
+                });
                 
                 const fileToUpload = await compressImage(file);
                 let finalFile = fileToUpload;
@@ -653,6 +675,7 @@ export default function FileExplorer() {
 
                 const existingFile = files.find(f => f.name === finalFile.name);
                 if (existingFile) {
+                    updateTask(taskId, { detail: `Waiting for your choice · ${finalFile.name}` });
                     const choice = await askDuplicateAction(finalFile.name);
                     setDuplicatePrompt(null);
                     
@@ -675,26 +698,48 @@ export default function FileExplorer() {
                 }
                 
                 if (currentStorageUsed + finalFile.size > storageLimit) {
-                    alert(`Not enough storage space to upload "${finalFile.name}". Stopping upload.`);
+                    stopMessage = `Not enough storage space to upload "${finalFile.name}".`;
                     break;
                 }
                 
                 await uploadVaultFile(finalFile, currentFolderId, (progress) => {
                     const currentFileBytes = (progress / 100) * fileToUpload.size;
-                    const overallProgress = ((uploadedBytes + currentFileBytes) / totalSize) * 100;
-                    setUploadProgress(Math.min(overallProgress, 99.9));
+                    const overallProgress = Math.min(((uploadedBytes + currentFileBytes) / totalSize) * 100, 99.9);
+                    setUploadProgress(overallProgress);
+                    updateTask(taskId, { progress: overallProgress });
                 });
                 
                 uploadedBytes += fileToUpload.size;
                 currentStorageUsed += fileToUpload.size;
+                uploadedCount++;
+                lastUploadedName = finalFile.name;
             }
             
             setUploadProgress(100);
 
             if (fileInputRef.current) fileInputRef.current.value = "";
+
+            if (stopMessage) {
+                finishTask(taskId, {
+                    status: "error",
+                    title: uploadedCount > 0 ? `Uploaded ${uploadedCount} of ${fileCount} files` : "Upload stopped",
+                    detail: stopMessage,
+                });
+            } else if (uploadedCount === 0) {
+                dismissTask(taskId);
+            } else {
+                finishTask(taskId, {
+                    status: "success",
+                    title: uploadedCount === 1 ? `Uploaded "${lastUploadedName}"` : `Uploaded ${uploadedCount} files`,
+                });
+            }
         } catch (err) {
             console.error("Upload failed", err);
-            alert("Failed to upload file(s).");
+            finishTask(taskId, {
+                status: "error",
+                title: uploadedCount > 0 ? `Uploaded ${uploadedCount} of ${fileCount} files` : "Upload failed",
+                detail: "Something went wrong while uploading. Please try again.",
+            });
         } finally {
             setUploadProgress(null);
             if (fileInputRef.current) fileInputRef.current.value = "";
@@ -902,22 +947,38 @@ export default function FileExplorer() {
     };
 
     const confirmBulkDelete = async () => {
+        const total = selectedFiles.size + selectedFolders.size;
         setActionLoading(true);
         setLoadingBulkAction('delete');
+        const taskId = startTask({
+            title: total === 1 ? "Deleting 1 item" : `Deleting ${total} items`,
+            detail: `0 of ${total} deleted`,
+            progress: 0,
+        });
+        let done = 0;
+        const tick = () => {
+            done++;
+            updateTask(taskId, { progress: (done / total) * 100, detail: `${done} of ${total} deleted` });
+        };
         try {
             await Promise.all([
                 ...Array.from(selectedFiles).map(async id => {
                     const f = files.find(file => file.id === id);
                     if (f) await deleteVaultFile(f);
+                    tick();
                 }),
-                ...Array.from(selectedFolders).map(id => deleteFolder(id))
+                ...Array.from(selectedFolders).map(async id => {
+                    await deleteFolder(id);
+                    tick();
+                })
             ]);
             setSelectedFiles(new Set());
             setSelectedFolders(new Set());
             setBulkDeleteModalOpen(false);
+            finishTask(taskId, { status: "success", title: total === 1 ? "Deleted 1 item" : `Deleted ${total} items` });
         } catch (e) {
             console.error(e);
-            alert("Error deleting some items.");
+            finishTask(taskId, { status: "error", title: "Couldn't delete some items", detail: `${done} of ${total} deleted. Please try again.` });
         } finally {
             setActionLoading(false);
             setLoadingBulkAction(null);
@@ -1016,21 +1077,37 @@ export default function FileExplorer() {
     const handleBulkMove = async (targetFolderId: string | null) => {
         setBulkMoveModalOpen(false);
         if (targetFolderId === currentFolderId) return;
+        const total = selectedFiles.size + selectedFolders.size;
         setActionLoading(true);
         setLoadingBulkAction('move');
+        const taskId = startTask({
+            title: total === 1 ? "Moving 1 item" : `Moving ${total} items`,
+            detail: `0 of ${total} moved`,
+            progress: 0,
+        });
+        let done = 0;
+        const tick = () => {
+            done++;
+            updateTask(taskId, { progress: (done / total) * 100, detail: `${done} of ${total} moved` });
+        };
         try {
             await Promise.all([
                 ...Array.from(selectedFiles).map(async id => {
                     const f = files.find(file => file.id === id);
                     if (f) await moveVaultFile(id, targetFolderId);
+                    tick();
                 }),
-                ...Array.from(selectedFolders).map(id => moveFolder(id, targetFolderId))
+                ...Array.from(selectedFolders).map(async id => {
+                    await moveFolder(id, targetFolderId);
+                    tick();
+                })
             ]);
             setSelectedFiles(new Set());
             setSelectedFolders(new Set());
+            finishTask(taskId, { status: "success", title: total === 1 ? "Moved 1 item" : `Moved ${total} items` });
         } catch (e) {
             console.error(e);
-            alert("Error moving some items.");
+            finishTask(taskId, { status: "error", title: "Couldn't move some items", detail: `${done} of ${total} moved. Please try again.` });
         }
         setActionLoading(false);
         setLoadingBulkAction(null);
@@ -1040,6 +1117,7 @@ export default function FileExplorer() {
         if (selectedFiles.size === 0 && selectedFolders.size === 0) return;
         setActionLoading(true);
         setLoadingBulkAction('download');
+        const taskId = startTask({ title: "Preparing download", detail: "Decrypting and zipping selected items…" });
         try {
             const zip = new JSZip();
             
@@ -1097,9 +1175,10 @@ export default function FileExplorer() {
             URL.revokeObjectURL(url);
             setSelectedFiles(new Set());
             setSelectedFolders(new Set());
+            finishTask(taskId, { status: "success", title: "Download ready", detail: "Your ZIP file is downloading." });
         } catch (e) {
             console.error(e);
-            alert("Error downloading files.");
+            finishTask(taskId, { status: "error", title: "Download failed", detail: "Something went wrong while preparing your download." });
         }
         setActionLoading(false);
         setLoadingBulkAction(null);

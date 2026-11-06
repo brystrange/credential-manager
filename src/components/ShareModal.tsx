@@ -3,6 +3,7 @@ import {
     FiSearch, FiStar, FiX, FiUsers, FiUserPlus, FiLoader, FiLock, FiShare2, FiTrash2, FiCheck, FiClock,
 } from "react-icons/fi";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useTaskToast } from "../context/TaskToastContext";
 import {
     lookupRecipient,
     getShareContacts,
@@ -57,6 +58,7 @@ function Avatar({ label }: { label: string }) {
 
 export default function ShareModal({ isOpen, items, onClose, onShared }: ShareModalProps) {
     const { isPro } = useSubscription();
+    const { startTask, updateTask, finishTask } = useTaskToast();
 
     const [email, setEmail] = useState("");
     const [searching, setSearching] = useState(false);
@@ -218,13 +220,28 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         if (selected.length === 0) return;
         setSharing(true);
         setError("");
+        const itemLabel = items.length === 1
+            ? `"${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
+            : `${items.length} items`;
+        const recipientLabel = selected.length === 1 ? selected[0].email : `${selected.length} people`;
+        const taskId = startTask({
+            title: `Sharing ${itemLabel}`,
+            detail: `With ${recipientLabel}`,
+            progress: 0,
+        });
         try {
-            await shareItems(items, selected, (percent, label) => setProgress({ percent, label }));
+            await shareItems(items, selected, (percent, label) => {
+                setProgress({ percent, label });
+                updateTask(taskId, { progress: percent, detail: label });
+            });
             setDone(true);
             onShared?.();
             void refreshContacts();
+            finishTask(taskId, { status: "success", title: `Shared ${itemLabel}`, detail: `With ${selected.map((s) => s.email).join(", ")}` });
         } catch (err) {
-            setError(shareErrorMessage(err));
+            const message = shareErrorMessage(err);
+            setError(message);
+            finishTask(taskId, { status: "error", title: `Couldn't share ${itemLabel}`, detail: message });
         } finally {
             setSharing(false);
         }

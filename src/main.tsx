@@ -7,6 +7,7 @@ import TermsOfService from './components/TermsOfService.tsx'
 import PrivacyPolicy from './components/PrivacyPolicy.tsx'
 import TransparencyPage from './components/TransparencyPage.tsx'
 import { ThemeProvider } from './context/ThemeContext.tsx'
+import { TaskToastProvider } from './context/TaskToastContext.tsx'
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -29,7 +30,9 @@ const router = createBrowserRouter([
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <RouterProvider router={router} />
+      <TaskToastProvider>
+        <RouterProvider router={router} />
+      </TaskToastProvider>
     </ThemeProvider>
   </StrictMode>,
 )
