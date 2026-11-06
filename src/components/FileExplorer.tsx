@@ -237,9 +237,7 @@ export default function FileExplorer() {
     const [shareModalOpen, setShareModalOpen] = useState(false);
     const [itemsToShare, setItemsToShare] = useState<ShareableItem[]>([]);
     const [sharedItems, setSharedItems] = useState<SharedItem[]>([]);
-    const [sentShares, setSentShares] = useState<SharedItem[]>([]);
     const [loadingShares, setLoadingShares] = useState(false);
-    const [sharedTab, setSharedTab] = useState<"received" | "sent">("received");
     const [selectedSharedIds, setSelectedSharedIds] = useState<Set<string>>(new Set());
     const [confirmRemoveShare, setConfirmRemoveShare] = useState<SharedItem | null>(null);
     const [downloadingSharedId, setDownloadingSharedId] = useState<string | null>(null);
@@ -252,7 +250,6 @@ export default function FileExplorer() {
             const customNames = JSON.parse(localStorage.getItem(`shared_custom_names_${auth.currentUser?.uid}`) || "{}");
             const applyCustomNames = (list: SharedItem[]) => list.map(s => customNames[s.id] ? { ...s, name: customNames[s.id] } : s);
             setSharedItems(applyCustomNames(res.received));
-            setSentShares(applyCustomNames(res.sent));
         } catch (err) {
             console.debug("Failed to list shares:", err);
         } finally {
@@ -552,7 +549,6 @@ export default function FileExplorer() {
                 customNames[shareId] = finalName;
                 localStorage.setItem(`shared_custom_names_${auth.currentUser?.uid}`, JSON.stringify(customNames));
                 setSharedItems(prev => prev.map(s => s.id === shareId ? { ...s, name: finalName } : s));
-                setSentShares(prev => prev.map(s => s.id === shareId ? { ...s, name: finalName } : s));
             } else if (renameTarget.isFolder) {
                 await renameFolder(renameTarget.id, finalName);
             } else {
@@ -1538,130 +1534,118 @@ export default function FileExplorer() {
 
             {currentFolderId === "__shared__" ? (
                 <div>
-                    <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-color)", paddingBottom: "12px", marginBottom: "20px" }}>
-                        <button
-                            type="button"
-                            onClick={() => { setSharedTab("received"); setSelectedSharedIds(new Set()); }}
-                            style={{
-                                padding: "8px 16px",
-                                borderRadius: "var(--radius-sm)",
-                                border: "none",
-                                cursor: "pointer",
-                                background: sharedTab === "received" ? "var(--accent)" : "transparent",
-                                color: sharedTab === "received" ? "#fff" : "var(--text-secondary)",
-                                fontWeight: 600,
-                                fontSize: "0.875rem",
-                            }}
-                        >
-                            Received ({sharedItems.length})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => { setSharedTab("sent"); setSelectedSharedIds(new Set()); }}
-                            style={{
-                                padding: "8px 16px",
-                                borderRadius: "var(--radius-sm)",
-                                border: "none",
-                                cursor: "pointer",
-                                background: sharedTab === "sent" ? "var(--accent)" : "transparent",
-                                color: sharedTab === "sent" ? "#fff" : "var(--text-secondary)",
-                                fontWeight: 600,
-                                fontSize: "0.875rem",
-                            }}
-                        >
-                            Shared by Me ({sentShares.length})
-                        </button>
-                    </div>
-
                     {loadingShares ? (
                         <div style={{ textAlign: "center", padding: "40px" }}>
                             <div className="spin" style={{ display: "inline-block", border: "3px solid var(--border-color)", borderTopColor: "var(--accent)", borderRadius: "50%", width: "24px", height: "24px" }} />
                         </div>
-                    ) : (sharedTab === "received" ? sharedItems : sentShares).length === 0 ? (
+                    ) : sharedItems.length === 0 ? (
                         <div className="empty-state">
                             <FiUsers size={48} style={{ color: "var(--text-muted)", marginBottom: "16px" }} />
-                            <p>{sharedTab === "received" ? "No files have been shared with you yet." : "You haven't shared any files yet."}</p>
+                            <p>No files have been shared with you yet.</p>
                         </div>
                     ) : (
-                        <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
-                            {(sharedTab === "received" ? sharedItems : sentShares).map((item) => {
-                                const isFolder = item.itemType === "folder";
-                                const totalSize = item.files.reduce((sum, f) => sum + (f.size || 0), 0);
-                                const isImage = !isFolder && item.files[0] && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(item.name);
-                                return (
-                                    <div
-                                        key={item.id}
-                                        className="file-card"
-                                        title={`${item.name} (${item.isSender ? `Shared with: ${item.recipients.map(r => r.displayName || r.email).join(", ")}` : `From: ${item.senderName || item.senderEmail}`})`}
-                                        onClick={() => {
-                                            if (selectedSharedIds.size > 0) {
-                                                setSelectedSharedIds(prev => {
-                                                    const next = new Set(prev);
-                                                    if (next.has(item.id)) next.delete(item.id);
-                                                    else next.add(item.id);
-                                                    return next;
-                                                });
-                                            } else {
-                                                void handleSharedItemClick(item);
-                                            }
-                                        }}
-                                        onContextMenu={(e) => handleContextMenu(e, { id: item.id, name: item.name, isFolder, sharedItem: item })}
-                                        onTouchStart={(e) => handleTouchStart(e, { id: item.id, name: item.name, isFolder, sharedItem: item })}
-                                        onTouchEnd={handleTouchEnd}
-                                        onTouchMove={handleTouchMove}
-                                    >
-                                        <div className="file-card-visual">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={selectedSharedIds.has(item.id)} 
-                                                onChange={() => {
+                        <>
+                            <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedSharedIds.size === sharedItems.length && sharedItems.length > 0}
+                                    onChange={() => {
+                                        if (selectedSharedIds.size === sharedItems.length) {
+                                            setSelectedSharedIds(new Set());
+                                        } else {
+                                            setSelectedSharedIds(new Set(sharedItems.map(item => item.id)));
+                                        }
+                                    }}
+                                    className="minimal-checkbox"
+                                />
+                                <span style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
+                                {selectedSharedIds.size > 0 && (
+                                    <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                                        {selectedSharedIds.size} Selected
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
+                                {sharedItems.map((item) => {
+                                    const isFolder = item.itemType === "folder";
+                                    const totalSize = item.files.reduce((sum, f) => sum + (f.size || 0), 0);
+                                    const isImage = !isFolder && item.files[0] && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(item.name);
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            className="file-card"
+                                            title={`${item.name} (From: ${item.senderName || item.senderEmail})`}
+                                            onClick={() => {
+                                                if (selectedSharedIds.size > 0) {
                                                     setSelectedSharedIds(prev => {
                                                         const next = new Set(prev);
                                                         if (next.has(item.id)) next.delete(item.id);
                                                         else next.add(item.id);
                                                         return next;
                                                     });
-                                                }} 
-                                                onClick={(e) => e.stopPropagation()} 
-                                                className="minimal-checkbox"
-                                            />
-                                            <div className="file-card-icon">
-                                                {isImage ? (
-                                                    <SharedImageThumbnail share={item} fileEntry={item.files[0]} />
-                                                ) : (
-                                                    getSharedItemIcon(item.name, isFolder, sharedFolderColors[item.id])
-                                                )}
+                                                } else {
+                                                    void handleSharedItemClick(item);
+                                                }
+                                            }}
+                                            onContextMenu={(e) => handleContextMenu(e, { id: item.id, name: item.name, isFolder, sharedItem: item })}
+                                            onTouchStart={(e) => handleTouchStart(e, { id: item.id, name: item.name, isFolder, sharedItem: item })}
+                                            onTouchEnd={handleTouchEnd}
+                                            onTouchMove={handleTouchMove}
+                                        >
+                                            <div className="file-card-visual">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={selectedSharedIds.has(item.id)} 
+                                                    onChange={() => {
+                                                        setSelectedSharedIds(prev => {
+                                                            const next = new Set(prev);
+                                                            if (next.has(item.id)) next.delete(item.id);
+                                                            else next.add(item.id);
+                                                            return next;
+                                                        });
+                                                    }} 
+                                                    onClick={(e) => e.stopPropagation()} 
+                                                    className="minimal-checkbox"
+                                                />
+                                                <div className="file-card-icon">
+                                                    {isImage ? (
+                                                        <SharedImageThumbnail share={item} fileEntry={item.files[0]} />
+                                                    ) : (
+                                                        getSharedItemIcon(item.name, isFolder, sharedFolderColors[item.id])
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="file-card-info">
+                                                <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
+                                                <span className="file-size">
+                                                    {isFolder
+                                                        ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
+                                                        : formatSize(totalSize)}
+                                                </span>
+                                            </div>
+                                            <div 
+                                                className="file-actions" 
+                                                onClick={(e) => { 
+                                                    e.stopPropagation(); 
+                                                    handleContextMenu(e, { id: item.id, name: item.name, isFolder, sharedItem: item }); 
+                                                }}
+                                            >
+                                                <button title="Options">
+                                                    <FiMoreHorizontal size={18} />
+                                                </button>
                                             </div>
                                         </div>
-                                        <div className="file-card-info">
-                                            <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
-                                            <span className="file-size">
-                                                {isFolder
-                                                    ? `${item.files.length} item${item.files.length === 1 ? "" : "s"}`
-                                                    : formatSize(totalSize)}
-                                            </span>
-                                        </div>
-                                        <div 
-                                            className="file-actions" 
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                handleContextMenu(e, { id: item.id, name: item.name, isFolder, sharedItem: item }); 
-                                            }}
-                                        >
-                                            <button title="Options">
-                                                <FiMoreHorizontal size={18} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
                     )}
                 </div>
             ) : currentFolderId?.startsWith("__shared__:") ? (
                 (() => {
                     const shareId = currentFolderId.replace("__shared__:", "");
-                    const activeShare = sharedItems.concat(sentShares).find(s => s.id === shareId);
+                    const activeShare = sharedItems.find(s => s.id === shareId);
                     if (!activeShare) {
                         return (
                             <div className="empty-state">
@@ -2040,8 +2024,7 @@ export default function FileExplorer() {
                             setActionLoading(true);
                             const taskId = startTask({ title: "Downloading selected", detail: "Downloading shared items…" });
                             try {
-                                const currentList = sharedTab === "received" ? sharedItems : sentShares;
-                                const selectedItems = currentList.filter(item => selectedSharedIds.has(item.id));
+                                const selectedItems = sharedItems.filter(item => selectedSharedIds.has(item.id));
                                 for (const item of selectedItems) {
                                     if (item.itemType === "file" && item.files[0]) {
                                         await handleDownloadSharedFile(item, item.files[0]);
@@ -2067,8 +2050,7 @@ export default function FileExplorer() {
                             setActionLoading(true);
                             const taskId = startTask({ title: "Deleting selected", detail: "Removing shared items…" });
                             try {
-                                const currentList = sharedTab === "received" ? sharedItems : sentShares;
-                                const selectedItems = currentList.filter(item => selectedSharedIds.has(item.id));
+                                const selectedItems = sharedItems.filter(item => selectedSharedIds.has(item.id));
                                 for (const item of selectedItems) {
                                     await removeShare(item.id);
                                 }
