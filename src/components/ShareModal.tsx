@@ -557,7 +557,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                             ) : tab === "frequent" ? (
                                 frequent.length === 0
                                     ? <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>People you share with will appear here.</p>
-                                    : frequent.map((c) => renderContactRow(c, c.shareCount > 0 ? ` · shared ${c.shareCount}×` : undefined))
+                                    : frequent.map((c) => renderContactRow(c))
                             ) : groups.length === 0 ? (
                                 <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", padding: "10px 0" }}>Add recipients above, then save them as a custom group.</p>
                             ) : (
