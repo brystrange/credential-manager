@@ -125,17 +125,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
 
     if (!isOpen) return null;
 
-    const isSelected = (uid: string) => selected.some((s) => s.uid === uid);
-
-    const addRecipient = (r: ShareRecipient) => {
-        setError("");
-        if (!r.publicKeyJwk) {
-            setError(`${r.email} hasn't registered their sharing keys yet. Because file sharing was just deployed on the server, please sign in to this account once to activate end-to-end encryption.`);
-            return;
-        }
-        setSelected((prev) => (prev.some((p) => p.uid === r.uid) ? prev : [...prev, r]));
-    };
-
     const removeRecipient = (uid: string) => setSelected((prev) => prev.filter((p) => p.uid !== uid));
 
     const handleSearch = async (e: React.FormEvent) => {
@@ -271,35 +260,75 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
         }
     };
 
-    const handleShare = async () => {
-        if (selected.length === 0) return;
+    const sendToRecipients = async (recipients: ShareRecipient[]) => {
+        if (recipients.length === 0 || sharing) return;
+        const noKey = recipients.filter((r) => !r.publicKeyJwk);
+        if (noKey.length > 0) {
+            setError(
+                noKey.length === 1
+                    ? `${noKey[0].email} hasn't registered their sharing keys yet. Ask them to sign in once to Fort Sterling.`
+                    : `Skipped ${noKey.map((m) => m.email).join(", ")} — they haven't registered sharing keys yet.`
+            );
+            return;
+        }
+
         setSharing(true);
         setError("");
+        setSelected(recipients);
+
         const itemLabel = items.length === 1
             ? `"${items[0].kind === "file" ? items[0].file.name : items[0].folder.name}"`
             : `${items.length} items`;
-        const recipientLabel = selected.length === 1 ? selected[0].email : `${selected.length} people`;
+        const recipientLabel = recipients.length === 1 ? recipients[0].email : `${recipients.length} people`;
         const taskId = startTask({
-            title: `Sharing ${itemLabel}`,
-            detail: `With ${recipientLabel}`,
+            title: `Sending ${itemLabel}`,
+            detail: `To ${recipientLabel}`,
             progress: 0,
         });
+
         try {
-            await shareItems(items, selected, (percent, label) => {
+            await shareItems(items, recipients, (percent, label) => {
                 setProgress({ percent, label });
                 updateTask(taskId, { progress: percent, detail: label });
             });
             setDone(true);
             onShared?.();
             void refreshContacts();
-            finishTask(taskId, { status: "success", title: `Shared ${itemLabel}`, detail: `With ${selected.map((s) => s.email).join(", ")}` });
+            finishTask(taskId, {
+                status: "success",
+                title: `Sent ${itemLabel}`,
+                detail: `To ${recipients.map((s) => s.email).join(", ")}`,
+            });
         } catch (err) {
             const message = shareErrorMessage(err);
             setError(message);
-            finishTask(taskId, { status: "error", title: `Couldn't share ${itemLabel}`, detail: message });
+            finishTask(taskId, {
+                status: "error",
+                title: `Couldn't send ${itemLabel}`,
+                detail: message,
+            });
         } finally {
             setSharing(false);
         }
+    };
+
+    const handleShare = () => {
+        void sendToRecipients(selected);
+    };
+
+    const handleSendToUser = (c: ShareRecipient) => {
+        void sendToRecipients([c]);
+    };
+
+    const handleSendToGroup = (g: ShareGroup) => {
+        const members = g.memberUids
+            .map((uid) => contactByUid.get(uid) || selected.find((s) => s.uid === uid))
+            .filter((c): c is ShareRecipient => !!c);
+        if (members.length === 0) {
+            setError(`Group "${g.name}" has no members.`);
+            return;
+        }
+        void sendToRecipients(members);
     };
 
     const close = () => {
@@ -317,15 +346,15 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                     {c.email}{extra}
                 </div>
             </div>
-            {isSelected(c.uid) ? (
-                <span style={{ fontSize: "0.78rem", color: "var(--accent)", fontWeight: 600 }}>
-                    Added
-                </span>
-            ) : (
-                <button type="button" className="btn-secondary" style={{ padding: "4px 12px", fontSize: "0.78rem" }} onClick={() => addRecipient(c)}>
-                    Add
-                </button>
-            )}
+            <button
+                type="button"
+                className="btn-primary"
+                style={{ padding: "4px 14px", fontSize: "0.78rem" }}
+                onClick={() => handleSendToUser(c)}
+                disabled={sharing}
+            >
+                Send
+            </button>
         </div>
     );
 
@@ -370,9 +399,9 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                 ) : done ? (
                     <div style={{ textAlign: "center", padding: "20px 8px" }}>
                         <FiCheck size={36} style={{ color: "var(--green, #22c55e)", marginBottom: 10 }} />
-                        <h3 style={{ marginBottom: 8 }}>Shared successfully</h3>
+                        <h3 style={{ marginBottom: 8 }}>Sent successfully</h3>
                         <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                            Shared with {selected.map((s) => s.email).join(", ")}. They'll find it under <strong>Shared with me</strong>.
+                            Sent to {selected.map((s) => s.email).join(", ")}. They'll find it under <strong>Shared with me</strong>.
                         </p>
                         <div className="confirm-actions" style={{ marginTop: 18 }}>
                             <button type="button" className="btn-primary" onClick={onClose}>Done</button>
@@ -500,7 +529,6 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                             ) : (
                                 groups.map((g) => {
                                     const unaddedSelected = selected.filter((s) => !g.memberUids.includes(s.uid));
-                                    const allMembersSelected = g.memberUids.length > 0 && g.memberUids.every((uid) => selected.some((s) => s.uid === uid));
 
                                     return (
                                         <div
@@ -528,17 +556,19 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                                         • {g.memberUids.length} {g.memberUids.length === 1 ? "user" : "users"}
                                                     </span>
                                                 </div>
-                                                <div>
-                                                    {allMembersSelected ? (
-                                                        <span style={{ fontSize: "0.75rem", color: "var(--accent)", fontWeight: 600 }}>
-                                                            Added
-                                                        </span>
-                                                    ) : (
-                                                        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                                                            Click to add
-                                                        </span>
-                                                    )}
-                                                </div>
+                                                <button
+                                                    type="button"
+                                                    className="btn-primary"
+                                                    style={{ padding: "3px 12px", fontSize: "0.74rem" }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleSendToGroup(g);
+                                                    }}
+                                                    disabled={sharing}
+                                                    title={`Send file directly to ${g.name}`}
+                                                >
+                                                    Send
+                                                </button>
                                             </div>
 
                                             {/* Members pills with x icon on the right */}
@@ -706,7 +736,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                                 disabled={sharing || selected.length === 0}
                                 style={{ minWidth: 90 }}
                             >
-                                {sharing ? <><FiLoader size={14} className="spin" /> Sharing…</> : "Share"}
+                                {sharing ? <><FiLoader size={14} className="spin" /> Sending…</> : "Send"}
                             </button>
                         </div>
                     </>
