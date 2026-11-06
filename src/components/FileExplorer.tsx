@@ -250,6 +250,9 @@ export default function FileExplorer() {
             const customNames = JSON.parse(localStorage.getItem(`shared_custom_names_${auth.currentUser?.uid}`) || "{}");
             const applyCustomNames = (list: SharedItem[]) => list.map(s => customNames[s.id] ? { ...s, name: customNames[s.id] } : s);
             setSharedItems(applyCustomNames(res.received));
+            if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("shared-files-updated"));
+            }
         } catch (err) {
             console.debug("Failed to list shares:", err);
         } finally {

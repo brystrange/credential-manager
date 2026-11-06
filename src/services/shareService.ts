@@ -368,6 +368,9 @@ export async function shareItems(
     }
 
     onProgress?.(100, "Shared");
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("shared-files-updated"));
+    }
 }
 
 // ─── Listing, downloading & removing shares ─────────────────────────────────
@@ -456,5 +459,8 @@ export async function downloadSharedFile(share: SharedItem, file: SharedFileEntr
 /** Sender: revokes the share for everyone. Recipient: removes it from their list. */
 export async function removeShare(shareId: string): Promise<void> {
     await call<{ shareId: string }, { ok: boolean }>("deleteShare")({ shareId });
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("shared-files-updated"));
+    }
 }
 

@@ -137,18 +137,24 @@ async function checkUserUsageAndGracePeriod(
     exceedsFreeLimit: boolean;
     gracePeriodEnd: admin.firestore.Timestamp | null;
 }> {
-    const [credsSnap, filesSnap] = await Promise.all([
+    const [credsSnap, filesSnap, sharesSnap] = await Promise.all([
         userRef.collection("credentials").count().get(),
         userRef.collection("files").get(),
+        admin.firestore().collection("shares").where("recipientUids", "array-contains", userRef.id).get(),
     ]);
     const credsCount = credsSnap.data().count;
     const filesBytes = filesSnap.docs.reduce(
         (sum, d) => sum + (Number(d.data().size) || 0),
         0
     );
-    const storageUsed = filesSnap.empty
+    const sharedBytes = sharesSnap.docs.reduce((sum, d) => {
+        const files = (d.data().files as Array<{ size?: number }>) || [];
+        return sum + files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0);
+    }, 0);
+    const calculatedStorageUsed = filesBytes + sharedBytes;
+    const storageUsed = (filesSnap.empty && sharesSnap.empty)
         ? Math.min(Math.max(0, fallbackStorageUsed), 0)
-        : filesBytes;
+        : calculatedStorageUsed;
 
     if (storageUsed !== fallbackStorageUsed) {
         await userRef.update({ storageUsed }).catch(() => {});

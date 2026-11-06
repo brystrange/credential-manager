@@ -314,6 +314,7 @@ exports.deleteShareGroup = (0, https_1.onCall)(async (request) => {
     return { ok: true };
 });
 exports.createShare = (0, https_1.onCall)(async (request) => {
+    var _a;
     const uid = requireVerifiedAuth(request);
     await requirePro(uid);
     const { shareId, itemType, encryptedName, files, recipientUids, wrappedKeys } = request.data || {};
@@ -386,6 +387,17 @@ exports.createShare = (0, https_1.onCall)(async (request) => {
     if (validRecipients.length !== recipients.length) {
         throw new https_1.HttpsError("not-found", "One or more recipients no longer exist.");
     }
+    const shareSize = cleanFiles.reduce((sum, f) => sum + (f.size || 0), 0);
+    // Verify all recipients have sufficient storage capacity for the shared files
+    for (const r of validRecipients) {
+        const isPro = await isUserPro(r.uid);
+        const limit = isPro ? 5 * 1024 * 1024 * 1024 : 500 * 1024 * 1024;
+        const uDoc = await db().collection("users").doc(r.uid).get();
+        const currentUsage = Number((_a = uDoc.data()) === null || _a === void 0 ? void 0 : _a.storageUsed) || 0;
+        if (currentUsage + shareSize > limit) {
+            throw new https_1.HttpsError("failed-precondition", `Recipient ${r.displayName || r.email} has insufficient storage space.`);
+        }
+    }
     const shareRef = db().collection("shares").doc(shareId);
     try {
         await shareRef.create({
@@ -401,10 +413,10 @@ exports.createShare = (0, https_1.onCall)(async (request) => {
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
     }
-    catch (_a) {
+    catch (_b) {
         throw new https_1.HttpsError("already-exists", "This share already exists.");
     }
-    // Track frequent recipients.
+    // Track frequent recipients and count shared files towards each recipient's storage usage
     const batch = db().batch();
     validRecipients.forEach((r) => {
         const ref = db().collection("shareContacts").doc(uid).collection("contacts").doc(r.uid);
@@ -414,6 +426,9 @@ exports.createShare = (0, https_1.onCall)(async (request) => {
             shareCount: admin.firestore.FieldValue.increment(1),
             lastSharedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
+        if (shareSize > 0) {
+            batch.set(db().collection("users").doc(r.uid), { storageUsed: admin.firestore.FieldValue.increment(shareSize) }, { merge: true });
+        }
     });
     await batch.commit();
     return { ok: true, shareId };
@@ -490,10 +505,19 @@ exports.deleteShare = (0, https_1.onCall)(async (request) => {
         return { ok: true };
     const s = snap.data() || {};
     const recipientUids = Array.isArray(s.recipientUids) ? s.recipientUids : [];
+    const shareSize = (s.files || []).reduce((sum, f) => sum + (Number(f.size) || 0), 0);
     if (s.senderUid === uid) {
         // Sender revokes the share for everyone.
         await deleteShareObjects(s.files || []);
         await ref.delete();
+        // Free up storage for all recipients of this share
+        if (shareSize > 0 && recipientUids.length > 0) {
+            const decBatch = db().batch();
+            recipientUids.forEach((rUid) => {
+                decBatch.set(db().collection("users").doc(rUid), { storageUsed: admin.firestore.FieldValue.increment(-shareSize) }, { merge: true });
+            });
+            await decBatch.commit().catch((e) => console.warn("Failed to decrement storage for recipients:", e));
+        }
         return { ok: true, revoked: true };
     }
     if (!recipientUids.includes(uid)) {
@@ -511,6 +535,10 @@ exports.deleteShare = (0, https_1.onCall)(async (request) => {
             recipients: (s.recipients || []).filter((r) => r.uid !== uid),
             [`wrappedKeys.${uid}`]: admin.firestore.FieldValue.delete(),
         });
+    }
+    // Free up storage for this recipient
+    if (shareSize > 0) {
+        await db().collection("users").doc(uid).set({ storageUsed: admin.firestore.FieldValue.increment(-shareSize) }, { merge: true }).catch((e) => console.warn("Failed to decrement storage for recipient:", e));
     }
     return { ok: true, revoked: false };
 });

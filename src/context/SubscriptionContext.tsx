@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { listenToSubscription, syncSubscriptionStatus } from "../services/subscriptionService";
 import type { Plan, SubscriptionStatus } from "../services/subscriptionService";
 import { auth, db } from "../firebaseConfig";
-import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
+import { listShares } from "../services/shareService";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -143,33 +144,89 @@ export function SubscriptionProvider({
     return unsub;
   }, [uid]);
 
-  // Listen for storage usage from user files collection and reconcile user profile storageUsed
+  // Listen for storage usage from both user files and received shared items, reconciling total storageUsed
   useEffect(() => {
     if (!uid) return;
     let profileStorage: number | undefined = undefined;
+    let uploadedBytes = 0;
+    let sharedBytes = 0;
+    let hasCalculatedFiles = false;
+    let hasCalculatedShares = false;
+
+    const updateTotalStorage = () => {
+      if (!hasCalculatedFiles) return;
+      const total = uploadedBytes + sharedBytes;
+      setStorageUsed(total);
+      if (profileStorage !== undefined && Math.abs(profileStorage - total) > 0) {
+        updateDoc(doc(db, "users", uid), { storageUsed: total }).catch(() => {});
+      }
+    };
 
     const unsubProfile = onSnapshot(doc(db, "users", uid), (snap) => {
       if (snap.exists()) {
         profileStorage = Math.max(0, snap.data().storageUsed || 0);
-        setStorageUsed(profileStorage);
+        if (!hasCalculatedFiles && !hasCalculatedShares) {
+          setStorageUsed(profileStorage);
+        }
       }
     }, (err) => {
       console.warn("Could not load user profile for storage info:", err);
     });
 
     const unsubFiles = onSnapshot(collection(db, "users", uid, "files"), (snap) => {
-      const actualBytes = snap.docs.reduce((sum, d) => sum + (Number(d.data().size) || 0), 0);
-      setStorageUsed(actualBytes);
-      if (profileStorage !== undefined && profileStorage !== actualBytes) {
-        updateDoc(doc(db, "users", uid), { storageUsed: actualBytes }).catch(() => {});
-      }
+      uploadedBytes = snap.docs.reduce((sum, d) => sum + (Number(d.data().size) || 0), 0);
+      hasCalculatedFiles = true;
+      updateTotalStorage();
     }, (err) => {
       console.warn("Could not load user files for storage calculation:", err);
     });
 
+    const fetchSharedStorage = async () => {
+      try {
+        const res = await listShares();
+        sharedBytes = res.received.reduce(
+          (sum, item) => sum + item.files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0),
+          0
+        );
+        hasCalculatedShares = true;
+        updateTotalStorage();
+      } catch (err) {
+        console.debug("Could not calculate shared storage from listShares:", err);
+      }
+    };
+
+    void fetchSharedStorage();
+
+    const handleSharedFilesUpdated = () => {
+      void fetchSharedStorage();
+    };
+    window.addEventListener("shared-files-updated", handleSharedFilesUpdated);
+    window.addEventListener("focus", handleSharedFilesUpdated);
+
+    // Also attempt real-time listener on shares collection if allowed by security rules
+    let unsubShares: (() => void) | null = null;
+    try {
+      const sharesQuery = query(collection(db, "shares"), where("recipientUids", "array-contains", uid));
+      unsubShares = onSnapshot(sharesQuery, (snap) => {
+        sharedBytes = snap.docs.reduce((sum, d) => {
+          const files = (d.data().files as Array<{ size?: number }>) || [];
+          return sum + files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0);
+        }, 0);
+        hasCalculatedShares = true;
+        updateTotalStorage();
+      }, (err) => {
+        console.debug("Shares snapshot listener not active, using callable fallback:", err);
+      });
+    } catch {
+      // Ignore if query construction fails
+    }
+
     return () => {
       unsubProfile();
       unsubFiles();
+      unsubShares?.();
+      window.removeEventListener("shared-files-updated", handleSharedFilesUpdated);
+      window.removeEventListener("focus", handleSharedFilesUpdated);
     };
   }, [uid]);
 

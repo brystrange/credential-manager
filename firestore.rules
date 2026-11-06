@@ -215,5 +215,19 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (request.auth.token.email == email || request.auth.token.admin == true);
       allow write: if isAuthenticated() && request.auth.token.admin == true;
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  SHARES — /shares/{shareId}
+    //
+    //  Allows senders and recipients to read shared item records.
+    //  Creation and deletion are handled via Cloud Functions.
+    // ══════════════════════════════════════════════════════════════════════════
+    match /shares/{shareId} {
+      allow read: if isAuthenticated() && (
+        resource.data.senderUid == request.auth.uid ||
+        resource.data.recipientUids.hasAny([request.auth.uid])
+      );
+      allow write: if false;
+    }
   }
 }
