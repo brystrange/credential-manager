@@ -4,7 +4,7 @@ import {
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
     FiChevronRight, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
-    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers, FiUploadCloud
+    FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers
 } from "react-icons/fi";
 import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv } from "react-icons/fa";
 import { 
@@ -200,30 +200,6 @@ export default function FileExplorer() {
     const [sharedTab, setSharedTab] = useState<"received" | "sent">("received");
     const [confirmRemoveShare, setConfirmRemoveShare] = useState<SharedItem | null>(null);
     const [downloadingSharedId, setDownloadingSharedId] = useState<string | null>(null);
-
-    // Drag and Drop (External Files Upload)
-    const [isExternalDragOver, setIsExternalDragOver] = useState(false);
-    const dragCounter = useRef(0);
-
-    // Drag and Drop (Internal Items Move)
-    const [draggedPayload, setDraggedPayload] = useState<{
-        item: { id: string; name: string; isFolder: boolean };
-        movingFolders: string[];
-        movingFiles: string[];
-    } | null>(null);
-    const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
-
-    useEffect(() => {
-        const preventDefault = (e: DragEvent) => {
-            e.preventDefault();
-        };
-        window.addEventListener("dragover", preventDefault);
-        window.addEventListener("drop", preventDefault);
-        return () => {
-            window.removeEventListener("dragover", preventDefault);
-            window.removeEventListener("drop", preventDefault);
-        };
-    }, []);
 
     const refreshShares = async () => {
         setLoadingShares(true);
@@ -546,7 +522,8 @@ export default function FileExplorer() {
         fileInputRef.current?.click();
     };
 
-    const uploadFileList = async (uploadFiles: File[], targetFolderId: string | null = currentFolderId) => {
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const uploadFiles = Array.from(e.target.files || []);
         if (uploadFiles.length === 0) return;
 
         // Check file sizes
@@ -581,7 +558,7 @@ export default function FileExplorer() {
                     let ext = finalFile.name.includes(".") ? `.${finalFile.name.split(".").pop()}` : "";
                     if (!ext && finalFile.type) {
                         ext = finalFile.type === "image/jpeg" ? ".jpg" : `.${finalFile.type.split("/").pop()}`;
-                        if (ext === ".html" || ext === ".htm") ext = "";
+                        if (ext === ".html" || ext === ".htm") ext = ""; // Ignore weird default mime types sometimes
                     }
                     const today = new Date();
                     const dateStr = `${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2,'0')}${today.getDate().toString().padStart(2,'0')}`;
@@ -591,7 +568,7 @@ export default function FileExplorer() {
                     finalFile = new File([finalFile], suggestedName, { type: finalFile.type });
                 }
 
-                const existingFile = targetFolderId === currentFolderId ? files.find(f => f.name === finalFile.name) : undefined;
+                const existingFile = files.find(f => f.name === finalFile.name);
                 if (existingFile) {
                     const choice = await askDuplicateAction(finalFile.name);
                     setDuplicatePrompt(null);
@@ -619,7 +596,7 @@ export default function FileExplorer() {
                     break;
                 }
                 
-                await uploadVaultFile(finalFile, targetFolderId, (progress) => {
+                await uploadVaultFile(finalFile, currentFolderId, (progress) => {
                     const currentFileBytes = (progress / 100) * fileToUpload.size;
                     const overallProgress = ((uploadedBytes + currentFileBytes) / totalSize) * 100;
                     setUploadProgress(Math.min(overallProgress, 99.9));
@@ -638,132 +615,6 @@ export default function FileExplorer() {
         } finally {
             setUploadProgress(null);
             if (fileInputRef.current) fileInputRef.current.value = "";
-        }
-    };
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const uploadFiles = Array.from(e.target.files || []);
-        await uploadFileList(uploadFiles);
-    };
-
-    const handleExternalDragEnter = (e: React.DragEvent) => {
-        e.preventDefault();
-        if (draggedPayload) return;
-        if (currentFolderId?.startsWith("__shared__")) return;
-        if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
-            dragCounter.current++;
-            setIsExternalDragOver(true);
-        }
-    };
-
-    const handleExternalDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        if (draggedPayload) return;
-        if (currentFolderId?.startsWith("__shared__")) return;
-        if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
-            e.dataTransfer.dropEffect = "copy";
-        }
-    };
-
-    const handleExternalDragLeave = (e: React.DragEvent) => {
-        e.preventDefault();
-        if (draggedPayload) return;
-        dragCounter.current--;
-        if (dragCounter.current <= 0) {
-            dragCounter.current = 0;
-            setIsExternalDragOver(false);
-        }
-    };
-
-    const handleExternalDrop = async (e: React.DragEvent) => {
-        e.preventDefault();
-        dragCounter.current = 0;
-        setIsExternalDragOver(false);
-        if (draggedPayload) return;
-        if (currentFolderId?.startsWith("__shared__")) return;
-
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const droppedFiles = Array.from(e.dataTransfer.files);
-            await uploadFileList(droppedFiles);
-        }
-    };
-
-    const handleDragStart = (e: React.DragEvent, item: { id: string; name: string; isFolder: boolean }) => {
-        if (currentFolderId?.startsWith("__shared__")) {
-            e.preventDefault();
-            return;
-        }
-        const isSelected = item.isFolder ? selectedFolders.has(item.id) : selectedFiles.has(item.id);
-        const movingFolders = isSelected ? Array.from(selectedFolders) : (item.isFolder ? [item.id] : []);
-        const movingFiles = isSelected ? Array.from(selectedFiles) : (!item.isFolder ? [item.id] : []);
-
-        const payload = { item, movingFolders, movingFiles };
-        e.dataTransfer.setData("application/json", JSON.stringify(payload));
-        e.dataTransfer.effectAllowed = "move";
-        setDraggedPayload(payload);
-    };
-
-    const handleDragEnd = () => {
-        setDraggedPayload(null);
-        setDropTargetFolderId(null);
-    };
-
-    const handleFolderDragOver = (e: React.DragEvent, targetFolderId: string | null) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
-            e.dataTransfer.dropEffect = "copy";
-            setDropTargetFolderId(targetFolderId);
-            return;
-        }
-
-        if (!draggedPayload) return;
-        if (draggedPayload.movingFolders.includes(targetFolderId as string)) return;
-        if (currentFolderId === targetFolderId) return;
-
-        e.dataTransfer.dropEffect = "move";
-        setDropTargetFolderId(targetFolderId);
-    };
-
-    const handleFolderDragLeave = (e: React.DragEvent, targetFolderId: string | null) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (dropTargetFolderId === targetFolderId) {
-            setDropTargetFolderId(null);
-        }
-    };
-
-    const handleFolderDrop = async (e: React.DragEvent, targetFolderId: string | null) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setDropTargetFolderId(null);
-
-        // Check if external files dropped on this folder
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const droppedFiles = Array.from(e.dataTransfer.files);
-            await uploadFileList(droppedFiles, targetFolderId);
-            return;
-        }
-
-        // Internal move
-        if (!draggedPayload) return;
-        if (draggedPayload.movingFolders.includes(targetFolderId as string)) return;
-        if (currentFolderId === targetFolderId) return;
-
-        const { movingFolders, movingFiles } = draggedPayload;
-        setDraggedPayload(null);
-
-        try {
-            await Promise.all([
-                ...movingFiles.map(id => moveVaultFile(id, targetFolderId)),
-                ...movingFolders.map(id => moveFolder(id, targetFolderId)),
-            ]);
-            setSelectedFiles(new Set());
-            setSelectedFolders(new Set());
-        } catch (err) {
-            console.error("Failed to move items:", err);
-            alert("Failed to move item(s).");
         }
     };
 
@@ -1189,22 +1040,7 @@ export default function FileExplorer() {
     };
 
     return (
-        <div 
-            className="file-explorer"
-            onDragEnter={handleExternalDragEnter}
-            onDragOver={handleExternalDragOver}
-            onDragLeave={handleExternalDragLeave}
-            onDrop={handleExternalDrop}
-        >
-            {isExternalDragOver && !currentFolderId?.startsWith("__shared__") && (
-                <div className="file-drop-overlay">
-                    <div className="file-drop-zone">
-                        <FiUploadCloud size={54} className="file-drop-icon" />
-                        <h3>Drop files to upload</h3>
-                        <p>Uploading to: <strong>{breadcrumbs[breadcrumbs.length - 1]?.name || "Home"}</strong></p>
-                    </div>
-                </div>
-            )}
+        <div className="file-explorer">
             <svg width="0" height="0" style={{ position: 'absolute' }}>
                 <defs>
                     {gradientColorsList.map(c => (
@@ -1285,12 +1121,9 @@ export default function FileExplorer() {
                 {breadcrumbs.map((crumb, idx) => (
                     <span key={crumb.id || "home"} className="breadcrumb-item">
                         <button 
-                            className={`breadcrumb-btn ${dropTargetFolderId === crumb.id ? "is-drop-target" : ""}`} 
+                            className="breadcrumb-btn" 
                             disabled={loading}
                             onClick={() => navigateToFolder(crumb.id, crumb.name)}
-                            onDragOver={(e) => handleFolderDragOver(e, crumb.id)}
-                            onDragLeave={(e) => handleFolderDragLeave(e, crumb.id)}
-                            onDrop={(e) => handleFolderDrop(e, crumb.id)}
                             style={{ 
                                 color: idx === breadcrumbs.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
                                 fontWeight: idx === breadcrumbs.length - 1 ? "600" : "normal",
@@ -1554,13 +1387,7 @@ export default function FileExplorer() {
                     {folders.map(folder => (
                         <div 
                             key={folder.id} 
-                            className={`file-card ${draggedPayload?.item.id === folder.id ? "is-dragging-item" : ""} ${dropTargetFolderId === folder.id ? "is-drop-target" : ""}`} 
-                            draggable={!currentFolderId?.startsWith("__shared__")}
-                            onDragStart={(e) => handleDragStart(e, { id: folder.id, name: folder.name, isFolder: true })}
-                            onDragEnd={handleDragEnd}
-                            onDragOver={(e) => handleFolderDragOver(e, folder.id)}
-                            onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
-                            onDrop={(e) => handleFolderDrop(e, folder.id)}
+                            className="file-card" 
                             onClick={() => {
                                 if (selectedFiles.size > 0 || selectedFolders.size > 0) {
                                     handleToggleFolderSelection(folder.id);
@@ -1607,10 +1434,7 @@ export default function FileExplorer() {
                     {files.map(file => (
                         <div 
                             key={file.id} 
-                            className={`file-card ${draggedPayload?.item.id === file.id ? "is-dragging-item" : ""}`}
-                            draggable={!currentFolderId?.startsWith("__shared__")}
-                            onDragStart={(e) => handleDragStart(e, { id: file.id, name: file.name, isFolder: false })}
-                            onDragEnd={handleDragEnd}
+                            className="file-card"
                             onClick={() => {
                                 if (selectedFiles.size > 0 || selectedFolders.size > 0) {
                                     handleToggleFileSelection(file.id);
