@@ -1698,7 +1698,7 @@ export default function FileExplorer() {
                                         onClick={() => setConfirmRemoveShare(activeShare)}
                                     >
                                         <FiTrash2 size={14} />
-                                        {activeShare.isSender ? "Revoke" : "Remove"}
+                                        Delete
                                     </button>
                                 </div>
                             </div>
@@ -1957,7 +1957,7 @@ export default function FileExplorer() {
                                     setContextMenu(null); 
                                 }}
                             >
-                                <FiTrash2 /> {contextMenu.target.sharedItem.isSender ? "Revoke" : "Delete"}
+                                <FiTrash2 /> Delete
                             </button>
                         </>
                     ) : (
@@ -2065,7 +2065,7 @@ export default function FileExplorer() {
                     <button 
                         onClick={async () => {
                             setActionLoading(true);
-                            const taskId = startTask({ title: "Removing selected", detail: "Removing shared items…" });
+                            const taskId = startTask({ title: "Deleting selected", detail: "Removing shared items…" });
                             try {
                                 const currentList = sharedTab === "received" ? sharedItems : sentShares;
                                 const selectedItems = currentList.filter(item => selectedSharedIds.has(item.id));
@@ -2074,10 +2074,10 @@ export default function FileExplorer() {
                                 }
                                 setSelectedSharedIds(new Set());
                                 await refreshShares();
-                                finishTask(taskId, { status: "success", title: "Removed selected items" });
+                                finishTask(taskId, { status: "success", title: "Deleted selected items" });
                             } catch (e) {
                                 console.error(e);
-                                finishTask(taskId, { status: "error", title: "Failed to remove items" });
+                                finishTask(taskId, { status: "error", title: "Failed to delete items" });
                             } finally {
                                 setActionLoading(false);
                             }
@@ -2085,7 +2085,7 @@ export default function FileExplorer() {
                         disabled={actionLoading} 
                         style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
                     >
-                        <FiTrash2 size={16} /> {sharedTab === "sent" ? "Revoke" : "Delete"}
+                        <FiTrash2 size={16} /> Delete
                     </button>
                     <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
                     <button onClick={() => setSelectedSharedIds(new Set())} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
@@ -2628,11 +2628,8 @@ export default function FileExplorer() {
             {/* Remove / Revoke Share Confirm Dialog */}
             <ConfirmDialog
                 isOpen={!!confirmRemoveShare}
-                title={confirmRemoveShare?.isSender ? "Revoke Share" : "Delete Shared Item"}
-                message={confirmRemoveShare?.isSender
-                    ? <>Are you sure you want to revoke access to <strong>"{confirmRemoveShare?.name}"</strong>? Recipients will no longer be able to access these files.</>
-                    : <>Are you sure you want to delete <strong>"{confirmRemoveShare?.name}"</strong>?</>
-                }
+                title="Delete Shared Item"
+                message={<>Are you sure you want to delete <strong>"{confirmRemoveShare?.name}"</strong>?</>}
                 onConfirm={handleConfirmRemoveShare}
                 onCancel={() => setConfirmRemoveShare(null)}
                 loading={actionLoading}
