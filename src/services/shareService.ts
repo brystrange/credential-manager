@@ -269,7 +269,7 @@ export async function shareItems(
         }[] = [];
 
         for (const { file, relativePath } of plan.files) {
-            onProgress?.(Math.min(99, (doneBytes / totalBytes) * 100), `Encrypting ${file.name}…`);
+            onProgress?.(Math.min(99, (doneBytes / totalBytes) * 100), `Sharing ${file.name}…`);
             const plainBlob = await downloadVaultFile(file);
             const encryptedBlob = await encryptFile(await plainBlob.arrayBuffer(), shareKey);
             const storagePath = `users/${uid}/shared/${shareId}/${crypto.randomUUID()}`;
@@ -277,7 +277,7 @@ export async function shareItems(
 
             await uploadBlob(storagePath, encryptedBlob, (bytes) => {
                 const fraction = encryptedBlob.size > 0 ? bytes / encryptedBlob.size : 1;
-                onProgress?.(Math.min(99, ((base + fraction * file.size) / totalBytes) * 100), `Uploading ${file.name}…`);
+                onProgress?.(Math.min(99, ((base + fraction * file.size) / totalBytes) * 100), `Sharing ${file.name}…`);
             });
             doneBytes += file.size || 0;
 
