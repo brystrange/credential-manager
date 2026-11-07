@@ -1015,7 +1015,7 @@ function AppInner({
             {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
 
             {/* Main content area */}
-            <main className="main-content">
+            <main className={`main-content ${isFilesRoute ? "files-main-content" : ""}`}>
                 {downgradeGracePeriodEnd && downgradeGracePeriodEnd > new Date() && (
                     <div className="limit-banner" style={{ background: "rgba(239, 68, 68, 0.1)", borderColor: "var(--danger)", color: "var(--danger)", marginBottom: "16px" }}>
                         <FiInfo size={18} style={{ flexShrink: 0 }} />

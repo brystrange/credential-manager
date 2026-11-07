@@ -1984,7 +1984,9 @@ export default function FileExplorer() {
                         Size {sortBy === "size" && (sortOrder === "asc" ? "▲" : "▼")}
                     </span>
                 </div>
-                <div className="file-list-header-actions" />
+                <div className="file-list-header-details">
+                    Details
+                </div>
             </div>
         );
     };
