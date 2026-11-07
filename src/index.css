@@ -4178,7 +4178,7 @@ option {
 .file-col.file-size {
   width: 100px;
   flex-shrink: 0;
-  text-align: right;
+  text-align: left;
   white-space: nowrap;
 }
 
@@ -4204,7 +4204,7 @@ option {
 }
 
 .file-list-header-col.file-size.sortable {
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .file-list-header .sortable:hover {
@@ -4238,7 +4238,8 @@ option {
   .file-col.file-date {
     display: none !important;
   }
-  .file-list-header-visual {
+  .file-list-header-visual,
+  .file-grid.list-view .file-card-visual {
     width: 48px;
   }
   .file-list-header-details,
@@ -4250,7 +4251,8 @@ option {
 .file-grid.list-view .file-card-visual {
   gap: 12px;
   justify-content: flex-start;
-  width: auto;
+  width: 64px;
+  flex-shrink: 0;
 }
 
 .file-grid.list-view .file-card {
