@@ -1958,11 +1958,32 @@ export default function FileExplorer() {
         return sortOrder === "asc" ? <FiChevronUp size={13} style={{ flexShrink: 0 }} /> : <FiChevronDown size={13} style={{ flexShrink: 0 }} />;
     };
 
-    const renderListHeader = () => {
+    const renderListHeader = (options?: {
+        isAllSelected?: boolean;
+        isPartiallySelected?: boolean;
+        onToggleSelectAll?: () => void;
+        hasItems?: boolean;
+    }) => {
         if (viewMode !== "list") return null;
         return (
             <div className="file-list-header">
-                <div className="file-list-header-visual" />
+                <div className="file-list-header-visual">
+                    {options?.hasItems && (
+                        <input 
+                            type="checkbox" 
+                            ref={(el) => {
+                                if (el) {
+                                    el.indeterminate = !options.isAllSelected && !!options.isPartiallySelected;
+                                }
+                            }}
+                            checked={!!options.isAllSelected}
+                            onChange={options.onToggleSelectAll}
+                            className="minimal-checkbox"
+                            title={options.isAllSelected ? "Deselect All" : "Select All"}
+                            aria-label="Select All"
+                        />
+                    )}
+                </div>
                 <div className="file-list-header-info">
                     <span 
                         className="file-list-header-name sortable"
@@ -2103,10 +2124,17 @@ export default function FileExplorer() {
                 ))}
             </div>
 
-            {(!loading && !currentFolderId?.startsWith("__shared__") && (folders.length > 0 || files.length > 0)) && (
+            {(viewMode === "grid" && !loading && !currentFolderId?.startsWith("__shared__") && (folders.length > 0 || files.length > 0)) && (
                 <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
                     <input 
                         type="checkbox" 
+                        ref={(el) => {
+                            if (el) {
+                                const allSelected = selectedFiles.size === files.length && selectedFolders.size === folders.length;
+                                const someSelected = selectedFiles.size > 0 || selectedFolders.size > 0;
+                                el.indeterminate = !allSelected && someSelected;
+                            }
+                        }}
                         checked={selectedFiles.size === files.length && selectedFolders.size === folders.length && (files.length > 0 || folders.length > 0)}
                         onChange={handleSelectAll}
                         className="minimal-checkbox"
@@ -2133,28 +2161,48 @@ export default function FileExplorer() {
                         </div>
                     ) : (
                         <>
-                            <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectedSharedIds.size === sharedItems.length && sharedItems.length > 0}
-                                    onChange={() => {
-                                        if (selectedSharedIds.size === sharedItems.length) {
-                                            setSelectedSharedIds(new Set());
-                                        } else {
-                                            setSelectedSharedIds(new Set(sharedItems.map(item => item.id)));
-                                        }
-                                    }}
-                                    className="minimal-checkbox"
-                                />
-                                <span style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
-                                {selectedSharedIds.size > 0 && (
-                                    <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 500 }}>
-                                        {selectedSharedIds.size} Selected
-                                    </span>
-                                )}
-                            </div>
+                            {viewMode === "grid" && (
+                                <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
+                                    <input 
+                                        type="checkbox" 
+                                        ref={(el) => {
+                                            if (el) {
+                                                const allSelected = selectedSharedIds.size === sharedItems.length && sharedItems.length > 0;
+                                                const someSelected = selectedSharedIds.size > 0;
+                                                el.indeterminate = !allSelected && someSelected;
+                                            }
+                                        }}
+                                        checked={selectedSharedIds.size === sharedItems.length && sharedItems.length > 0}
+                                        onChange={() => {
+                                            if (selectedSharedIds.size === sharedItems.length) {
+                                                setSelectedSharedIds(new Set());
+                                            } else {
+                                                setSelectedSharedIds(new Set(sharedItems.map(item => item.id)));
+                                            }
+                                        }}
+                                        className="minimal-checkbox"
+                                    />
+                                    <span style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
+                                    {selectedSharedIds.size > 0 && (
+                                        <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                                            {selectedSharedIds.size} Selected
+                                        </span>
+                                    )}
+                                </div>
+                            )}
 
-                            {renderListHeader()}
+                            {renderListHeader({
+                                isAllSelected: selectedSharedIds.size === sharedItems.length && sharedItems.length > 0,
+                                isPartiallySelected: selectedSharedIds.size > 0 && selectedSharedIds.size < sharedItems.length,
+                                onToggleSelectAll: () => {
+                                    if (selectedSharedIds.size === sharedItems.length) {
+                                        setSelectedSharedIds(new Set());
+                                    } else {
+                                        setSelectedSharedIds(new Set(sharedItems.map(item => item.id)));
+                                    }
+                                },
+                                hasItems: sharedItems.length > 0
+                            })}
                             <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
                                 {sortedSharedItems.map((item) => {
                                     const isFolder = item.itemType === "folder";
@@ -2280,7 +2328,58 @@ export default function FileExplorer() {
                                 </div>
                             </div>
 
-                            {renderListHeader()}
+                            {viewMode === "grid" && activeShare.files.length > 0 && (
+                                <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
+                                    <input 
+                                        type="checkbox" 
+                                        ref={(el) => {
+                                            if (el) {
+                                                const allSelected = activeShare.files.length > 0 && activeShare.files.every(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`));
+                                                const someSelected = activeShare.files.some(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`));
+                                                el.indeterminate = !allSelected && someSelected;
+                                            }
+                                        }}
+                                        checked={activeShare.files.length > 0 && activeShare.files.every(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`))}
+                                        onChange={() => {
+                                            const allSelected = activeShare.files.length > 0 && activeShare.files.every(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`));
+                                            setSelectedSharedIds(prev => {
+                                                const next = new Set(prev);
+                                                activeShare.files.forEach(f => {
+                                                    const fileId = `${activeShare.id}:${f.storagePath}`;
+                                                    if (allSelected) next.delete(fileId);
+                                                    else next.add(fileId);
+                                                });
+                                                return next;
+                                            });
+                                        }}
+                                        className="minimal-checkbox"
+                                    />
+                                    <span style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 500 }}>Select All</span>
+                                    {activeShare.files.some(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`)) && (
+                                        <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                                            {activeShare.files.filter(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`)).length} Selected
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
+                            {renderListHeader({
+                                isAllSelected: activeShare.files.length > 0 && activeShare.files.every(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`)),
+                                isPartiallySelected: activeShare.files.some(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`)) && !activeShare.files.every(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`)),
+                                onToggleSelectAll: () => {
+                                    const allSelected = activeShare.files.length > 0 && activeShare.files.every(f => selectedSharedIds.has(`${activeShare.id}:${f.storagePath}`));
+                                    setSelectedSharedIds(prev => {
+                                        const next = new Set(prev);
+                                        activeShare.files.forEach(f => {
+                                            const fileId = `${activeShare.id}:${f.storagePath}`;
+                                            if (allSelected) next.delete(fileId);
+                                            else next.add(fileId);
+                                        });
+                                        return next;
+                                    });
+                                },
+                                hasItems: activeShare.files.length > 0
+                            })}
                             <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
                                 {getSortedShareFiles(activeShare.files).map((fileEntry, idx) => {
                                     const isFileImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path);
@@ -2367,7 +2466,12 @@ export default function FileExplorer() {
                 </div>
             ) : (
                 <>
-                    {renderListHeader()}
+                    {renderListHeader({
+                        isAllSelected: (selectedFiles.size === files.length && selectedFolders.size === folders.length && (files.length > 0 || folders.length > 0)),
+                        isPartiallySelected: ((selectedFiles.size > 0 || selectedFolders.size > 0) && !(selectedFiles.size === files.length && selectedFolders.size === folders.length)),
+                        onToggleSelectAll: handleSelectAll,
+                        hasItems: folders.length > 0 || files.length > 0
+                    })}
                     <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
                         {currentFolderId === null && (
                             <div 
@@ -2379,7 +2483,7 @@ export default function FileExplorer() {
                                 style={{ borderColor: "var(--border-color)", outline: "none" }}
                             >
                                 <div className="file-card-visual">
-                                    {viewMode === "list" && <div style={{ width: 14, height: 14, flexShrink: 0 }} />}
+                                    {viewMode === "list" && <div style={{ width: 15, height: 15, flexShrink: 0 }} />}
                                     <div className="file-card-icon" style={{ color: "var(--accent)" }}>
                                         <FiUsers size={18} />
                                     </div>
