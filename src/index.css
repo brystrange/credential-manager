@@ -4201,6 +4201,10 @@ option {
   gap: 4px;
 }
 
+.file-list-header-col.file-size.sortable {
+  justify-content: flex-end;
+}
+
 .file-list-header .sortable:hover {
   color: var(--text-primary);
 }

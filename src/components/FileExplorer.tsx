@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useBlocker } from "react-router-dom";
 import { 
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
-    FiChevronRight, FiHome, FiX, FiFileText, FiImage, FiArchive,
+    FiChevronRight, FiChevronUp, FiChevronDown, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
     FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers, FiUploadCloud
 } from "react-icons/fi";
@@ -1953,6 +1953,11 @@ export default function FileExplorer() {
         });
     };
 
+    const renderSortChevron = (column: "name" | "date" | "type" | "size") => {
+        if (sortBy !== column) return null;
+        return sortOrder === "asc" ? <FiChevronUp size={13} style={{ flexShrink: 0 }} /> : <FiChevronDown size={13} style={{ flexShrink: 0 }} />;
+    };
+
     const renderListHeader = () => {
         if (viewMode !== "list") return null;
         return (
@@ -1963,25 +1968,25 @@ export default function FileExplorer() {
                         className="file-list-header-name sortable"
                         onClick={() => handleSort("name")}
                     >
-                        Name {sortBy === "name" && (sortOrder === "asc" ? "▲" : "▼")}
+                        Name {renderSortChevron("name")}
                     </span>
                     <span 
                         className="file-list-header-col file-date sortable"
                         onClick={() => handleSort("date")}
                     >
-                        Date modified {sortBy === "date" && (sortOrder === "asc" ? "▲" : "▼")}
+                        Date modified {renderSortChevron("date")}
                     </span>
                     <span 
                         className="file-list-header-col file-type sortable"
                         onClick={() => handleSort("type")}
                     >
-                        Type {sortBy === "type" && (sortOrder === "asc" ? "▲" : "▼")}
+                        Type {renderSortChevron("type")}
                     </span>
                     <span 
                         className="file-list-header-col file-size sortable"
                         onClick={() => handleSort("size")}
                     >
-                        Size {sortBy === "size" && (sortOrder === "asc" ? "▲" : "▼")}
+                        Size {renderSortChevron("size")}
                     </span>
                 </div>
                 <div className="file-list-header-details">
