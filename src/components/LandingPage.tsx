@@ -80,7 +80,7 @@ export default function LandingPage() {
                                 Fort Sterling secures your passwords and sensitive documents in a unified platform. Client-side encryption ensures that your data remains completely inaccessible to everyone—even us.
                             </p>
                             <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-                                <button style={{ padding: "16px 32px", fontSize: "1.1rem", borderRadius: "var(--radius-md)", background: "var(--red-accent)", color: "var(--bg-primary)", border: "none", fontWeight: "700", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", transition: "var(--transition)" }} onClick={() => navigate("/login")} onMouseOver={e => e.currentTarget.style.background = "var(--red-accent-hover)"} onMouseOut={e => e.currentTarget.style.background = "var(--red-accent)"}>
+                                <button className="landing-cta-primary" onClick={() => navigate("/login")}>
                                     Create Your Vault <FiArrowRight />
                                 </button>
                                 <button style={{ padding: "16px 32px", fontSize: "1.1rem", borderRadius: "var(--radius-md)", background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border-color)", fontWeight: "600", cursor: "pointer", transition: "var(--transition)" }} onClick={() => {
