@@ -4079,7 +4079,8 @@ option {
   white-space: normal;
 }
 
-.file-size {
+.file-grid:not(.list-view) .file-size,
+.file-card:not(.list-view) .file-size {
   display: block;
   color: var(--text-muted);
   font-size: 0.75rem;
@@ -4186,8 +4187,24 @@ option {
   width: 80px;
   flex-shrink: 0;
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-weight: 600;
   color: var(--text-muted);
+}
+
+.file-list-header-name,
+.file-list-header-col,
+.file-list-header-details,
+.file-list-header .sortable,
+.file-list-header .file-size,
+.file-list-header-col.file-size {
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  color: var(--text-muted);
+  margin: 0 !important;
 }
 
 .file-col {

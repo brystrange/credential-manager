@@ -1986,7 +1986,7 @@ export default function FileExplorer() {
                 </div>
                 <div className="file-list-header-info">
                     <span 
-                        className="file-list-header-name sortable"
+                        className="file-list-header-col file-list-header-name sortable"
                         onClick={() => handleSort("name")}
                     >
                         Name {renderSortChevron("name")}
