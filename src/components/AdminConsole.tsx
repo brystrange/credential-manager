@@ -28,9 +28,6 @@ import {
     FiChevronLeft,
     FiSearch,
     FiMenu,
-    FiTrendingUp,
-    FiAward,
-    FiActivity,
 } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { collection, doc, setDoc, deleteDoc, getDocs, query, where } from "firebase/firestore";
@@ -1068,51 +1065,31 @@ export default function AdminConsole() {
                                     </div>
                                 ) : (
                                     <div className="admin-pending-grid">
-                                        {/* LEFT HALF: Simple Analytical Decision Dashboard (NO GRAPHS) */}
+                                        {/* LEFT HALF: Clean Analytical View (No Icons, No Emojis, No AI Squares) */}
                                         <div className="admin-analytics-left">
-                                            {/* Summary KPI Cards */}
-                                            <div className="admin-kpi-grid">
-                                                <div className="admin-kpi-card">
-                                                    <div className="admin-kpi-icon blue">
-                                                        <FiImage size={18} />
-                                                    </div>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div className="admin-kpi-value">{totalPendingPlatforms}</div>
-                                                        <div className="admin-kpi-label">Missing Logos</div>
-                                                    </div>
+                                            {/* Unified Summary Stats Bar (No Square Icon Containers) */}
+                                            <div className="admin-stats-summary-bar">
+                                                <div className="admin-stat-summary-col">
+                                                    <span className="admin-stat-summary-label">Missing Logos</span>
+                                                    <span className="admin-stat-summary-num">{totalPendingPlatforms}</span>
                                                 </div>
-                                                <div className="admin-kpi-card">
-                                                    <div className="admin-kpi-icon purple">
-                                                        <FiUsers size={18} />
-                                                    </div>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div className="admin-kpi-value">{totalPendingCredentials}</div>
-                                                        <div className="admin-kpi-label">Total Credentials</div>
-                                                    </div>
+                                                <div className="admin-stat-summary-col">
+                                                    <span className="admin-stat-summary-label">Total Credentials</span>
+                                                    <span className="admin-stat-summary-num">{totalPendingCredentials}</span>
                                                 </div>
-                                                <div className="admin-kpi-card">
-                                                    <div className="admin-kpi-icon gold">
-                                                        <FiTrendingUp size={18} />
-                                                    </div>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div className="admin-kpi-value">{multiUsePlatforms.length}</div>
-                                                        <div className="admin-kpi-label">Multi-User Need</div>
-                                                    </div>
+                                                <div className="admin-stat-summary-col">
+                                                    <span className="admin-stat-summary-label">Multi-User Need</span>
+                                                    <span className="admin-stat-summary-num">{multiUsePlatforms.length}</span>
                                                 </div>
-                                                <div className="admin-kpi-card">
-                                                    <div className="admin-kpi-icon green">
-                                                        <FiAward size={18} />
-                                                    </div>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div className="admin-kpi-value" title={sortedPending[0]?.name}>
-                                                            {sortedPending[0]?.name || "None"}
-                                                        </div>
-                                                        <div className="admin-kpi-label">#1 Top Requested</div>
-                                                    </div>
+                                                <div className="admin-stat-summary-col">
+                                                    <span className="admin-stat-summary-label">Top Requested</span>
+                                                    <span className="admin-stat-summary-num" title={sortedPending[0]?.name}>
+                                                        {sortedPending[0]?.name || "None"}
+                                                    </span>
                                                 </div>
                                             </div>
 
-                                            {/* Spotlight Decision Card for Selected/Top Platform */}
+                                            {/* Spotlight Decision Card for Selected/Top Platform (No Top Rainbow Line, No Emojis) */}
                                             {activeSelectedPlatform && (
                                                 <div className="admin-spotlight-card">
                                                     <div className="admin-spotlight-header">
@@ -1120,9 +1097,8 @@ export default function AdminConsole() {
                                                             <div className="admin-spotlight-tag">Platform Spotlight</div>
                                                             <h3 className="admin-spotlight-title">{activeSelectedPlatform.name}</h3>
                                                         </div>
-                                                        <span className={`admin-spotlight-rank ${activeSelectedRank === 1 ? 'top1' : ''}`}>
-                                                            {activeSelectedRank === 1 ? <FiAward size={13} /> : null}
-                                                            Rank #{activeSelectedRank} of {totalPendingPlatforms}
+                                                        <span className="admin-spotlight-rank">
+                                                            Rank {activeSelectedRank} of {totalPendingPlatforms}
                                                         </span>
                                                     </div>
 
@@ -1140,7 +1116,7 @@ export default function AdminConsole() {
                                                         </div>
                                                     </div>
 
-                                                    {/* Demand Share Meter Bar (Simple CSS bar, not a graph) */}
+                                                    {/* Demand Share Meter Bar */}
                                                     <div className="admin-demand-bar-wrap">
                                                         <div className="admin-demand-bar-header">
                                                             <span>Demand Concentration</span>
@@ -1158,20 +1134,20 @@ export default function AdminConsole() {
                                                         </div>
                                                     </div>
 
-                                                    {/* Logo Decision Recommendation */}
+                                                    {/* Logo Decision Recommendation (No Emojis) */}
                                                     <div className={`admin-recommendation-box ${activeSelectedPlatform.count >= 3 ? 'urgent' : activeSelectedPlatform.count === 2 ? 'moderate' : 'low'}`}>
                                                         <div className="admin-recommendation-title">
                                                             {activeSelectedPlatform.count >= 3 ? (
-                                                                <>🔥 High Urgency: Official Logo Strongly Recommended</>
+                                                                <>High Priority: Official Logo Recommended</>
                                                             ) : activeSelectedPlatform.count === 2 ? (
-                                                                <>⚡ Moderate Need: Emerging Adoption Trend</>
+                                                                <>Moderate Need: Emerging Adoption Trend</>
                                                             ) : (
-                                                                <>💤 Low Urgency: Single User Custom Entry</>
+                                                                <>Low Urgency: Single User Entry</>
                                                             )}
                                                         </div>
                                                         <div className="admin-recommendation-desc">
                                                             {activeSelectedPlatform.count >= 3 ? (
-                                                                `High credential density (${activeSelectedPlatform.count} credentials). Adding an official platform entry and logo will immediately clean up branding for multiple users.`
+                                                                `High credential density (${activeSelectedPlatform.count} credentials). Adding an official platform entry and logo will standardize branding for multiple users.`
                                                             ) : activeSelectedPlatform.count === 2 ? (
                                                                 `Used across ${activeSelectedPlatform.count} credentials. Adding an official platform now will standardize formatting and prevent future duplicate variants.`
                                                             ) : (
@@ -1200,16 +1176,14 @@ export default function AdminConsole() {
                                                 </div>
                                             )}
 
-                                            {/* Adoption Tier Breakdown (Analytical summary without graphs) */}
+                                            {/* Adoption Tier Breakdown (No Icons, No Emojis, No Dots) */}
                                             <div className="admin-breakdown-card">
                                                 <div className="admin-breakdown-title">
-                                                    <FiActivity size={15} />
                                                     <span>Demand Distribution Breakdown</span>
                                                 </div>
                                                 <div className="admin-tier-list">
                                                     <div className="admin-tier-row">
                                                         <div className="admin-tier-name">
-                                                            <span className="admin-tier-badge red" />
                                                             <span>Multi-Credential Platforms (2+)</span>
                                                         </div>
                                                         <div className="admin-tier-stats">
@@ -1218,7 +1192,6 @@ export default function AdminConsole() {
                                                     </div>
                                                     <div className="admin-tier-row">
                                                         <div className="admin-tier-name">
-                                                            <span className="admin-tier-badge gray" />
                                                             <span>Single-Credential Platforms (1)</span>
                                                         </div>
                                                         <div className="admin-tier-stats">
@@ -1227,18 +1200,17 @@ export default function AdminConsole() {
                                                     </div>
                                                 </div>
                                                 <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
-                                                    💡 <em>Adding official logos for just the <strong>{multiUsePlatforms.length}</strong> multi-credential platform{multiUsePlatforms.length !== 1 ? 's' : ''} will resolve <strong>{Math.round((multiUseCredentialsCount / (totalPendingCredentials || 1)) * 100)}%</strong> of unbranded credentials in the entire vault.</em>
+                                                    <em>Adding official logos for just the <strong>{multiUsePlatforms.length}</strong> multi-credential platform{multiUsePlatforms.length !== 1 ? 's' : ''} will resolve <strong>{Math.round((multiUseCredentialsCount / (totalPendingCredentials || 1)) * 100)}%</strong> of unbranded credentials in the entire vault.</em>
                                                 </p>
                                             </div>
                                         </div>
 
-                                        {/* RIGHT HALF: Highest Used Platforms List with Automatic Sorting & Pagination */}
+                                        {/* RIGHT HALF: Highest Used Platforms List (No Icons in Header, Clean Numerals) */}
                                         <div className="admin-pending-right">
                                             <div className="admin-pending-list-header">
                                                 <div className="admin-pending-list-title">
-                                                    <FiTrendingUp size={16} style={{ color: "var(--gold)" }} />
                                                     <span>Highest Used Platforms</span>
-                                                    <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                                                    <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 500, marginLeft: 6 }}>
                                                         ({sortedPending.length} pending)
                                                     </span>
                                                 </div>
@@ -1287,9 +1259,10 @@ export default function AdminConsole() {
                                                                 title={`Click to view analysis for ${p.name}`}
                                                             >
                                                                 <div className="admin-row-left">
-                                                                    <div className={`admin-rank-pill ${globalRank === 1 ? 'rank-1' : globalRank === 2 ? 'rank-2' : globalRank === 3 ? 'rank-3' : ''}`}>
-                                                                        #{globalRank}
-                                                                    </div>
+                                                                    {/* Clean Rank Number: NO hash, NO circle border, NO bg color */}
+                                                                    <span className="admin-rank-num">
+                                                                        {globalRank}
+                                                                    </span>
                                                                     <div className="admin-row-info">
                                                                         <div className="admin-row-name">{p.name}</div>
                                                                         <div className="admin-row-sub">
