@@ -460,50 +460,6 @@ export default function AdminConsole() {
         }
     };
 
-    // ─── Loading state ───────────────────────────────────────────────────────
-    if (checkingAuth) {
-        return (
-            <div className="admin-gate">
-                <div className="admin-gate-card">
-                    <div className="admin-gate-icon">
-                        <img src="/logo.png" alt="Logo" style={{ width: 40, height: 40 }} />
-                    </div>
-                    <h1>Admin Console</h1>
-                    <p className="admin-gate-sub">Verifying access…</p>
-                    <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>
-                        <span className="spinner large" />
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // ─── Access denied gate ──────────────────────────────────────────────────
-    if (accessDenied || !authenticated) {
-        return (
-            <div className="admin-gate">
-                <div className="admin-gate-card">
-                    <div className="admin-gate-icon" style={{ color: "#ffffffff" }}>
-                        <FiAlertTriangle size={40} />
-                    </div>
-                    <h1>Access Denied</h1>
-                    <p className="admin-gate-sub">
-                        {!auth.currentUser
-                            ? "You must be signed in to access the admin console."
-                            : "Your account does not have admin privileges."}
-                    </p>
-                    <button
-                        className="admin-gate-btn"
-                        onClick={() => navigate("/")}
-                        style={{ marginTop: 16 }}
-                    >
-                        Back to Vault
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
     // ─── Admin panel & Platforms directory state ─────────────────────────────
     const ALPHABET_LETTERS = useMemo(() => [
         "All", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
@@ -619,6 +575,50 @@ export default function AdminConsole() {
         }
         return "—";
     };
+
+    // ─── Loading state ───────────────────────────────────────────────────────
+    if (checkingAuth) {
+        return (
+            <div className="admin-gate">
+                <div className="admin-gate-card">
+                    <div className="admin-gate-icon">
+                        <img src="/logo.png" alt="Logo" style={{ width: 40, height: 40 }} />
+                    </div>
+                    <h1>Admin Console</h1>
+                    <p className="admin-gate-sub">Verifying access…</p>
+                    <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>
+                        <span className="spinner large" />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ─── Access denied gate ──────────────────────────────────────────────────
+    if (accessDenied || !authenticated) {
+        return (
+            <div className="admin-gate">
+                <div className="admin-gate-card">
+                    <div className="admin-gate-icon" style={{ color: "#ffffffff" }}>
+                        <FiAlertTriangle size={40} />
+                    </div>
+                    <h1>Access Denied</h1>
+                    <p className="admin-gate-sub">
+                        {!auth.currentUser
+                            ? "You must be signed in to access the admin console."
+                            : "Your account does not have admin privileges."}
+                    </p>
+                    <button
+                        className="admin-gate-btn"
+                        onClick={() => navigate("/")}
+                        style={{ marginTop: 16 }}
+                    >
+                        Back to Vault
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="admin-shell">
