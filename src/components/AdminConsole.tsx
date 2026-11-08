@@ -23,11 +23,12 @@ import {
     FiAlertTriangle,
     FiUsers,
     FiLayers,
-    FiChevronDown,
     FiChevronRight,
     FiChevronLeft,
     FiSearch,
     FiMenu,
+    FiList,
+    FiGrid,
 } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { collection, doc, setDoc, deleteDoc, getDocs, query, where } from "firebase/firestore";
@@ -54,12 +55,14 @@ export default function AdminConsole() {
     const [pendingPage, setPendingPage] = useState(1);
     const [selectedPendingName, setSelectedPendingName] = useState<string | null>(null);
     const PENDING_PAGE_SIZE = 8;
-    // Search, filter, pagination, accordion state
+    // Search, filter, sorting, pagination & view mode state for Platforms
     const [searchQuery, setSearchQuery] = useState("");
     const [filterCategory, setFilterCategory] = useState("All");
+    const [platformLetterFilter, setPlatformLetterFilter] = useState("All");
+    const [platformSortBy, setPlatformSortBy] = useState<"name-asc" | "name-desc" | "category" | "domain">("name-asc");
+    const [platformViewMode, setPlatformViewMode] = useState<"table" | "grid">("table");
+    const [platformPageSize, setPlatformPageSize] = useState<number>(50);
     const [currentPage, setCurrentPage] = useState(1);
-    const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
-    const ITEMS_PER_PAGE = 50;
 
     // Exemptions state
     const [exemptions, setExemptions] = useState<{ email: string; addedBy: string; addedAt: Date }[]>([]);
@@ -501,33 +504,121 @@ export default function AdminConsole() {
         );
     }
 
-    // ─── Admin panel ─────────────────────────────────────────────────────────
-    const filteredPlatforms = platforms.filter(p => {
-        const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesCategory = filterCategory === "All" || (p.category || "Other") === filterCategory;
-        return matchesSearch && matchesCategory;
-    });
+    // ─── Admin panel & Platforms directory state ─────────────────────────────
+    const ALPHABET_LETTERS = useMemo(() => [
+        "All", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+        "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "#"
+    ], []);
 
-    const totalPages = Math.ceil(filteredPlatforms.length / ITEMS_PER_PAGE) || 1;
-    const paginatedPlatforms = filteredPlatforms.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const categoryCounts = useMemo(() => {
+        const map: Record<string, number> = {};
+        platforms.forEach(p => {
+            const cat = p.category || "Other";
+            map[cat] = (map[cat] || 0) + 1;
+        });
+        return map;
+    }, [platforms]);
 
-    const groupedByCategory = paginatedPlatforms.reduce<Record<string, Platform[]>>((acc, p) => {
-        const cat = p.category || "Other";
-        if (!acc[cat]) acc[cat] = [];
-        acc[cat].push(p);
-        return acc;
-    }, {});
+    const allCategories = useMemo(() => {
+        return Object.keys(categoryCounts).sort((a, b) => a.localeCompare(b));
+    }, [categoryCounts]);
 
-    const allCategories = Array.from(new Set(platforms.map(p => p.category || "Other"))).sort();
+    const activeFirstLetters = useMemo(() => {
+        const set = new Set<string>();
+        platforms.forEach(p => {
+            const first = (p.name || "").trim().charAt(0).toUpperCase();
+            if (/[A-Z]/.test(first)) {
+                set.add(first);
+            } else if (first) {
+                set.add("#");
+            }
+        });
+        return set;
+    }, [platforms]);
 
-    const toggleCategory = (cat: string) => {
-        setExpandedCategories(prev =>
-            prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
-        );
+    const filteredAndSortedPlatforms = useMemo(() => {
+        let result = platforms.filter(p => {
+            if (filterCategory !== "All" && (p.category || "Other") !== filterCategory) {
+                return false;
+            }
+            if (platformLetterFilter !== "All") {
+                const firstChar = (p.name || "").trim().charAt(0).toUpperCase();
+                if (platformLetterFilter === "#") {
+                    if (/[A-Z]/.test(firstChar)) return false;
+                } else {
+                    if (firstChar !== platformLetterFilter) return false;
+                }
+            }
+            if (searchQuery.trim()) {
+                const q = searchQuery.trim().toLowerCase();
+                const matchesName = p.name.toLowerCase().includes(q);
+                const matchesCategory = (p.category || "").toLowerCase().includes(q);
+                const matchesDomain = (p.domain || "").toLowerCase().includes(q);
+                const matchesLink = (p.link || "").toLowerCase().includes(q);
+                if (!matchesName && !matchesCategory && !matchesDomain && !matchesLink) {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        result.sort((a, b) => {
+            if (platformSortBy === "name-asc") {
+                return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+            }
+            if (platformSortBy === "name-desc") {
+                return b.name.localeCompare(a.name, undefined, { sensitivity: "base" });
+            }
+            if (platformSortBy === "category") {
+                const catComp = (a.category || "Other").localeCompare(b.category || "Other");
+                if (catComp !== 0) return catComp;
+                return a.name.localeCompare(b.name);
+            }
+            if (platformSortBy === "domain") {
+                const domA = a.domain || a.link || "";
+                const domB = b.domain || b.link || "";
+                return domA.localeCompare(domB) || a.name.localeCompare(b.name);
+            }
+            return 0;
+        });
+
+        return result;
+    }, [platforms, filterCategory, platformLetterFilter, searchQuery, platformSortBy]);
+
+    const totalPlatformPages = Math.ceil(filteredAndSortedPlatforms.length / platformPageSize) || 1;
+
+    useEffect(() => {
+        if (currentPage > totalPlatformPages && totalPlatformPages > 0) {
+            setCurrentPage(totalPlatformPages);
+        }
+    }, [currentPage, totalPlatformPages]);
+
+    const paginatedPlatforms = useMemo(() => {
+        if (platformPageSize >= 9000) return filteredAndSortedPlatforms;
+        const start = (currentPage - 1) * platformPageSize;
+        return filteredAndSortedPlatforms.slice(start, start + platformPageSize);
+    }, [filteredAndSortedPlatforms, currentPage, platformPageSize]);
+
+    const isPlatformFiltered = searchQuery.trim() !== "" || filterCategory !== "All" || platformLetterFilter !== "All";
+
+    const resetPlatformFilters = () => {
+        setSearchQuery("");
+        setFilterCategory("All");
+        setPlatformLetterFilter("All");
+        setCurrentPage(1);
     };
 
-    const expandAll = () => setExpandedCategories(Object.keys(groupedByCategory));
-    const collapseAll = () => setExpandedCategories([]);
+    const formatDisplayDomain = (p: Platform) => {
+        if (p.domain) return p.domain;
+        if (p.link) {
+            try {
+                return new URL(p.link.startsWith("http") ? p.link : `https://${p.link}`).hostname.replace(/^www\./, "");
+            } catch {
+                return p.link;
+            }
+        }
+        return "—";
+    };
 
     return (
         <div className="admin-shell">
@@ -748,7 +839,12 @@ export default function AdminConsole() {
                                 <button className="admin-menu-btn" onClick={() => setSidebarOpen(true)}>
                                     <FiMenu size={20} />
                                 </button>
-                                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Platforms</h2>
+                                <div>
+                                    <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Platforms Directory</h2>
+                                    <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)", margin: 0, marginTop: 2 }}>
+                                        Manage {platforms.length} supported platforms across {allCategories.length} categories
+                                    </p>
+                                </div>
                             </div>
                             <button className="admin-add-btn" onClick={openAddForm}>
                                 <FiPlus size={16} />
@@ -756,177 +852,449 @@ export default function AdminConsole() {
                             </button>
                         </header>
                         <main className="admin-content-main">
-                            <div className="admin-content-body">
-                            {/* Search and Filters */}
-                            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-                                    <FiSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                                    <input 
-                                        type="text" 
-                                        placeholder="Search platforms..." 
-                                        value={searchQuery}
-                                        onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                                        style={{ width: '100%', padding: "8px 10px 8px 32px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: "0.85rem", boxSizing: "border-box" }}
-                                    />
-                                </div>
-                                <select 
-                                    className="admin-filter-select"
-                                    value={filterCategory} 
-                                    onChange={e => { setFilterCategory(e.target.value); setCurrentPage(1); }}
-                                >
-                                    <option value="All">All Categories</option>
-                                    {allCategories.map(cat => (
-                                        <option key={cat} value={cat}>{cat}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {loading ? (
-                                <div className="admin-loading">
-                                    <span className="spinner large" />
-                                    <p>Loading platforms…</p>
-                                </div>
-                            ) : platforms.length === 0 ? (
-                                <div className="admin-empty">
-                                    <img src="/logo.png" alt="Logo" style={{ width: 40, height: 40 }} />
-                                    <h2>No platforms yet</h2>
-                                    <p>Add your first platform to get started</p>
-                                    <button className="admin-add-btn" onClick={openAddForm}>
-                                        <FiPlus size={16} />
-                                        <span>Add Platform</span>
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="admin-platform-list">
-                                    <div className="admin-stats-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div>
-                                            <span>{filteredPlatforms.length} platform{filteredPlatforms.length !== 1 ? "s" : ""}</span>
-                                            {searchQuery || filterCategory !== "All" ? <span> (filtered)</span> : null}
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '16px' }}>
-                                            <button onClick={expandAll} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Expand All</button>
-                                            <button onClick={collapseAll} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Collapse All</button>
-                                        </div>
+                            <div className="admin-platforms-container">
+                                {loading ? (
+                                    <div className="admin-loading">
+                                        <span className="spinner large" />
+                                        <p>Loading platforms…</p>
                                     </div>
-                                    {Object.entries(groupedByCategory).map(([cat, items]) => {
-                                        const isExpanded = expandedCategories.includes(cat);
-                                        return (
-                                        <div key={cat} className="admin-category-group" style={{ marginBottom: "24px" }}>
-                                            <div 
-                                                className="admin-category-header"
-                                                onClick={() => toggleCategory(cat)}
-                                                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", cursor: "pointer" }}
-                                            >
-                                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                                    {isExpanded ? <FiChevronDown size={16} /> : <FiChevronRight size={16} />}
-                                                    <h3 className="admin-category-label" style={{ margin: 0, paddingLeft: "4px" }}>{cat} ({items.length})</h3>
-                                                </div>
+                                ) : platforms.length === 0 ? (
+                                    <div className="admin-empty">
+                                        <img src="/logo.png" alt="Logo" style={{ width: 40, height: 40 }} />
+                                        <h2>No platforms yet</h2>
+                                        <p>Add your first platform to get started</p>
+                                        <button className="admin-add-btn" onClick={openAddForm}>
+                                            <FiPlus size={16} />
+                                            <span>Add Platform</span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="admin-platforms-layout">
+                                        {/* 1. Category Sidebar */}
+                                        <aside className="admin-cat-sidebar">
+                                            <div className="admin-cat-sidebar-header">
+                                                <span className="admin-cat-title">Categories</span>
+                                                <span className="admin-cat-total">{allCategories.length}</span>
                                             </div>
-                                            {isExpanded && (
-                                            <div className="admin-platform-cards" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                {items.map((p) => (
-                                                    <div key={p.id} className="admin-platform-card">
-                                                        <div className="admin-platform-left">
-                                                            {p.logoUrl ? (
-                                                                <img
-                                                                    src={p.logoUrl}
-                                                                    alt={p.name}
-                                                                    className="admin-platform-logo"
-                                                                    onError={(e) => (e.currentTarget.style.display = "none")}
-                                                                />
-                                                            ) : (
-                                                                <div
-                                                                    className="admin-platform-initial"
-                                                                    style={{ backgroundColor: p.color }}
-                                                                >
-                                                                    {p.name.charAt(0).toUpperCase()}
-                                                                </div>
-                                                            )}
-                                                            <div className="admin-platform-info">
-                                                                <span className="admin-platform-name">{p.name}</span>
-                                                                <span className="admin-platform-domain">
-                                                                    {p.domain || (p.link ? (() => { try { return new URL(p.link).hostname.replace(/^www\./, ""); } catch { return p.link; } })() : "")}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="admin-platform-actions">
-                                                            {p.link && (
-                                                                <a
-                                                                    href={p.link}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="admin-icon-btn"
-                                                                    title="Open link"
-                                                                >
-                                                                    <FiExternalLink size={14} />
-                                                                </a>
-                                                            )}
-                                                            <button
-                                                                className="admin-icon-btn"
-                                                                onClick={() => openEditForm(p)}
-                                                                title="Edit"
-                                                                disabled={saving}
-                                                            >
-                                                                <FiEdit2 size={14} />
-                                                            </button>
-                                                            {deleteConfirm === p.id ? (
-                                                                <div className="admin-delete-confirm">
-                                                                    <button
-                                                                        className="admin-icon-btn danger"
-                                                                        onClick={() => handleDelete(p.id)}
-                                                                        title="Confirm delete"
-                                                                        disabled={saving}
-                                                                    >
-                                                                        {saving ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <FiTrash2 size={14} />}
-                                                                    </button>
-                                                                    <button
-                                                                        className="admin-icon-btn"
-                                                                        onClick={() => setDeleteConfirm(null)}
-                                                                        title="Cancel"
-                                                                        disabled={saving}
-                                                                    >
-                                                                        <FiX size={14} />
-                                                                    </button>
-                                                                </div>
-                                                            ) : (
-                                                                <button
-                                                                    className="admin-icon-btn danger"
-                                                                    onClick={() => setDeleteConfirm(p.id)}
-                                                                    title="Delete"
-                                                                >
-                                                                    <FiTrash2 size={14} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
+                                            <div className="admin-cat-list">
+                                                <button
+                                                    type="button"
+                                                    className={`admin-cat-item ${filterCategory === "All" ? "active" : ""}`}
+                                                    onClick={() => { setFilterCategory("All"); setCurrentPage(1); }}
+                                                >
+                                                    <span>All Platforms</span>
+                                                    <span className="admin-cat-count">{platforms.length}</span>
+                                                </button>
+                                                {allCategories.map(cat => (
+                                                    <button
+                                                        key={cat}
+                                                        type="button"
+                                                        className={`admin-cat-item ${filterCategory === cat ? "active" : ""}`}
+                                                        onClick={() => { setFilterCategory(cat); setCurrentPage(1); }}
+                                                    >
+                                                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat}</span>
+                                                        <span className="admin-cat-count">{categoryCounts[cat] || 0}</span>
+                                                    </button>
                                                 ))}
                                             </div>
+                                        </aside>
+
+                                        {/* 2. Main Platform Panel */}
+                                        <div className="admin-platforms-main">
+                                            {/* Toolbar: Search, Sort, Page Size, View Mode Toggle */}
+                                            <div className="admin-platforms-toolbar">
+                                                <div className="admin-platforms-search">
+                                                    <FiSearch size={14} className="admin-search-icon" />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Search platforms by name, category, domain..."
+                                                        value={searchQuery}
+                                                        onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                                                    />
+                                                    {searchQuery && (
+                                                        <button
+                                                            type="button"
+                                                            className="admin-search-clear"
+                                                            onClick={() => { setSearchQuery(""); setCurrentPage(1); }}
+                                                            title="Clear search"
+                                                        >
+                                                            <FiX size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <div className="admin-platforms-toolbar-actions">
+                                                    <select
+                                                        className="admin-compact-select"
+                                                        value={platformSortBy}
+                                                        onChange={e => setPlatformSortBy(e.target.value as any)}
+                                                        title="Sort order"
+                                                    >
+                                                        <option value="name-asc">Sort: Name (A → Z)</option>
+                                                        <option value="name-desc">Sort: Name (Z → A)</option>
+                                                        <option value="category">Sort: Category</option>
+                                                        <option value="domain">Sort: Domain</option>
+                                                    </select>
+
+                                                    <select
+                                                        className="admin-compact-select"
+                                                        value={platformPageSize}
+                                                        onChange={e => { setPlatformPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                                                        title="Items per page"
+                                                    >
+                                                        <option value={25}>25 / page</option>
+                                                        <option value={50}>50 / page</option>
+                                                        <option value={100}>100 / page</option>
+                                                        <option value={9999}>Show All</option>
+                                                    </select>
+
+                                                    <div className="admin-view-toggle">
+                                                        <button
+                                                            type="button"
+                                                            className={`admin-view-btn ${platformViewMode === "table" ? "active" : ""}`}
+                                                            onClick={() => setPlatformViewMode("table")}
+                                                            title="Compact Table View"
+                                                        >
+                                                            <FiList size={15} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className={`admin-view-btn ${platformViewMode === "grid" ? "active" : ""}`}
+                                                            onClick={() => setPlatformViewMode("grid")}
+                                                            title="Compact Grid View"
+                                                        >
+                                                            <FiGrid size={15} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Alphabetical A-Z Jump Bar */}
+                                            <div className="admin-alphabet-bar">
+                                                {ALPHABET_LETTERS.map(letter => {
+                                                    const isActive = platformLetterFilter === letter;
+                                                    const hasItems = letter === "All" || activeFirstLetters.has(letter);
+                                                    return (
+                                                        <button
+                                                            key={letter}
+                                                            type="button"
+                                                            className={`admin-alphabet-btn ${isActive ? "active" : ""}`}
+                                                            style={{
+                                                                opacity: hasItems ? 1 : 0.35,
+                                                                cursor: hasItems ? "pointer" : "default"
+                                                            }}
+                                                            onClick={() => {
+                                                                setPlatformLetterFilter(letter);
+                                                                setCurrentPage(1);
+                                                            }}
+                                                            title={letter === "All" ? "All letters" : `Filter starting with ${letter}`}
+                                                        >
+                                                            {letter}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* Subbar: Count, filter tags, reset button */}
+                                            <div className="admin-platforms-subbar">
+                                                <div className="admin-platforms-counter">
+                                                    Showing <strong>{filteredAndSortedPlatforms.length === 0 ? 0 : (currentPage - 1) * platformPageSize + 1}</strong>
+                                                    {" – "}
+                                                    <strong>{Math.min(currentPage * platformPageSize, filteredAndSortedPlatforms.length)}</strong>
+                                                    {" of "}
+                                                    <strong>{filteredAndSortedPlatforms.length}</strong> platforms
+                                                    {isPlatformFiltered && (
+                                                        <span className="admin-filtered-tag">
+                                                            {" "}(filtered from {platforms.length} total)
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {isPlatformFiltered && (
+                                                    <button
+                                                        type="button"
+                                                        className="admin-reset-filters-btn"
+                                                        onClick={resetPlatformFilters}
+                                                    >
+                                                        Reset filters
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Platforms Display */}
+                                            {filteredAndSortedPlatforms.length === 0 ? (
+                                                <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-secondary)" }}>
+                                                    <p style={{ margin: "0 0 12px 0", fontSize: "0.9rem" }}>No platforms found matching your filters.</p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={resetPlatformFilters}
+                                                        style={{
+                                                            padding: "6px 14px",
+                                                            borderRadius: "var(--radius-sm)",
+                                                            border: "1px solid var(--border-color)",
+                                                            background: "var(--bg-primary)",
+                                                            color: "var(--text-primary)",
+                                                            fontSize: "0.8rem",
+                                                            cursor: "pointer"
+                                                        }}
+                                                    >
+                                                        Clear Filters
+                                                    </button>
+                                                </div>
+                                            ) : platformViewMode === "table" ? (
+                                                <div className="admin-table-wrap">
+                                                    <table className="admin-compact-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th style={{ width: "38%" }}>Platform</th>
+                                                                <th style={{ width: "20%" }}>Category</th>
+                                                                <th style={{ width: "27%" }}>Domain / Website</th>
+                                                                <th style={{ width: "15%", textAlign: "right" }}>Actions</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {paginatedPlatforms.map(p => {
+                                                                const displayDomain = formatDisplayDomain(p);
+                                                                return (
+                                                                    <tr key={p.id}>
+                                                                        <td>
+                                                                            <div className="admin-table-platform-cell">
+                                                                                {p.logoUrl ? (
+                                                                                    <img
+                                                                                        src={p.logoUrl}
+                                                                                        alt={p.name}
+                                                                                        className="admin-table-logo"
+                                                                                        onError={(e) => (e.currentTarget.style.display = "none")}
+                                                                                    />
+                                                                                ) : (
+                                                                                    <div
+                                                                                        className="admin-table-initial"
+                                                                                        style={{ backgroundColor: p.color || "#6366f1" }}
+                                                                                    >
+                                                                                        {p.name.charAt(0).toUpperCase()}
+                                                                                    </div>
+                                                                                )}
+                                                                                <span className="admin-table-name" title={p.name}>{p.name}</span>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td>
+                                                                            <span className="admin-table-category-badge">{p.category || "Other"}</span>
+                                                                        </td>
+                                                                        <td>
+                                                                            {p.link ? (
+                                                                                <a
+                                                                                    href={p.link}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className="admin-table-domain-link"
+                                                                                    title={p.link}
+                                                                                >
+                                                                                    {displayDomain}
+                                                                                </a>
+                                                                            ) : (
+                                                                                <span className="admin-table-domain-text">{displayDomain}</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td>
+                                                                            <div className="admin-table-actions">
+                                                                                {p.link && (
+                                                                                    <a
+                                                                                        href={p.link}
+                                                                                        target="_blank"
+                                                                                        rel="noopener noreferrer"
+                                                                                        className="admin-icon-btn small"
+                                                                                        title="Visit website"
+                                                                                    >
+                                                                                        <FiExternalLink size={13} />
+                                                                                    </a>
+                                                                                )}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="admin-icon-btn small"
+                                                                                    onClick={() => openEditForm(p)}
+                                                                                    title="Edit platform"
+                                                                                    disabled={saving}
+                                                                                >
+                                                                                    <FiEdit2 size={13} />
+                                                                                </button>
+                                                                                {deleteConfirm === p.id ? (
+                                                                                    <div className="admin-delete-confirm small">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="admin-icon-btn small danger"
+                                                                                            onClick={() => handleDelete(p.id)}
+                                                                                            title="Confirm delete"
+                                                                                            disabled={saving}
+                                                                                        >
+                                                                                            {saving ? <span className="spinner" style={{ width: 10, height: 10 }} /> : <FiTrash2 size={13} />}
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="admin-icon-btn small"
+                                                                                            onClick={() => setDeleteConfirm(null)}
+                                                                                            title="Cancel"
+                                                                                            disabled={saving}
+                                                                                        >
+                                                                                            <FiX size={13} />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        className="admin-icon-btn small danger"
+                                                                                        onClick={() => setDeleteConfirm(p.id)}
+                                                                                        title="Delete platform"
+                                                                                    >
+                                                                                        <FiTrash2 size={13} />
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                /* Grid View */
+                                                <div className="admin-compact-grid">
+                                                    {paginatedPlatforms.map(p => {
+                                                        const displayDomain = formatDisplayDomain(p);
+                                                        return (
+                                                            <div key={p.id} className="admin-compact-grid-card">
+                                                                <div className="admin-grid-card-top">
+                                                                    {p.logoUrl ? (
+                                                                        <img
+                                                                            src={p.logoUrl}
+                                                                            alt={p.name}
+                                                                            className="admin-table-logo"
+                                                                            onError={(e) => (e.currentTarget.style.display = "none")}
+                                                                        />
+                                                                    ) : (
+                                                                        <div
+                                                                            className="admin-table-initial"
+                                                                            style={{ backgroundColor: p.color || "#6366f1" }}
+                                                                        >
+                                                                            {p.name.charAt(0).toUpperCase()}
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="admin-grid-card-info">
+                                                                        <span className="admin-table-name" title={p.name}>{p.name}</span>
+                                                                        <span className="admin-table-category-badge" style={{ alignSelf: "flex-start" }}>
+                                                                            {p.category || "Other"}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="admin-grid-card-bottom">
+                                                                    <span className="admin-grid-domain" title={displayDomain}>
+                                                                        {displayDomain}
+                                                                    </span>
+                                                                    <div className="admin-table-actions">
+                                                                        {p.link && (
+                                                                            <a
+                                                                                href={p.link}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                className="admin-icon-btn small"
+                                                                                title="Visit website"
+                                                                            >
+                                                                                <FiExternalLink size={13} />
+                                                                            </a>
+                                                                        )}
+                                                                        <button
+                                                                            type="button"
+                                                                            className="admin-icon-btn small"
+                                                                            onClick={() => openEditForm(p)}
+                                                                            title="Edit platform"
+                                                                            disabled={saving}
+                                                                        >
+                                                                            <FiEdit2 size={13} />
+                                                                        </button>
+                                                                        {deleteConfirm === p.id ? (
+                                                                            <div className="admin-delete-confirm small">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="admin-icon-btn small danger"
+                                                                                    onClick={() => handleDelete(p.id)}
+                                                                                    title="Confirm delete"
+                                                                                    disabled={saving}
+                                                                                >
+                                                                                    {saving ? <span className="spinner" style={{ width: 10, height: 10 }} /> : <FiTrash2 size={13} />}
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="admin-icon-btn small"
+                                                                                    onClick={() => setDeleteConfirm(null)}
+                                                                                    title="Cancel"
+                                                                                    disabled={saving}
+                                                                                >
+                                                                                    <FiX size={13} />
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="admin-icon-btn small danger"
+                                                                                onClick={() => setDeleteConfirm(p.id)}
+                                                                                title="Delete platform"
+                                                                            >
+                                                                                <FiTrash2 size={13} />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+
+                                            {/* Pagination Controls */}
+                                            {totalPlatformPages > 1 && (
+                                                <div className="admin-pending-pagination" style={{ marginTop: "16px" }}>
+                                                    <button
+                                                        type="button"
+                                                        className="admin-page-nav-btn"
+                                                        disabled={currentPage === 1}
+                                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                                    >
+                                                        <FiChevronLeft size={14} />
+                                                        <span>Prev</span>
+                                                    </button>
+                                                    <div className="admin-page-numbers">
+                                                        {Array.from({ length: totalPlatformPages }, (_, i) => i + 1)
+                                                            .filter(page => page === 1 || page === totalPlatformPages || Math.abs(page - currentPage) <= 2)
+                                                            .map((page, idx, arr) => {
+                                                                const prevPage = arr[idx - 1];
+                                                                const showEllipsis = prevPage && page - prevPage > 1;
+                                                                return (
+                                                                    <span key={page} style={{ display: "inline-flex", alignItems: "center" }}>
+                                                                        {showEllipsis && <span style={{ padding: "0 4px", color: "var(--text-muted)", fontSize: "0.75rem" }}>…</span>}
+                                                                        <button
+                                                                            type="button"
+                                                                            className={`admin-page-btn ${currentPage === page ? "active" : ""}`}
+                                                                            onClick={() => setCurrentPage(page)}
+                                                                        >
+                                                                            {page}
+                                                                        </button>
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="admin-page-nav-btn"
+                                                        disabled={currentPage === totalPlatformPages}
+                                                        onClick={() => setCurrentPage(p => Math.min(totalPlatformPages, p + 1))}
+                                                    >
+                                                        <span>Next</span>
+                                                        <FiChevronRight size={14} />
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
-                                    )})}
-
-                                    {/* Pagination Controls */}
-                                    {totalPages > 1 && (
-                                        <div className="admin-pagination" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '24px', padding: '16px 0', borderTop: '1px solid var(--border-color)' }}>
-                                            <button 
-                                                disabled={currentPage === 1} 
-                                                onClick={() => setCurrentPage(p => p - 1)}
-                                                style={{ padding: "6px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", background: "var(--bg-secondary)", color: "var(--text-primary)", cursor: currentPage === 1 ? "not-allowed" : "pointer", opacity: currentPage === 1 ? 0.5 : 1 }}
-                                            >
-                                                Previous
-                                            </button>
-                                            <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Page {currentPage} of {totalPages}</span>
-                                            <button 
-                                                disabled={currentPage === totalPages} 
-                                                onClick={() => setCurrentPage(p => p + 1)}
-                                                style={{ padding: "6px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", background: "var(--bg-secondary)", color: "var(--text-primary)", cursor: currentPage === totalPages ? "not-allowed" : "pointer", opacity: currentPage === totalPages ? 0.5 : 1 }}
-                                            >
-                                                Next
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                    </div>
+                                )}
                             </div>
                         </main>
                     </>
