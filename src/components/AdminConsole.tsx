@@ -1251,28 +1251,31 @@ export default function AdminConsole() {
 
                                             {/* Pagination Controls */}
                                             {totalPlatformPages > 1 && (
-                                                <div className="admin-pending-pagination" style={{ marginTop: "16px" }}>
-                                                    <button
-                                                        type="button"
-                                                        className="admin-page-nav-btn"
-                                                        disabled={currentPage === 1}
-                                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                                    >
-                                                        <FiChevronLeft size={14} />
-                                                        <span>Prev</span>
-                                                    </button>
-                                                    <div className="admin-page-numbers">
+                                                <div className="admin-pagination-bar" style={{ marginTop: "16px" }}>
+                                                    <div className="admin-pagination-info">
+                                                        Showing <strong>{filteredAndSortedPlatforms.length === 0 ? 0 : (currentPage - 1) * platformPageSize + 1}–{Math.min(currentPage * platformPageSize, filteredAndSortedPlatforms.length)}</strong> of <strong>{filteredAndSortedPlatforms.length}</strong> platforms
+                                                    </div>
+                                                    <div className="admin-pagination-controls">
+                                                        <button
+                                                            type="button"
+                                                            className="admin-page-nav-btn"
+                                                            disabled={currentPage <= 1}
+                                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                                        >
+                                                            <FiChevronLeft size={13} />
+                                                            <span>Prev</span>
+                                                        </button>
                                                         {Array.from({ length: totalPlatformPages }, (_, i) => i + 1)
                                                             .filter(page => page === 1 || page === totalPlatformPages || Math.abs(page - currentPage) <= 2)
                                                             .map((page, idx, arr) => {
                                                                 const prevPage = arr[idx - 1];
                                                                 const showEllipsis = prevPage && page - prevPage > 1;
                                                                 return (
-                                                                    <span key={page} style={{ display: "inline-flex", alignItems: "center" }}>
-                                                                        {showEllipsis && <span style={{ padding: "0 4px", color: "var(--text-muted)", fontSize: "0.75rem" }}>…</span>}
+                                                                    <span key={page} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                                                        {showEllipsis && <span style={{ padding: "0 2px", color: "var(--text-muted)", fontSize: "0.74rem" }}>…</span>}
                                                                         <button
                                                                             type="button"
-                                                                            className={`admin-page-btn ${currentPage === page ? "active" : ""}`}
+                                                                            className={`admin-page-num-btn ${currentPage === page ? "active" : ""}`}
                                                                             onClick={() => setCurrentPage(page)}
                                                                         >
                                                                             {page}
@@ -1280,16 +1283,16 @@ export default function AdminConsole() {
                                                                     </span>
                                                                 );
                                                             })}
+                                                        <button
+                                                            type="button"
+                                                            className="admin-page-nav-btn"
+                                                            disabled={currentPage >= totalPlatformPages}
+                                                            onClick={() => setCurrentPage(p => Math.min(totalPlatformPages, p + 1))}
+                                                        >
+                                                            <span>Next</span>
+                                                            <FiChevronRight size={13} />
+                                                        </button>
                                                     </div>
-                                                    <button
-                                                        type="button"
-                                                        className="admin-page-nav-btn"
-                                                        disabled={currentPage === totalPlatformPages}
-                                                        onClick={() => setCurrentPage(p => Math.min(totalPlatformPages, p + 1))}
-                                                    >
-                                                        <span>Next</span>
-                                                        <FiChevronRight size={14} />
-                                                    </button>
                                                 </div>
                                             )}
                                         </div>
