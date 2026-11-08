@@ -69,12 +69,12 @@ service firebase.storage {
 
       // Write: only the designated admin can upload/update/delete logos
       allow create, update: if isVerifiedUser()
-        && (request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2' || request.auth.token.admin == true)
+        && request.auth.token.admin == true
         && isSafeImageType()
         && isUnderSizeLimit();
 
       allow delete: if isVerifiedUser()
-        && (request.auth.uid == 'NGq845EEJEMDZKKAPZMaSxznt5p2' || request.auth.token.admin == true);
+        && request.auth.token.admin == true;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -104,10 +104,20 @@ service firebase.storage {
       // Create: verified owner, any content type.
       // Client enforces the 20MB limit for Free tier and 5GB limit for Pro.
       // Server enforces an absolute max of 5GB to prevent runaway uploads.
+      function isProUser() {
+        return request.auth.token.plan == 'pro' || request.auth.token.admin == true;
+      }
+
+      function getMaxFileSize() {
+        return isProUser()
+          ? 5 * 1024 * 1024 * 1024   // 5 GB for Pro / Admin
+          : 25 * 1024 * 1024;        // 25 MB ceiling for Free tier (20MB raw + encryption overhead)
+      }
+
       allow create: if isAuthenticated()
         && isEmailVerified()
         && request.auth.uid == userId
-        && request.resource.size < 5 * 1024 * 1024 * 1024
+        && request.resource.size <= getMaxFileSize()
         && resource == null;  // prevent overwrites
 
       // Update: blocked (upload new file instead)

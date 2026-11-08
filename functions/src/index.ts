@@ -127,6 +127,27 @@ async function isUserExempt(uid: string): Promise<boolean> {
     }
 }
 
+/** Helper: sync custom claim plan for Storage security rules */
+async function syncUserPlanClaim(uid: string, plan: "pro" | "free"): Promise<void> {
+    try {
+        const user = await admin.auth().getUser(uid);
+        const existingClaims = user.customClaims || {};
+        if (plan === "pro") {
+            if (existingClaims.plan !== "pro") {
+                await admin.auth().setCustomUserClaims(uid, { ...existingClaims, plan: "pro" });
+            }
+        } else {
+            if (existingClaims.plan) {
+                const newClaims = { ...existingClaims };
+                delete newClaims.plan;
+                await admin.auth().setCustomUserClaims(uid, newClaims);
+            }
+        }
+    } catch (err) {
+        console.warn(`Failed to sync custom claim for user ${uid}:`, err);
+    }
+}
+
 /** Helper: compute user's current credential count and file storage usage */
 async function checkUserUsageAndGracePeriod(
     userRef: FirebaseFirestore.DocumentReference,
@@ -370,6 +391,7 @@ export const lemonWebhook = onRequest(
                 subscriptionStatus: "active",
                 downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
             });
+            await syncUserPlanClaim(uid, "pro");
             res.status(200).send("ok");
             return;
         }
@@ -386,6 +408,7 @@ export const lemonWebhook = onRequest(
                     lsCustomerId: customerId,
                     downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
                 });
+                await syncUserPlanClaim(uid, "pro");
                 break;
 
             case "subscription_updated": {
@@ -489,6 +512,7 @@ export const syncSubscriptionStatus = onCall(
                     downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
                 });
             }
+            await syncUserPlanClaim(request.auth.uid, "pro");
             return { plan: "pro", status: "active" };
         }
 
@@ -562,6 +586,9 @@ export const syncSubscriptionStatus = onCall(
             }
         }
 
+        if (rawPlan === "pro" && (rawStatus === "active" || rawStatus === "on_trial")) {
+            await syncUserPlanClaim(request.auth.uid, "pro");
+        }
         return { plan: rawPlan, status: rawStatus };
     }
 );

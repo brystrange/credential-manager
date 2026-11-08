@@ -74,22 +74,29 @@ service cloud.firestore {
         && hasMaxFields(20)
         && isValidString(request.resource.data.salt, 64)
         && isValidString(request.resource.data.fullName, 1000)
-        && request.resource.data.createdAt is timestamp
-          || request.resource.data.createdAt is map; // Firestore Timestamp or JS Date
+        && (request.resource.data.createdAt is timestamp || request.resource.data.createdAt is map)
+        && !request.resource.data.keys().hasAny([
+          'plan', 'subscriptionId', 'subscriptionStatus', 'currentPeriodEnd', 'lsCustomerId', 'downgradeGracePeriodEnd'
+        ]);
 
       // Update: only the verified owner, only specific fields
-      // Used to add/update the canary for vault password verification.
       // Subscription fields (plan, subscriptionId, subscriptionStatus,
       // currentPeriodEnd, lsCustomerId) are written ONLY by Cloud Functions
-      // via Admin SDK, which bypasses these rules entirely.
-      allow update: if (isAuthenticated() && request.auth.token.admin == true) || isVerifiedOwner(userId)
+      // via Admin SDK or by admin claim users.
+      allow update: if (isAuthenticated() && request.auth.token.admin == true) || (
+        isVerifiedOwner(userId)
         && hasMaxFields(20)
         // Cannot change the salt after creation (would break all encryption)
         && request.resource.data.salt == resource.data.salt
         // Cannot change createdAt
         && request.resource.data.createdAt == resource.data.createdAt
         // fullName can be updated but must remain valid (optional for backward compatibility)
-        && (!request.resource.data.keys().hasAll(['fullName']) || isValidString(request.resource.data.fullName, 1000));
+        && (!request.resource.data.keys().hasAll(['fullName']) || isValidString(request.resource.data.fullName, 1000))
+        // Non-admin users cannot self-escalate plan or tamper with subscription/grace period fields
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'plan', 'subscriptionId', 'subscriptionStatus', 'currentPeriodEnd', 'lsCustomerId', 'downgradeGracePeriodEnd'
+        ])
+      );
 
       // Delete: verified owner only (required for account deletion feature)
       allow delete: if isVerifiedOwner(userId);

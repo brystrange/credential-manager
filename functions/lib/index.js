@@ -145,6 +145,28 @@ async function isUserExempt(uid) {
         return false;
     }
 }
+/** Helper: sync custom claim plan for Storage security rules */
+async function syncUserPlanClaim(uid, plan) {
+    try {
+        const user = await admin.auth().getUser(uid);
+        const existingClaims = user.customClaims || {};
+        if (plan === "pro") {
+            if (existingClaims.plan !== "pro") {
+                await admin.auth().setCustomUserClaims(uid, { ...existingClaims, plan: "pro" });
+            }
+        }
+        else {
+            if (existingClaims.plan) {
+                const newClaims = { ...existingClaims };
+                delete newClaims.plan;
+                await admin.auth().setCustomUserClaims(uid, newClaims);
+            }
+        }
+    }
+    catch (err) {
+        console.warn(`Failed to sync custom claim for user ${uid}:`, err);
+    }
+}
 /** Helper: compute user's current credential count and file storage usage */
 async function checkUserUsageAndGracePeriod(userRef, fallbackStorageUsed = 0) {
     const [credsSnap, filesSnap, sharesSnap] = await Promise.all([
@@ -337,6 +359,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 subscriptionStatus: "active",
                 downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
             });
+            await syncUserPlanClaim(uid, "pro");
             res.status(200).send("ok");
             return;
         }
@@ -353,6 +376,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                     lsCustomerId: customerId,
                     downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
                 });
+                await syncUserPlanClaim(uid, "pro");
                 break;
             case "subscription_updated": {
                 const isCancelledOrExpired = attributes.cancelled === true ||
@@ -438,6 +462,7 @@ exports.syncSubscriptionStatus = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_A
                 downgradeGracePeriodEnd: admin.firestore.FieldValue.delete(),
             });
         }
+        await syncUserPlanClaim(request.auth.uid, "pro");
         return { plan: "pro", status: "active" };
     }
     const rawPlan = (_a = data.plan) !== null && _a !== void 0 ? _a : "free";
@@ -488,6 +513,9 @@ exports.syncSubscriptionStatus = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_A
         catch (err) {
             console.warn(`Failed to verify subscription ${subId} with Lemon Squeezy:`, err);
         }
+    }
+    if (rawPlan === "pro" && (rawStatus === "active" || rawStatus === "on_trial")) {
+        await syncUserPlanClaim(request.auth.uid, "pro");
     }
     return { plan: rawPlan, status: rawStatus };
 });
