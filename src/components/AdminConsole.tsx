@@ -322,6 +322,7 @@ export default function AdminConsole() {
                 }
             } else {
                 await addPlatform(input);
+                setPendingPlatforms(prev => prev.filter(p => p.name.toLowerCase() !== input.name.toLowerCase()));
             }
             resetForm();
             await loadPlatforms();
@@ -501,47 +502,7 @@ export default function AdminConsole() {
             </aside>
 
             <div className="admin-content">
-                {activeTab === "platforms" && (
-                    <>
-                        <header className="admin-header">
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <button className="admin-menu-btn" onClick={() => setSidebarOpen(true)}>
-                                    <FiMenu size={20} />
-                                </button>
-                                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Platforms</h2>
-                            </div>
-                            <button className="admin-add-btn" onClick={openAddForm}>
-                                <FiPlus size={16} />
-                                <span>Add Platform</span>
-                            </button>
-                        </header>
-                        <main className="admin-content-main">
-                            <div className="admin-content-body">
-                            {/* Search and Filters */}
-                            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-                                    <FiSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                                    <input 
-                                        type="text" 
-                                        placeholder="Search platforms..." 
-                                        value={searchQuery}
-                                        onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                                        style={{ width: '100%', padding: "8px 10px 8px 32px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: "0.85rem", boxSizing: "border-box" }}
-                                    />
-                                </div>
-                                <select 
-                                    className="admin-filter-select"
-                                    value={filterCategory} 
-                                    onChange={e => { setFilterCategory(e.target.value); setCurrentPage(1); }}
-                                >
-                                    <option value="All">All Categories</option>
-                                    {allCategories.map(cat => (
-                                        <option key={cat} value={cat}>{cat}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Add / Edit form */}
+                {/* Add / Edit form */}
                             {formOpen && (
                                 <div className="admin-form-overlay" onClick={resetForm}>
                                     <div className="admin-form-card" onClick={(e) => e.stopPropagation()}>
@@ -708,6 +669,46 @@ export default function AdminConsole() {
                                     </div>
                                 </div>
                             )}
+
+                {activeTab === "platforms" && (
+                    <>
+                        <header className="admin-header">
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <button className="admin-menu-btn" onClick={() => setSidebarOpen(true)}>
+                                    <FiMenu size={20} />
+                                </button>
+                                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Platforms</h2>
+                            </div>
+                            <button className="admin-add-btn" onClick={openAddForm}>
+                                <FiPlus size={16} />
+                                <span>Add Platform</span>
+                            </button>
+                        </header>
+                        <main className="admin-content-main">
+                            <div className="admin-content-body">
+                            {/* Search and Filters */}
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+                                    <FiSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Search platforms..." 
+                                        value={searchQuery}
+                                        onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                                        style={{ width: '100%', padding: "8px 10px 8px 32px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: "0.85rem", boxSizing: "border-box" }}
+                                    />
+                                </div>
+                                <select 
+                                    className="admin-filter-select"
+                                    value={filterCategory} 
+                                    onChange={e => { setFilterCategory(e.target.value); setCurrentPage(1); }}
+                                >
+                                    <option value="All">All Categories</option>
+                                    {allCategories.map(cat => (
+                                        <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                </select>
+                            </div>
 
                             {loading ? (
                                 <div className="admin-loading">
@@ -994,7 +995,6 @@ export default function AdminConsole() {
                                                 <button
                                                     className="admin-icon-btn"
                                                     onClick={() => {
-                                                        setActiveTab("platforms");
                                                         setFormName(p.name);
                                                         setFormCategory("Other");
                                                         setFormColor("#6366f1");
