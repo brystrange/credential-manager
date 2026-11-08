@@ -839,12 +839,7 @@ export default function AdminConsole() {
                                 <button className="admin-menu-btn" onClick={() => setSidebarOpen(true)}>
                                     <FiMenu size={20} />
                                 </button>
-                                <div>
-                                    <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Platforms Directory</h2>
-                                    <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)", margin: 0, marginTop: 2 }}>
-                                        Manage {platforms.length} supported platforms across {allCategories.length} categories
-                                    </p>
-                                </div>
+                                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Platforms Directory</h2>
                             </div>
                             <button className="admin-add-btn" onClick={openAddForm}>
                                 <FiPlus size={16} />
@@ -1400,12 +1395,7 @@ export default function AdminConsole() {
                                 <button className="admin-menu-btn" onClick={() => setSidebarOpen(true)}>
                                     <FiMenu size={20} />
                                 </button>
-                                <div>
-                                    <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Pending Logos Analytics</h2>
-                                    <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)", margin: 0, marginTop: 2 }}>
-                                        Assess unbranded platform demand and decide which logos to add
-                                    </p>
-                                </div>
+                                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Pending Logos Analytics</h2>
                             </div>
                             <button
                                 className="admin-add-btn"
