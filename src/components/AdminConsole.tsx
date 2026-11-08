@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Platform, PlatformInput } from "../services/platformService";
 import {
     getPlatforms,
@@ -25,8 +25,12 @@ import {
     FiLayers,
     FiChevronDown,
     FiChevronRight,
+    FiChevronLeft,
     FiSearch,
     FiMenu,
+    FiTrendingUp,
+    FiAward,
+    FiActivity,
 } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { collection, doc, setDoc, deleteDoc, getDocs, query, where } from "firebase/firestore";
@@ -45,9 +49,14 @@ export default function AdminConsole() {
     const [activeTab, setActiveTab] = useState<"platforms" | "exemptions" | "pending">("platforms");
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
-    // Pending Logos state
+    // Pending Logos state & pagination
     const [pendingPlatforms, setPendingPlatforms] = useState<{ name: string; count: number }[]>([]);
     const [loadingPending, setLoadingPending] = useState(false);
+    const [hasScannedPending, setHasScannedPending] = useState(false);
+    const [pendingSearch, setPendingSearch] = useState("");
+    const [pendingPage, setPendingPage] = useState(1);
+    const [selectedPendingName, setSelectedPendingName] = useState<string | null>(null);
+    const PENDING_PAGE_SIZE = 8;
     // Search, filter, pagination, accordion state
     const [searchQuery, setSearchQuery] = useState("");
     const [filterCategory, setFilterCategory] = useState("All");
@@ -221,6 +230,7 @@ export default function AdminConsole() {
         try {
             const data = await getPendingCustomPlatforms();
             setPendingPlatforms(data);
+            setHasScannedPending(true);
         } catch (err) {
             console.error("Failed to scan pending platforms:", err);
             alert("Failed to scan for pending platforms. Check console for details.");
@@ -228,6 +238,70 @@ export default function AdminConsole() {
             setLoadingPending(false);
         }
     };
+
+    // Auto-scan on opening Pending Logo tab if not scanned yet
+    useEffect(() => {
+        if (activeTab === "pending" && !hasScannedPending && pendingPlatforms.length === 0 && !loadingPending) {
+            handleScanPendingLogos();
+        }
+    }, [activeTab, hasScannedPending, pendingPlatforms.length, loadingPending]);
+
+    // Pending logos analytics calculations
+    const sortedPending = useMemo(() => {
+        return [...pendingPlatforms].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    }, [pendingPlatforms]);
+
+    const filteredPending = useMemo(() => {
+        if (!pendingSearch.trim()) return sortedPending;
+        const q = pendingSearch.trim().toLowerCase();
+        return sortedPending.filter(p => p.name.toLowerCase().includes(q));
+    }, [sortedPending, pendingSearch]);
+
+    const totalPendingPlatforms = pendingPlatforms.length;
+    const totalPendingCredentials = useMemo(() => {
+        return pendingPlatforms.reduce((sum, p) => sum + p.count, 0);
+    }, [pendingPlatforms]);
+
+    const multiUsePlatforms = useMemo(() => {
+        return sortedPending.filter(p => p.count > 1);
+    }, [sortedPending]);
+
+    const singleUsePlatforms = useMemo(() => {
+        return sortedPending.filter(p => p.count === 1);
+    }, [sortedPending]);
+
+    const multiUseCredentialsCount = useMemo(() => {
+        return multiUsePlatforms.reduce((sum, p) => sum + p.count, 0);
+    }, [multiUsePlatforms]);
+
+    const activeSelectedPlatform = useMemo(() => {
+        if (selectedPendingName) {
+            const found = sortedPending.find(p => p.name.toLowerCase() === selectedPendingName.toLowerCase());
+            if (found) return found;
+        }
+        return sortedPending[0] || null;
+    }, [sortedPending, selectedPendingName]);
+
+    const activeSelectedRank = useMemo(() => {
+        if (!activeSelectedPlatform) return 0;
+        return sortedPending.findIndex(p => p.name.toLowerCase() === activeSelectedPlatform.name.toLowerCase()) + 1;
+    }, [sortedPending, activeSelectedPlatform]);
+
+    const totalPendingPages = Math.ceil(filteredPending.length / PENDING_PAGE_SIZE) || 1;
+    const paginatedPending = useMemo(() => {
+        const start = (pendingPage - 1) * PENDING_PAGE_SIZE;
+        return filteredPending.slice(start, start + PENDING_PAGE_SIZE);
+    }, [filteredPending, pendingPage, PENDING_PAGE_SIZE]);
+
+    useEffect(() => {
+        setPendingPage(1);
+    }, [pendingSearch]);
+
+    useEffect(() => {
+        if (pendingPage > totalPendingPages && totalPendingPages > 0) {
+            setPendingPage(totalPendingPages);
+        }
+    }, [pendingPage, totalPendingPages]);
 
     /** Extract the Firebase Storage object path from a download URL */
     const getStoragePath = (url: string): string | null => {
@@ -958,57 +1032,338 @@ export default function AdminConsole() {
                                 <button className="admin-menu-btn" onClick={() => setSidebarOpen(true)}>
                                     <FiMenu size={20} />
                                 </button>
-                                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Pending Logos</h2>
+                                <div>
+                                    <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Pending Logos Analytics</h2>
+                                    <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)", margin: 0, marginTop: 2 }}>
+                                        Assess unbranded platform demand and decide which logos to add
+                                    </p>
+                                </div>
                             </div>
                             <button
                                 className="admin-add-btn"
                                 onClick={handleScanPendingLogos}
                                 disabled={loadingPending}
+                                title="Scan credentials to find unbranded platforms"
                             >
                                 {loadingPending ? <span className="spinner small" /> : <FiSearch size={16} />}
-                                <span>Scan for Pending Logos</span>
+                                <span>{loadingPending ? "Scanning…" : "Scan for Pending Logos"}</span>
                             </button>
                         </header>
                         <main className="admin-content-main">
-                            <div className="admin-content-body">
+                            <div className="admin-pending-container">
                                 {loadingPending ? (
                                     <div className="admin-loading">
                                         <span className="spinner large" />
-                                        <p>Scanning all credentials (this may take a moment)…</p>
+                                        <p>Scanning all credentials across users to analyze unbranded platforms…</p>
                                     </div>
                                 ) : pendingPlatforms.length === 0 ? (
                                     <div className="admin-empty">
                                         <FiImage size={40} style={{ color: "var(--text-secondary)", marginBottom: 10 }} />
                                         <h2>No Pending Logos</h2>
-                                        <p>Click "Scan" to find custom platforms added by users.</p>
+                                        <p>All platforms in user credentials match global platforms, or you haven't scanned yet.</p>
+                                        <button className="admin-add-btn" onClick={handleScanPendingLogos} style={{ marginTop: 12 }}>
+                                            <FiSearch size={16} />
+                                            <span>Scan for Pending Logos</span>
+                                        </button>
                                     </div>
                                 ) : (
-                                    <div className="admin-platform-cards" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                                        {pendingPlatforms.map(p => (
-                                            <div key={p.name} className="admin-platform-card" style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                                <div>
-                                                    <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.82rem" }}>{p.name}</div>
-                                                    <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: 2 }}>
-                                                        Used by {p.count} credential{p.count !== 1 ? 's' : ''}
+                                    <div className="admin-pending-grid">
+                                        {/* LEFT HALF: Simple Analytical Decision Dashboard (NO GRAPHS) */}
+                                        <div className="admin-analytics-left">
+                                            {/* Summary KPI Cards */}
+                                            <div className="admin-kpi-grid">
+                                                <div className="admin-kpi-card">
+                                                    <div className="admin-kpi-icon blue">
+                                                        <FiImage size={18} />
+                                                    </div>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div className="admin-kpi-value">{totalPendingPlatforms}</div>
+                                                        <div className="admin-kpi-label">Missing Logos</div>
                                                     </div>
                                                 </div>
-                                                <button
-                                                    className="admin-icon-btn"
-                                                    onClick={() => {
-                                                        setFormName(p.name);
-                                                        setFormCategory("Other");
-                                                        setFormColor("#6366f1");
-                                                        setFormLogoUrl("");
-                                                        setFormLink("");
-                                                        setEditingPlatform(null);
-                                                        setFormOpen(true);
-                                                    }}
-                                                    title="Add Platform"
-                                                >
-                                                    <FiPlus size={14} />
-                                                </button>
+                                                <div className="admin-kpi-card">
+                                                    <div className="admin-kpi-icon purple">
+                                                        <FiUsers size={18} />
+                                                    </div>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div className="admin-kpi-value">{totalPendingCredentials}</div>
+                                                        <div className="admin-kpi-label">Total Credentials</div>
+                                                    </div>
+                                                </div>
+                                                <div className="admin-kpi-card">
+                                                    <div className="admin-kpi-icon gold">
+                                                        <FiTrendingUp size={18} />
+                                                    </div>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div className="admin-kpi-value">{multiUsePlatforms.length}</div>
+                                                        <div className="admin-kpi-label">Multi-User Need</div>
+                                                    </div>
+                                                </div>
+                                                <div className="admin-kpi-card">
+                                                    <div className="admin-kpi-icon green">
+                                                        <FiAward size={18} />
+                                                    </div>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div className="admin-kpi-value" title={sortedPending[0]?.name}>
+                                                            {sortedPending[0]?.name || "None"}
+                                                        </div>
+                                                        <div className="admin-kpi-label">#1 Top Requested</div>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        ))}
+
+                                            {/* Spotlight Decision Card for Selected/Top Platform */}
+                                            {activeSelectedPlatform && (
+                                                <div className="admin-spotlight-card">
+                                                    <div className="admin-spotlight-header">
+                                                        <div>
+                                                            <div className="admin-spotlight-tag">Platform Spotlight</div>
+                                                            <h3 className="admin-spotlight-title">{activeSelectedPlatform.name}</h3>
+                                                        </div>
+                                                        <span className={`admin-spotlight-rank ${activeSelectedRank === 1 ? 'top1' : ''}`}>
+                                                            {activeSelectedRank === 1 ? <FiAward size={13} /> : null}
+                                                            Rank #{activeSelectedRank} of {totalPendingPlatforms}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Key Metrics */}
+                                                    <div className="admin-spotlight-metrics">
+                                                        <div className="admin-metric-item">
+                                                            <span className="admin-metric-num">{activeSelectedPlatform.count}</span>
+                                                            <span className="admin-metric-desc">Credential{activeSelectedPlatform.count !== 1 ? 's' : ''} using this</span>
+                                                        </div>
+                                                        <div className="admin-metric-item">
+                                                            <span className="admin-metric-num">
+                                                                {((activeSelectedPlatform.count / (totalPendingCredentials || 1)) * 100).toFixed(1)}%
+                                                            </span>
+                                                            <span className="admin-metric-desc">Share of unbranded demand</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Demand Share Meter Bar (Simple CSS bar, not a graph) */}
+                                                    <div className="admin-demand-bar-wrap">
+                                                        <div className="admin-demand-bar-header">
+                                                            <span>Demand Concentration</span>
+                                                            <span>
+                                                                {((activeSelectedPlatform.count / (totalPendingCredentials || 1)) * 100).toFixed(1)}% of total
+                                                            </span>
+                                                        </div>
+                                                        <div className="admin-demand-track">
+                                                            <div 
+                                                                className="admin-demand-fill" 
+                                                                style={{ 
+                                                                    width: `${Math.min(100, Math.max(6, (activeSelectedPlatform.count / (totalPendingCredentials || 1)) * 100))}%` 
+                                                                }} 
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Logo Decision Recommendation */}
+                                                    <div className={`admin-recommendation-box ${activeSelectedPlatform.count >= 3 ? 'urgent' : activeSelectedPlatform.count === 2 ? 'moderate' : 'low'}`}>
+                                                        <div className="admin-recommendation-title">
+                                                            {activeSelectedPlatform.count >= 3 ? (
+                                                                <>🔥 High Urgency: Official Logo Strongly Recommended</>
+                                                            ) : activeSelectedPlatform.count === 2 ? (
+                                                                <>⚡ Moderate Need: Emerging Adoption Trend</>
+                                                            ) : (
+                                                                <>💤 Low Urgency: Single User Custom Entry</>
+                                                            )}
+                                                        </div>
+                                                        <div className="admin-recommendation-desc">
+                                                            {activeSelectedPlatform.count >= 3 ? (
+                                                                `High credential density (${activeSelectedPlatform.count} credentials). Adding an official platform entry and logo will immediately clean up branding for multiple users.`
+                                                            ) : activeSelectedPlatform.count === 2 ? (
+                                                                `Used across ${activeSelectedPlatform.count} credentials. Adding an official platform now will standardize formatting and prevent future duplicate variants.`
+                                                            ) : (
+                                                                `Currently only used by 1 credential. You can safely wait to see if more users add credentials for this platform before uploading an official logo.`
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Action Button */}
+                                                    <button
+                                                        type="button"
+                                                        className="admin-spotlight-cta"
+                                                        onClick={() => {
+                                                            setFormName(activeSelectedPlatform.name);
+                                                            setFormCategory("Other");
+                                                            setFormColor("#6366f1");
+                                                            setFormLogoUrl("");
+                                                            setFormLink("");
+                                                            setEditingPlatform(null);
+                                                            setFormOpen(true);
+                                                        }}
+                                                    >
+                                                        <FiPlus size={15} />
+                                                        <span>Add Official Logo for "{activeSelectedPlatform.name}"</span>
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* Adoption Tier Breakdown (Analytical summary without graphs) */}
+                                            <div className="admin-breakdown-card">
+                                                <div className="admin-breakdown-title">
+                                                    <FiActivity size={15} />
+                                                    <span>Demand Distribution Breakdown</span>
+                                                </div>
+                                                <div className="admin-tier-list">
+                                                    <div className="admin-tier-row">
+                                                        <div className="admin-tier-name">
+                                                            <span className="admin-tier-badge red" />
+                                                            <span>Multi-Credential Platforms (2+)</span>
+                                                        </div>
+                                                        <div className="admin-tier-stats">
+                                                            <strong>{multiUsePlatforms.length}</strong> platforms ({multiUseCredentialsCount} creds)
+                                                        </div>
+                                                    </div>
+                                                    <div className="admin-tier-row">
+                                                        <div className="admin-tier-name">
+                                                            <span className="admin-tier-badge gray" />
+                                                            <span>Single-Credential Platforms (1)</span>
+                                                        </div>
+                                                        <div className="admin-tier-stats">
+                                                            <strong>{singleUsePlatforms.length}</strong> platforms ({singleUsePlatforms.length} creds)
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                                                    💡 <em>Adding official logos for just the <strong>{multiUsePlatforms.length}</strong> multi-credential platform{multiUsePlatforms.length !== 1 ? 's' : ''} will resolve <strong>{Math.round((multiUseCredentialsCount / (totalPendingCredentials || 1)) * 100)}%</strong> of unbranded credentials in the entire vault.</em>
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* RIGHT HALF: Highest Used Platforms List with Automatic Sorting & Pagination */}
+                                        <div className="admin-pending-right">
+                                            <div className="admin-pending-list-header">
+                                                <div className="admin-pending-list-title">
+                                                    <FiTrendingUp size={16} style={{ color: "var(--gold)" }} />
+                                                    <span>Highest Used Platforms</span>
+                                                    <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                                                        ({sortedPending.length} pending)
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Search filter input */}
+                                            {sortedPending.length > 3 && (
+                                                <div className="admin-pending-search-wrap">
+                                                    <FiSearch size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                                                    <input
+                                                        type="text"
+                                                        className="admin-pending-search-input"
+                                                        placeholder="Search pending platforms..."
+                                                        value={pendingSearch}
+                                                        onChange={(e) => setPendingSearch(e.target.value)}
+                                                    />
+                                                    {pendingSearch && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPendingSearch("")}
+                                                            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 4 }}
+                                                        >
+                                                            <FiX size={13} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* Items List */}
+                                            <div className="admin-pending-items">
+                                                {paginatedPending.length === 0 ? (
+                                                    <div style={{ textAlign: "center", padding: "30px 0", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                                                        No platforms match "{pendingSearch}"
+                                                    </div>
+                                                ) : (
+                                                    paginatedPending.map((p, idx) => {
+                                                        const globalRank = (pendingPage - 1) * PENDING_PAGE_SIZE + idx + 1;
+                                                        const isSelected = activeSelectedPlatform?.name.toLowerCase() === p.name.toLowerCase();
+                                                        const sharePercent = ((p.count / (totalPendingCredentials || 1)) * 100).toFixed(0);
+
+                                                        return (
+                                                            <div
+                                                                key={p.name}
+                                                                className={`admin-pending-row ${isSelected ? 'selected' : ''}`}
+                                                                onClick={() => setSelectedPendingName(p.name)}
+                                                                title={`Click to view analysis for ${p.name}`}
+                                                            >
+                                                                <div className="admin-row-left">
+                                                                    <div className={`admin-rank-pill ${globalRank === 1 ? 'rank-1' : globalRank === 2 ? 'rank-2' : globalRank === 3 ? 'rank-3' : ''}`}>
+                                                                        #{globalRank}
+                                                                    </div>
+                                                                    <div className="admin-row-info">
+                                                                        <div className="admin-row-name">{p.name}</div>
+                                                                        <div className="admin-row-sub">
+                                                                            <span>Used by <strong>{p.count}</strong> credential{p.count !== 1 ? 's' : ''}</span>
+                                                                            <span className="admin-share-pill">{sharePercent}% demand</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="admin-row-actions">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="admin-icon-btn"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setFormName(p.name);
+                                                                            setFormCategory("Other");
+                                                                            setFormColor("#6366f1");
+                                                                            setFormLogoUrl("");
+                                                                            setFormLink("");
+                                                                            setEditingPlatform(null);
+                                                                            setFormOpen(true);
+                                                                        }}
+                                                                        title={`Add official platform for "${p.name}"`}
+                                                                    >
+                                                                        <FiPlus size={14} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+
+                                            {/* Pagination Bar */}
+                                            {totalPendingPages > 1 && (
+                                                <div className="admin-pagination-bar">
+                                                    <div className="admin-pagination-info">
+                                                        Showing <strong>{(pendingPage - 1) * PENDING_PAGE_SIZE + 1}–{Math.min(pendingPage * PENDING_PAGE_SIZE, filteredPending.length)}</strong> of <strong>{filteredPending.length}</strong>
+                                                    </div>
+                                                    <div className="admin-pagination-controls">
+                                                        <button
+                                                            type="button"
+                                                            className="admin-page-nav-btn"
+                                                            disabled={pendingPage <= 1}
+                                                            onClick={() => setPendingPage(p => Math.max(1, p - 1))}
+                                                        >
+                                                            <FiChevronLeft size={13} />
+                                                            <span>Prev</span>
+                                                        </button>
+
+                                                        {Array.from({ length: totalPendingPages }, (_, i) => i + 1).map(num => (
+                                                            <button
+                                                                key={num}
+                                                                type="button"
+                                                                className={`admin-page-num-btn ${pendingPage === num ? 'active' : ''}`}
+                                                                onClick={() => setPendingPage(num)}
+                                                            >
+                                                                {num}
+                                                            </button>
+                                                        ))}
+
+                                                        <button
+                                                            type="button"
+                                                            className="admin-page-nav-btn"
+                                                            disabled={pendingPage >= totalPendingPages}
+                                                            onClick={() => setPendingPage(p => Math.min(totalPendingPages, p + 1))}
+                                                        >
+                                                            <span>Next</span>
+                                                            <FiChevronRight size={13} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>
