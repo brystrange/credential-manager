@@ -37,9 +37,29 @@ export function validatePlatformInput(data: unknown): PlatformInput {
 
     const logoUrl = typeof d.logoUrl === "string" ? d.logoUrl.trim() : "";
     if (logoUrl.length > 2048) throw new Error("Logo URL must be 2048 characters or fewer.");
+    if (logoUrl) {
+        try {
+            const parsed = new URL(logoUrl);
+            if (parsed.protocol !== "https:") {
+                throw new Error("Logo URL must use https.");
+            }
+        } catch {
+            throw new Error("Invalid logo URL format. Must be a valid https URL.");
+        }
+    }
 
     const link = typeof d.link === "string" ? d.link.trim() : "";
     if (link.length > 2048) throw new Error("Link must be 2048 characters or fewer.");
+    if (link) {
+        try {
+            const parsed = new URL(link);
+            if (!["http:", "https:"].includes(parsed.protocol)) {
+                throw new Error("Link must use http or https protocol.");
+            }
+        } catch {
+            throw new Error("Invalid link URL format. Must be a valid http or https URL.");
+        }
+    }
 
     return { name, domain, color, category, logoUrl, link };
 }

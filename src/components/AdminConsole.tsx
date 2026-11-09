@@ -304,7 +304,22 @@ export default function AdminConsole() {
     }, [pendingPage, totalPendingPages]);
 
     /** Extract the Firebase Storage object path from a download URL */
-    const getStoragePath = (url: string): string | null => {
+    function sanitizeUrl(url: string | null | undefined): string | undefined {
+    if (!url) return undefined;
+    const trimmed = url.trim();
+    if (!trimmed) return undefined;
+    try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+            return trimmed;
+        }
+    } catch {
+        // relative or malformed URL
+    }
+    return undefined;
+}
+
+const getStoragePath = (url: string): string | null => {
         try {
             const urlObj = new URL(url);
             if (!urlObj.hostname.includes("firebasestorage.googleapis.com")) return null;
@@ -410,9 +425,20 @@ export default function AdminConsole() {
     const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const ALLOWED_EXTS = ["png", "jpg", "jpeg", "webp", "gif", "ico"];
+        const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+        if (!ALLOWED_EXTS.includes(ext) || file.type === "image/svg+xml") {
+            alert("Only PNG, JPEG, WebP, GIF, and ICO image formats are supported. SVG files are disabled for security.");
+            e.target.value = "";
+            return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+            alert("Logo image size must be less than 2 MB.");
+            e.target.value = "";
+            return;
+        }
         setUploading(true);
         try {
-            const ext = file.name.split(".").pop()?.toLowerCase() || "png";
 
             let filename: string;
             if (editingPlatform) {
@@ -1075,9 +1101,9 @@ export default function AdminConsole() {
                                                                             <span className="admin-table-category-badge">{p.category || "Other"}</span>
                                                                         </td>
                                                                         <td>
-                                                                            {p.link ? (
+                                                                            {sanitizeUrl(p.link) ? (
                                                                                 <a
-                                                                                    href={p.link}
+                                                                                    href={sanitizeUrl(p.link)}
                                                                                     target="_blank"
                                                                                     rel="noopener noreferrer"
                                                                                     className="admin-table-domain-link"
@@ -1091,9 +1117,9 @@ export default function AdminConsole() {
                                                                         </td>
                                                                         <td>
                                                                             <div className="admin-table-actions">
-                                                                                {p.link && (
+                                                                                {sanitizeUrl(p.link) && (
                                                                                     <a
-                                                                                        href={p.link}
+                                                                                        href={sanitizeUrl(p.link)}
                                                                                         target="_blank"
                                                                                         rel="noopener noreferrer"
                                                                                         className="admin-icon-btn small"
@@ -1185,9 +1211,9 @@ export default function AdminConsole() {
                                                                         {displayDomain}
                                                                     </span>
                                                                     <div className="admin-table-actions">
-                                                                        {p.link && (
+                                                                        {sanitizeUrl(p.link) && (
                                                                             <a
-                                                                                href={p.link}
+                                                                                href={sanitizeUrl(p.link)}
                                                                                 target="_blank"
                                                                                 rel="noopener noreferrer"
                                                                                 className="admin-icon-btn small"

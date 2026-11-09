@@ -292,6 +292,28 @@ const globalFolderCountsCache: Record<string, number> = {};
 let globalFoldersCache: VaultFolder[] | null = null;
 let globalFilesCache: VaultFile[] | null = null;
 
+function sanitizeExcelHtml(html: string): string {
+    if (!html) return '';
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        doc.querySelectorAll('script, iframe, object, embed, link, meta, base').forEach(el => el.remove());
+        doc.querySelectorAll('*').forEach(el => {
+            for (const attr of Array.from(el.attributes)) {
+                const name = attr.name.toLowerCase();
+                const val = attr.value.toLowerCase().trim();
+                if (name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('data:text/html')) {
+                    el.removeAttribute(attr.name);
+                }
+            }
+        });
+        const table = doc.querySelector('table');
+        return table ? table.outerHTML : (doc.body ? doc.body.innerHTML : '');
+    } catch {
+        return '';
+    }
+}
+
 export function clearFileExplorerCache(): void {
     globalImageCache.forEach((url) => {
         try {
@@ -1120,12 +1142,12 @@ export default function FileExplorer() {
                                 });
                                 
                                 table.style.borderCollapse = 'collapse';
-                                excelHtml = table.outerHTML;
+                                excelHtml = sanitizeExcelHtml(table.outerHTML);
                             } else {
-                                excelHtml = rawHtml;
+                                excelHtml = sanitizeExcelHtml(rawHtml);
                             }
                         } else {
-                            excelHtml = rawHtml;
+                            excelHtml = sanitizeExcelHtml(rawHtml);
                         }
                     } catch (e) {
                         console.error("Excel parse failed", e);
@@ -1481,12 +1503,12 @@ export default function FileExplorer() {
                                 });
                                 
                                 table.style.borderCollapse = 'collapse';
-                                excelHtml = table.outerHTML;
+                                excelHtml = sanitizeExcelHtml(table.outerHTML);
                             } else {
-                                excelHtml = rawHtml;
+                                excelHtml = sanitizeExcelHtml(rawHtml);
                             }
                         } else {
-                            excelHtml = rawHtml;
+                            excelHtml = sanitizeExcelHtml(rawHtml);
                         }
                     } catch (e) {
                         console.error("Excel parse failed", e);
@@ -3346,6 +3368,7 @@ export default function FileExplorer() {
                             <div style={{ width: '100%', height: '100%', overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
                                 <iframe 
                                     src={selectedImage.url} 
+                                    sandbox="allow-same-origin allow-popups"
                                     style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-md)', background: '#fff' }}
                                     title={selectedImage.file.name}
                                 />
