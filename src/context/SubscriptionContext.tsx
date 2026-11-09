@@ -184,7 +184,7 @@ export function SubscriptionProvider({
     const fetchSharedStorage = async () => {
       try {
         const res = await listShares();
-        sharedBytes = res.received.reduce(
+        sharedBytes = res.sent.reduce(
           (sum, item) => sum + item.files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0),
           0
         );
@@ -206,7 +206,7 @@ export function SubscriptionProvider({
     // Also attempt real-time listener on shares collection if allowed by security rules
     let unsubShares: (() => void) | null = null;
     try {
-      const sharesQuery = query(collection(db, "shares"), where("recipientUids", "array-contains", uid));
+      const sharesQuery = query(collection(db, "shares"), where("senderUid", "==", uid));
       unsubShares = onSnapshot(sharesQuery, (snap) => {
         sharedBytes = snap.docs.reduce((sum, d) => {
           const files = (d.data().files as Array<{ size?: number }>) || [];

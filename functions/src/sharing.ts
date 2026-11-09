@@ -158,10 +158,46 @@ export const setSharingKey = onCall(async (request) => {
 });
 
 // ─── Recipient lookup (exact email match, Pro only) ─────────────────────────
+// Velocity tracking per user to prevent email enumeration: max 30 lookups per minute
+const lookupTimestamps = new Map<string, number[]>();
+
+function checkLookupRateLimit(uid: string): void {
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    const maxLookups = 30;
+
+    let timestamps = lookupTimestamps.get(uid);
+    if (!timestamps) {
+        timestamps = [];
+        lookupTimestamps.set(uid, timestamps);
+    }
+
+    timestamps = timestamps.filter((t) => now - t < windowMs);
+    lookupTimestamps.set(uid, timestamps);
+
+    if (timestamps.length >= maxLookups) {
+        throw new HttpsError(
+            "resource-exhausted",
+            "Too many recipient lookups. Please wait a moment before trying again."
+        );
+    }
+
+    timestamps.push(now);
+
+    if (lookupTimestamps.size > 1000) {
+        for (const [key, list] of lookupTimestamps.entries()) {
+            if (list.length === 0 || now - list[list.length - 1] > windowMs) {
+                lookupTimestamps.delete(key);
+            }
+        }
+    }
+}
+
 
 export const lookupShareRecipient = onCall(async (request) => {
     const uid = requireVerifiedAuth(request);
     await requirePro(uid);
+    checkLookupRateLimit(uid);
 
     const rawEmail = request.data?.email;
     if (!isNonEmptyString(rawEmail, 320)) {
@@ -401,18 +437,15 @@ export const createShare = onCall(async (request) => {
 
     const shareSize = cleanFiles.reduce((sum, f) => sum + (f.size || 0), 0);
 
-    // Verify all recipients have sufficient storage capacity for the shared files
-    for (const r of validRecipients) {
-        const isPro = await isUserPro(r.uid);
-        const limit = isPro ? 5 * 1024 * 1024 * 1024 : 500 * 1024 * 1024;
-        const uDoc = await db().collection("users").doc(r.uid).get();
-        const currentUsage = Number(uDoc.data()?.storageUsed) || 0;
-        if (currentUsage + shareSize > limit) {
-            throw new HttpsError(
-                "failed-precondition",
-                `Recipient ${r.displayName || r.email} has insufficient storage space.`
-            );
-        }
+    // Verify sender has sufficient storage capacity for the shared files
+    const senderDoc = await db().collection("users").doc(uid).get();
+    const senderUsage = Number(senderDoc.data()?.storageUsed) || 0;
+    const SENDER_LIMIT = 5 * 1024 * 1024 * 1024; // 5 GB limit for Pro users
+    if (senderUsage + shareSize > SENDER_LIMIT) {
+        throw new HttpsError(
+            "failed-precondition",
+            "You have insufficient storage space to share these files. Please delete some files or previous shares."
+        );
     }
 
     const shareRef = db().collection("shares").doc(shareId);
@@ -433,7 +466,7 @@ export const createShare = onCall(async (request) => {
         throw new HttpsError("already-exists", "This share already exists.");
     }
 
-    // Track frequent recipients and count shared files towards each recipient's storage usage
+    // Track frequent recipients
     const batch = db().batch();
     validRecipients.forEach((r) => {
         const ref = db().collection("shareContacts").doc(uid).collection("contacts").doc(r.uid);
@@ -443,15 +476,16 @@ export const createShare = onCall(async (request) => {
             shareCount: admin.firestore.FieldValue.increment(1),
             lastSharedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
-
-        if (shareSize > 0) {
-            batch.set(
-                db().collection("users").doc(r.uid),
-                { storageUsed: admin.firestore.FieldValue.increment(shareSize) },
-                { merge: true }
-            );
-        }
     });
+
+    // Count shared files towards the sender's storage usage
+    if (shareSize > 0) {
+        batch.set(
+            db().collection("users").doc(uid),
+            { storageUsed: admin.firestore.FieldValue.increment(shareSize) },
+            { merge: true }
+        );
+    }
     await batch.commit();
 
     return { ok: true, shareId };
@@ -540,17 +574,12 @@ export const deleteShare = onCall(async (request) => {
         await deleteShareObjects(s.files || []);
         await ref.delete();
 
-        // Free up storage for all recipients of this share
-        if (shareSize > 0 && recipientUids.length > 0) {
-            const decBatch = db().batch();
-            recipientUids.forEach((rUid) => {
-                decBatch.set(
-                    db().collection("users").doc(rUid),
-                    { storageUsed: admin.firestore.FieldValue.increment(-shareSize) },
-                    { merge: true }
-                );
-            });
-            await decBatch.commit().catch((e) => console.warn("Failed to decrement storage for recipients:", e));
+        // Free up storage for the sender
+        if (shareSize > 0) {
+            await db().collection("users").doc(uid).set(
+                { storageUsed: admin.firestore.FieldValue.increment(-shareSize) },
+                { merge: true }
+            ).catch((e) => console.warn("Failed to decrement storage for sender:", e));
         }
 
         return { ok: true, revoked: true };
@@ -565,20 +594,20 @@ export const deleteShare = onCall(async (request) => {
     if (remaining.length === 0) {
         await deleteShareObjects(s.files || []);
         await ref.delete();
+
+        // Since all recipients left and files are deleted, free storage for sender
+        if (shareSize > 0) {
+            await db().collection("users").doc(s.senderUid).set(
+                { storageUsed: admin.firestore.FieldValue.increment(-shareSize) },
+                { merge: true }
+            ).catch((e) => console.warn("Failed to decrement storage for sender:", e));
+        }
     } else {
         await ref.update({
             recipientUids: remaining,
             recipients: (s.recipients || []).filter((r: { uid: string }) => r.uid !== uid),
             [`wrappedKeys.${uid}`]: admin.firestore.FieldValue.delete(),
         });
-    }
-
-    // Free up storage for this recipient
-    if (shareSize > 0) {
-        await db().collection("users").doc(uid).set(
-            { storageUsed: admin.firestore.FieldValue.increment(-shareSize) },
-            { merge: true }
-        ).catch((e) => console.warn("Failed to decrement storage for recipient:", e));
     }
 
     return { ok: true, revoked: false };

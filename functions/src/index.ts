@@ -161,7 +161,7 @@ async function checkUserUsageAndGracePeriod(
     const [credsSnap, filesSnap, sharesSnap] = await Promise.all([
         userRef.collection("credentials").count().get(),
         userRef.collection("files").get(),
-        admin.firestore().collection("shares").where("recipientUids", "array-contains", userRef.id).get(),
+        admin.firestore().collection("shares").where("senderUid", "==", userRef.id).get(),
     ]);
     const credsCount = credsSnap.data().count;
     const filesBytes = filesSnap.docs.reduce(
@@ -700,7 +700,7 @@ export const getPendingCustomPlatforms = onCall({ timeoutSeconds: 300 }, async (
     });
 
     // 2. Fetch all credentials across all users using a collectionGroup query
-    const credentialsSnap = await db.collectionGroup("credentials").get();
+    const credentialsSnap = await db.collectionGroup("credentials").select("platform").limit(5000).get();
     const pendingMap = new Map<string, number>();
 
     credentialsSnap.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
