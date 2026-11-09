@@ -237,10 +237,25 @@ function lsRequest<T>(
 // ─── createCheckoutSession ───────────────────────────────────────────────────
 // Called from the frontend when a user clicks "Upgrade".
 // Creates a Lemon Squeezy hosted checkout session and returns its URL.
+const checkoutTimestamps = new Map<string, number[]>();
+function checkCheckoutRateLimit(uid: string): void {
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    const maxRequests = 5;
+    let list = checkoutTimestamps.get(uid) || [];
+    list = list.filter((t) => now - t < windowMs);
+    checkoutTimestamps.set(uid, list);
+    if (list.length >= maxRequests) {
+        throw new HttpsError("resource-exhausted", "Too many checkout requests. Please wait a minute before trying again.");
+    }
+    list.push(now);
+}
+
 export const createCheckoutSession = onCall(
     { secrets: ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_STORE_ID"] },
     async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    checkCheckoutRateLimit(request.auth.uid);
 
     const variantId = request.data?.variantId;
     if (!variantId || typeof variantId !== "string") {
@@ -340,10 +355,18 @@ export const lemonWebhook = onRequest(
     hmac.update(rawBody);
     const digest = hmac.digest("hex");
 
-    if (
-        digest.length !== signature.length ||
-        !crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"))
-    ) {
+    let isSigValid = false;
+    try {
+        const digestBuf = Buffer.from(digest, "utf8");
+        const sigBuf = Buffer.from(signature, "utf8");
+        if (digestBuf.length === sigBuf.length && crypto.timingSafeEqual(digestBuf, sigBuf)) {
+            isSigValid = true;
+        }
+    } catch {
+        isSigValid = false;
+    }
+
+    if (!isSigValid) {
         res.status(403).send("Invalid signature");
         return;
     }
@@ -353,6 +376,21 @@ export const lemonWebhook = onRequest(
     const payload = JSON.parse(rawBody.toString("utf8")) as Record<string, any>;
     const eventName: string = payload.meta?.event_name ?? "";
     let uid: string | undefined = payload.meta?.custom_data?.user_id;
+
+    // Replay attack and idempotency protection
+    const eventId = payload.meta?.event_id || payload.meta?.webhook_id || `${eventName}_${payload.data?.id}_${payload.meta?.created_at || Date.now()}`;
+    const eventRef = db.collection("processedWebhooks").doc(String(eventId));
+    const eventDoc = await eventRef.get();
+    if (eventDoc.exists) {
+        console.log(`Webhook event ${eventId} already processed, skipping duplicate.`);
+        res.status(200).json({ received: true, duplicate: true });
+        return;
+    }
+    await eventRef.set({
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        eventName,
+        uid: uid || null,
+    });
     const attributes = payload.data?.attributes ?? {};
     const subId = payload.data?.id ? String(payload.data.id) : "";
     const customerId = attributes.customer_id ? String(attributes.customer_id) : "";

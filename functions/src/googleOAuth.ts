@@ -1,15 +1,37 @@
 import * as https from "https";
 import * as admin from "firebase-admin";
 
+const ALLOWED_HOSTS = new Set([
+    "fortsterling.app",
+    "www.fortsterling.app",
+    "localhost:5173",
+    "localhost:3000",
+    "localhost:5000",
+    "127.0.0.1:5173",
+]);
+
+export function isAllowedUrl(urlStr: string): boolean {
+    if (!urlStr || typeof urlStr !== "string") return false;
+    try {
+        const parsed = new URL(urlStr);
+        return ALLOWED_HOSTS.has(parsed.host.toLowerCase());
+    } catch {
+        // Safe relative path (e.g. /auth/callback)
+        return urlStr.startsWith("/") && !urlStr.startsWith("//");
+    }
+}
+
 export function decodeReturnUrl(raw: string | undefined, defaultUrl: string): string {
     if (!raw || typeof raw !== "string") {
         return defaultUrl;
     }
+    let decoded = raw;
     try {
-        return decodeURIComponent(raw);
+        decoded = decodeURIComponent(raw);
     } catch {
-        return raw;
+        decoded = raw;
     }
+    return isAllowedUrl(decoded) ? decoded : defaultUrl;
 }
 
 export function parseOAuthState(state: string | undefined, defaultUrl: string): string {
@@ -34,7 +56,9 @@ export function buildGoogleAuthUrl(
     defaultUrl: string,
     loginHint?: string
 ): string {
-    const state = JSON.stringify({ returnUrl: decodeReturnUrl(returnUrl, defaultUrl) });
+    const validatedUrl = decodeReturnUrl(returnUrl, defaultUrl);
+    const nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const state = JSON.stringify({ returnUrl: validatedUrl, nonce });
     return (
         "https://accounts.google.com/o/oauth2/v2/auth?" +
         `client_id=${clientId}` +
