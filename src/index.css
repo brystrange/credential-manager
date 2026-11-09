@@ -4027,6 +4027,7 @@ option {
 
 
 .file-card-icon {
+  overflow: hidden;
   width: 48px;
   height: 48px;
   display: flex;

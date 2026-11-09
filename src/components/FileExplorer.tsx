@@ -6,7 +6,7 @@ import {
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
     FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers, FiUploadCloud
 } from "react-icons/fi";
-import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv } from "react-icons/fa";
+import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv, FaFilePdf } from "react-icons/fa";
 import { 
     subscribeToFolders, subscribeToFiles, createFolder, renameFolder, deleteFolder, 
     uploadVaultFile, downloadVaultFile, renameVaultFile, deleteVaultFile,
@@ -125,11 +125,61 @@ const formatDateModified = (val?: any): string => {
     return `${dateStr} ${hours}:${minutes} ${ampm}`;
 };
 
+const getExtFromMime = (mime?: string): string => {
+    if (!mime) return "";
+    const m = mime.toLowerCase().trim();
+    if (m === "application/pdf") return "pdf";
+    if (m === "image/jpeg" || m === "image/jpg") return "jpg";
+    if (m === "image/png") return "png";
+    if (m === "image/gif") return "gif";
+    if (m === "image/webp") return "webp";
+    if (m === "image/svg+xml") return "svg";
+    if (m === "image/bmp") return "bmp";
+    if (m === "image/avif") return "avif";
+    if (m === "video/mp4") return "mp4";
+    if (m === "video/webm") return "webm";
+    if (m === "video/quicktime") return "mov";
+    if (m === "video/x-msvideo") return "avi";
+    if (m === "video/x-matroska") return "mkv";
+    if (m === "audio/mpeg" || m === "audio/mp3") return "mp3";
+    if (m === "audio/wav") return "wav";
+    if (m === "audio/ogg") return "ogg";
+    if (m === "audio/flac") return "flac";
+    if (m === "audio/x-m4a" || m === "audio/m4a") return "m4a";
+    if (m === "application/zip" || m === "application/x-zip-compressed") return "zip";
+    if (m === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
+    if (m === "application/msword") return "doc";
+    if (m === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx";
+    if (m === "application/vnd.ms-excel") return "xls";
+    if (m === "application/vnd.openxmlformats-officedocument.presentationml.presentation") return "pptx";
+    if (m === "application/vnd.ms-powerpoint") return "ppt";
+    if (m === "text/csv") return "csv";
+    if (m === "text/plain") return "txt";
+    if (m === "text/markdown") return "md";
+    if (m === "text/html") return "html";
+    if (m === "text/css") return "css";
+    if (m === "application/json") return "json";
+    if (m.startsWith("image/")) return m.replace("image/", "").split(";")[0].replace("x-", "");
+    if (m.startsWith("video/")) return m.replace("video/", "").split(";")[0].replace("x-", "");
+    if (m.startsWith("audio/")) return m.replace("audio/", "").split(";")[0].replace("x-", "");
+    return "";
+};
+
+const isImageFile = (name?: string, mimeType?: string, path?: string): boolean => {
+    if (mimeType && mimeType.toLowerCase().startsWith("image/")) return true;
+    const candidates = [name || "", path || ""];
+    return candidates.some(str => /\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|ico|tiff?)$/i.test(str));
+};
+
 const getFileTypeLabel = (name: string, isFolder: boolean, mimeType?: string): string => {
     if (isFolder) return "File folder";
     const n = (name || "").toLowerCase();
-    const ext = n.includes(".") ? n.split(".").pop() || "" : "";
-    
+    let ext = n.includes(".") ? n.split(".").pop() || "" : "";
+    if (!ext && mimeType) {
+        ext = getExtFromMime(mimeType);
+    }
+    ext = ext.toLowerCase();
+
     switch (ext) {
         case "pdf": return "PDF Document";
         case "docx": 
@@ -141,7 +191,7 @@ const getFileTypeLabel = (name: string, isFolder: boolean, mimeType?: string): s
         case "csv": return "CSV Document";
         case "txt": return "Text Document";
         case "md": return "Markdown Document";
-        case "json": return "JSON Source File";
+        case "json": return "JSON File";
         case "js":
         case "mjs":
         case "cjs": return "JavaScript File";
@@ -149,10 +199,10 @@ const getFileTypeLabel = (name: string, isFolder: boolean, mimeType?: string): s
         case "ts": return "TypeScript File";
         case "tsx": return "TSX File";
         case "py":
-        case "pyw": return "Python Source File";
+        case "pyw": return "Python File";
         case "html":
         case "htm": return "HTML Document";
-        case "css": return "Cascading Style Sheet";
+        case "css": return "CSS File";
         case "xml": return "XML Document";
         case "sql": return "SQL File";
         case "sh": return "Shell Script";
@@ -160,39 +210,38 @@ const getFileTypeLabel = (name: string, isFolder: boolean, mimeType?: string): s
         case "cmd": return "Windows Batch File";
         case "png": return "PNG image";
         case "jpg":
-        case "jpeg": return "JPEG image";
+        case "jpeg": return "JPG image";
         case "gif": return "GIF image";
         case "webp": return "WebP image";
         case "svg": return "SVG image";
         case "bmp": return "Bitmap image";
         case "mp4": return "MP4 video";
         case "mov": return "QuickTime video";
-        case "avi":
-        case "mkv":
-        case "webm": return "Video file";
+        case "avi": return "AVI video";
+        case "mkv": return "MKV video";
+        case "webm": return "WEBM video";
         case "mp3": return "MP3 audio";
         case "wav": return "WAV audio";
-        case "ogg":
-        case "m4a":
-        case "flac": return "Audio file";
+        case "ogg": return "OGG audio";
+        case "m4a": return "M4A audio";
+        case "flac": return "FLAC audio";
         case "zip": return "Compressed (zipped) Folder";
         case "rar": return "RAR archive";
         case "7z": return "7Z archive";
-        case "tar":
-        case "gz": return "Archive file";
+        case "tar": return "TAR archive";
+        case "gz": return "GZ archive";
         case "exe": return "Application";
-    }
-
-    if (mimeType) {
-        if (mimeType.startsWith("image/")) return "Image file";
-        if (mimeType.startsWith("video/")) return "Video file";
-        if (mimeType.startsWith("audio/")) return "Audio file";
-        if (mimeType.startsWith("text/")) return "Text Document";
     }
 
     if (ext) {
         return `${ext.toUpperCase()} File`;
     }
+
+    if (mimeType) {
+        const subtype = mimeType.split("/")[1]?.split(";")[0]?.replace("x-", "")?.toUpperCase();
+        if (subtype) return `${subtype} File`;
+    }
+
     return "File";
 };
 
@@ -203,7 +252,7 @@ const ImageThumbnail = ({ file }: { file: VaultFile }) => {
     const [loading, setLoading] = useState<boolean>(!globalImageCache.has(file.id));
 
     useEffect(() => {
-        if (!file.type.startsWith("image/")) {
+        if (!isImageFile(file.name, file.type)) {
             setLoading(false);
             return;
         }
@@ -228,7 +277,7 @@ const ImageThumbnail = ({ file }: { file: VaultFile }) => {
         return () => {
             isMounted = false;
         };
-    }, [file]);
+    }, [file.id]);
 
     if (loading) {
         return <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />;
@@ -243,13 +292,15 @@ const ImageThumbnail = ({ file }: { file: VaultFile }) => {
     );
 };
 
-const SharedImageThumbnail = ({ share, fileEntry }: { share: SharedItem; fileEntry: SharedFileEntry }) => {
-    const cacheKey = `${share.id}:${fileEntry.storagePath}`;
+const SharedImageThumbnail = ({ share, fileEntry }: { share: SharedItem; fileEntry?: SharedFileEntry }) => {
+    const entry = fileEntry || share.files?.[0];
+    const storagePath = entry?.storagePath || "";
+    const cacheKey = `${share.id}:${storagePath}`;
     const [url, setUrl] = useState<string | null>(globalImageCache.get(cacheKey) || null);
     const [loading, setLoading] = useState<boolean>(!globalImageCache.has(cacheKey));
 
     useEffect(() => {
-        if (!/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path)) {
+        if (!entry || !isImageFile(share.name, entry.type, entry.path)) {
             setLoading(false);
             return;
         }
@@ -260,20 +311,21 @@ const SharedImageThumbnail = ({ share, fileEntry }: { share: SharedItem; fileEnt
         }
         let isMounted = true;
         setLoading(true);
-        downloadSharedFile(share, fileEntry).then(blob => {
+        downloadSharedFile(share, entry).then(blob => {
             if (isMounted) {
                 const objectUrl = URL.createObjectURL(blob);
                 globalImageCache.set(cacheKey, objectUrl);
                 setUrl(objectUrl);
                 setLoading(false);
             }
-        }).catch(() => {
+        }).catch(err => {
+            console.error("Failed to load shared thumbnail", err);
             if (isMounted) setLoading(false);
         });
         return () => {
             isMounted = false;
         };
-    }, [share, fileEntry, cacheKey]);
+    }, [cacheKey]);
 
     if (loading) {
         return <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />;
@@ -284,7 +336,7 @@ const SharedImageThumbnail = ({ share, fileEntry }: { share: SharedItem; fileEnt
     }
 
     return (
-        <img src={url} alt={fileEntry.path} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} />
+        <img src={url} alt={entry?.path || share.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} />
     );
 };
 
@@ -1867,23 +1919,24 @@ export default function FileExplorer() {
     };
 
     const getFileIcon = (file: VaultFile) => {
-        const type = file.type || '';
+        const type = (file.type || '').toLowerCase();
         const name = (file.name || '').toLowerCase();
         
         if (name.endsWith('.doc') || name.endsWith('.docx') || type.includes('word')) return <FaFileWord size={18} style={{ color: "#2b579a" }} />;
         if (name.endsWith('.xls') || name.endsWith('.xlsx') || type.includes('excel') || type.includes('spreadsheet')) return <FaFileExcel size={18} style={{ color: "#217346" }} />;
         if (name.endsWith('.ppt') || name.endsWith('.pptx') || type.includes('powerpoint') || type.includes('presentation')) return <FaFilePowerpoint size={18} style={{ color: "#d24726" }} />;
         if (name.endsWith('.csv') || type.includes('csv')) return <FaFileCsv size={18} style={{ color: "#4caf50" }} />;
+        if (name.endsWith('.pdf') || type.includes('pdf')) return <FaFilePdf size={18} style={{ color: "#ea4335" }} />;
 
-        if (type.includes("image")) return <FiImage size={18} style={{ color: "#4caf50" }} />;
-        if (type.includes("video")) return <FiVideo size={18} style={{ color: "#f44336" }} />;
-        if (type.includes("audio")) return <FiMusic size={18} style={{ color: "#9c27b0" }} />;
-        if (type.includes("pdf") || type.includes("text") || type.includes("document")) return <FiFileText size={18} style={{ color: "#2196f3" }} />;
-        if (type.includes("zip") || type.includes("tar") || type.includes("rar")) return <FiArchive size={18} style={{ color: "#ff9800" }} />;
+        if (type.includes("image") || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name)) return <FiImage size={18} style={{ color: "#4caf50" }} />;
+        if (type.includes("video") || /\.(mp4|mov|avi|mkv|webm)$/i.test(name)) return <FiVideo size={18} style={{ color: "#f44336" }} />;
+        if (type.includes("audio") || /\.(mp3|wav|ogg|m4a|flac)$/i.test(name)) return <FiMusic size={18} style={{ color: "#9c27b0" }} />;
+        if (type.includes("text") || type.includes("document") || /\.(txt|md|rtf)$/i.test(name)) return <FiFileText size={18} style={{ color: "#2196f3" }} />;
+        if (type.includes("zip") || type.includes("tar") || type.includes("rar") || /\.(zip|tar|gz|rar|7z)$/i.test(name)) return <FiArchive size={18} style={{ color: "#ff9800" }} />;
         return <FiFile size={18} style={{ color: "var(--text-secondary)" }} />;
     };
 
-    const getSharedItemIcon = (name: string, isFolder: boolean, folderColor?: string) => {
+    const getSharedItemIcon = (name: string, isFolder: boolean, folderColor?: string, mimeType?: string) => {
         if (isFolder) {
             return (
                 <FiFolder 
@@ -1894,16 +1947,18 @@ export default function FileExplorer() {
             );
         }
         const n = (name || '').toLowerCase();
-        if (n.endsWith('.doc') || n.endsWith('.docx') || n.includes('word')) return <FaFileWord size={18} style={{ color: "#2b579a" }} />;
-        if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.includes('excel') || n.includes('spreadsheet')) return <FaFileExcel size={18} style={{ color: "#217346" }} />;
-        if (n.endsWith('.ppt') || n.endsWith('.pptx') || n.includes('powerpoint') || n.includes('presentation')) return <FaFilePowerpoint size={18} style={{ color: "#d24726" }} />;
-        if (n.endsWith('.csv') || n.includes('csv')) return <FaFileCsv size={18} style={{ color: "#4caf50" }} />;
+        const m = (mimeType || '').toLowerCase();
+        if (n.endsWith('.doc') || n.endsWith('.docx') || n.includes('word') || m.includes('word')) return <FaFileWord size={18} style={{ color: "#2b579a" }} />;
+        if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.includes('excel') || n.includes('spreadsheet') || m.includes('excel') || m.includes('spreadsheet')) return <FaFileExcel size={18} style={{ color: "#217346" }} />;
+        if (n.endsWith('.ppt') || n.endsWith('.pptx') || n.includes('powerpoint') || n.includes('presentation') || m.includes('powerpoint') || m.includes('presentation')) return <FaFilePowerpoint size={18} style={{ color: "#d24726" }} />;
+        if (n.endsWith('.csv') || n.includes('csv') || m.includes('csv')) return <FaFileCsv size={18} style={{ color: "#4caf50" }} />;
+        if (n.endsWith('.pdf') || n.includes('pdf') || m.includes('pdf')) return <FaFilePdf size={18} style={{ color: "#ea4335" }} />;
 
-        if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(n) || n.includes('image')) return <FiImage size={18} style={{ color: "#4caf50" }} />;
-        if (/\.(mp4|mov|avi|mkv|webm)$/i.test(n) || n.includes('video')) return <FiVideo size={18} style={{ color: "#f44336" }} />;
-        if (/\.(mp3|wav|ogg|m4a|flac)$/i.test(n) || n.includes('audio')) return <FiMusic size={18} style={{ color: "#9c27b0" }} />;
-        if (/\.(pdf|txt|md|rtf)$/i.test(n) || n.includes('pdf') || n.includes('document')) return <FiFileText size={18} style={{ color: "#2196f3" }} />;
-        if (/\.(zip|tar|gz|rar|7z)$/i.test(n) || n.includes('zip') || n.includes('archive')) return <FiArchive size={18} style={{ color: "#ff9800" }} />;
+        if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(n) || n.includes('image') || m.startsWith('image/')) return <FiImage size={18} style={{ color: "#4caf50" }} />;
+        if (/\.(mp4|mov|avi|mkv|webm)$/i.test(n) || n.includes('video') || m.startsWith('video/')) return <FiVideo size={18} style={{ color: "#f44336" }} />;
+        if (/\.(mp3|wav|ogg|m4a|flac)$/i.test(n) || n.includes('audio') || m.startsWith('audio/')) return <FiMusic size={18} style={{ color: "#9c27b0" }} />;
+        if (/\.(txt|md|rtf)$/i.test(n) || n.includes('document') || m.startsWith('text/')) return <FiFileText size={18} style={{ color: "#2196f3" }} />;
+        if (/\.(zip|tar|gz|rar|7z)$/i.test(n) || n.includes('zip') || n.includes('archive') || m.includes('zip') || m.includes('tar') || m.includes('compressed')) return <FiArchive size={18} style={{ color: "#ff9800" }} />;
         return <FiFile size={18} style={{ color: "var(--text-secondary)" }} />;
     };
 
@@ -2243,7 +2298,7 @@ export default function FileExplorer() {
                                 {sortedSharedItems.map((item) => {
                                     const isFolder = item.itemType === "folder";
                                     const totalSize = item.files.reduce((sum, f) => sum + (f.size || 0), 0);
-                                    const isImage = !isFolder && item.files[0] && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(item.name);
+                                    const isImage = !isFolder && item.files[0] && isImageFile(item.name, item.files[0]?.type, item.files[0]?.path);
                                     return (
                                         <div
                                             key={item.id}
@@ -2287,7 +2342,7 @@ export default function FileExplorer() {
                                                     ) : isImage ? (
                                                         <SharedImageThumbnail share={item} fileEntry={item.files[0]} />
                                                     ) : (
-                                                        getSharedItemIcon(item.name, isFolder, sharedFolderColors[item.id])
+                                                        getSharedItemIcon(item.name, isFolder, sharedFolderColors[item.id], item.files[0]?.type)
                                                     )}
                                                 </div>
                                             </div>
@@ -2418,7 +2473,7 @@ export default function FileExplorer() {
                             })}
                             <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
                                 {getSortedShareFiles(activeShare.files).map((fileEntry, idx) => {
-                                    const isFileImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileEntry.path);
+                                    const isFileImage = isImageFile(fileEntry.path, fileEntry.type);
                                     const fileId = `${activeShare.id}:${fileEntry.storagePath}`;
                                     return (
                                         <div
@@ -2463,7 +2518,7 @@ export default function FileExplorer() {
                                                     ) : isFileImage ? (
                                                         <SharedImageThumbnail share={activeShare} fileEntry={fileEntry} />
                                                     ) : (
-                                                        getSharedItemIcon(fileEntry.path, false)
+                                                        getSharedItemIcon(fileEntry.path, false, undefined, fileEntry.type)
                                                     )}
                                                 </div>
                                             </div>
@@ -2618,7 +2673,7 @@ export default function FileExplorer() {
                                         {loadingFileId === file.id ? (
                                             <FiLoader size={16} className="spin" style={{ color: "var(--accent)" }} />
                                         ) : (
-                                            file.type.startsWith("image/") ? <ImageThumbnail file={file} /> : getFileIcon(file)
+                                            isImageFile(file.name, file.type) ? <ImageThumbnail file={file} /> : getFileIcon(file)
                                         )}
                                     </div>
                                 </div>
