@@ -24,6 +24,7 @@ import {
     importKeyFromHex,
     generateRecoveryKey
 } from "./crypto";
+import { clearSharingKeys } from "./shareService";
 
 export type AuthUser = User;
 
@@ -51,6 +52,9 @@ export function validatePassword(pw: string): string | null {
 export async function signUp(email: string, password: string, fullName: string): Promise<string> {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const uid = userCredential.user.uid;
+
+    const pwErr = validatePassword(password);
+    if (pwErr) throw new Error(pwErr);
 
     // Set display name
     await updateProfile(userCredential.user, { displayName: fullName });
@@ -245,6 +249,8 @@ export async function signInWithGoogle(): Promise<
 export async function setupGoogleVault(password: string): Promise<string> {
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error("Not authenticated");
+    const pwErr = validatePassword(password);
+    if (pwErr) throw new Error(pwErr);
 
     const salt = generateSalt();
     const pdk = await deriveKey(password, salt);
@@ -320,6 +326,9 @@ export async function resetGoogleVaultPassword(newPassword: string, recoveryKey:
     const salt = userDoc.data().salt as string;
     const encryptedMasterKeyRecovery = userDoc.data().encryptedMasterKeyRecovery as string;
 
+    const pwErr = validatePassword(newPassword);
+    if (pwErr) throw new Error(pwErr);
+
     if (!encryptedMasterKeyRecovery) {
         throw new Error("No recovery key on file. Vault cannot be recovered.");
     }
@@ -370,6 +379,8 @@ export async function resetGoogleVaultPassword(newPassword: string, recoveryKey:
 export async function changeVaultPassword(currentPassword: string, newPassword: string): Promise<void> {
     const user = auth.currentUser;
     if (!user) throw new Error("Not authenticated");
+    const pwErr = validatePassword(newPassword);
+    if (pwErr) throw new Error(pwErr);
 
     const userDoc = await getDoc(doc(db, "users", user.uid));
     if (!userDoc.exists()) throw new Error("User profile not found.");
@@ -445,8 +456,7 @@ export async function generateNewRecoveryKey(currentPassword: string): Promise<s
 
 export async function signOutUser(): Promise<void> {
     await firebaseSignOut(auth);
-    encryptionKey = null;
-    pendingSyncPassword = null;
+    clearEncryptionKey();
 }
 
 export function onAuthChange(callback: (user: User | null) => void) {
@@ -455,6 +465,8 @@ export function onAuthChange(callback: (user: User | null) => void) {
 
 export function clearEncryptionKey() {
     encryptionKey = null;
+    pendingSyncPassword = null;
+    clearSharingKeys();
 }
 
 export function hasEncryptionKey(): boolean {

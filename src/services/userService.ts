@@ -2,7 +2,7 @@ import { auth, db, storage } from "../firebaseConfig";
 import { EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, GoogleAuthProvider, deleteUser } from "firebase/auth";
 import { collection, getDocs, doc, deleteDoc, getDoc } from "firebase/firestore";
 import { ref, deleteObject } from "firebase/storage";
-import { deriveKey, exportKeyToHex } from "./crypto";
+import { deriveKey, decryptPassword } from "./crypto";
 import { clearEncryptionKey } from "./authService";
 
 export async function deleteAccount(password: string, onProgress?: (msg: string) => void): Promise<void> {
@@ -12,24 +12,17 @@ export async function deleteAccount(password: string, onProgress?: (msg: string)
     const isGoogleUser = user.providerData.some((p) => p.providerId === "google.com");
 
     if (isGoogleUser) {
-        // Verify Vault password manually
+        // Verify Vault password manually via zero-knowledge decryption proof
         const userDoc = await getDoc(doc(db, "users", user.uid));
         const data = userDoc.data();
-        if (data) {
-            const salt = data.salt;
-            const masterKeyHash = data.masterKeyHash;
-            if (salt && masterKeyHash) {
-                const mk = await deriveKey(password, salt);
-                const mkHex = await exportKeyToHex(mk);
-                const encoder = new TextEncoder();
-                const dataBuffer = encoder.encode(mkHex);
-                const hashBuffer = await crypto.subtle.digest("SHA-256", dataBuffer);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-                if (hashHex !== masterKeyHash) {
-                    throw new Error("auth/wrong-password");
-                }
-            }
+        if (!data || !data.salt || !data.encryptedMasterKey) {
+            throw new Error("User profile or vault metadata missing.");
+        }
+        try {
+            const pdk = await deriveKey(password, data.salt);
+            await decryptPassword(data.encryptedMasterKey, pdk);
+        } catch {
+            throw new Error("auth/wrong-password");
         }
     } else {
         // Email user - reauthenticate to verify password and refresh token

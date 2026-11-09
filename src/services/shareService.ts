@@ -98,13 +98,18 @@ let cachedPrivateKey: CryptoKey | null = null;
 let cachedPublicKeyJwk: string | null = null;
 let ensurePromise: Promise<void> | null = null;
 
+export function clearSharingKeys(): void {
+    cachedUid = null;
+    cachedPrivateKey = null;
+    cachedPublicKeyJwk = null;
+    ensurePromise = null;
+}
+
 function resetCacheIfUserChanged() {
     const uid = auth.currentUser?.uid ?? null;
     if (uid !== cachedUid) {
+        clearSharingKeys();
         cachedUid = uid;
-        cachedPrivateKey = null;
-        cachedPublicKeyJwk = null;
-        ensurePromise = null;
     }
 }
 

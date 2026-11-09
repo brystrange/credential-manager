@@ -15,7 +15,7 @@ import AuthPage from "./components/AuthPage";
 import LandingPage from "./components/LandingPage";
 import AuthCallback from "./components/AuthCallback";
 import CredentialModal from "./components/CredentialModal";
-import FileExplorer from "./components/FileExplorer";
+import FileExplorer, { clearFileExplorerCache } from "./components/FileExplorer";
 import HistoryPanel from "./components/HistoryPanel";
 import FAB from "./components/FAB";
 import SearchBar from "./components/SearchBar";
@@ -612,6 +612,7 @@ function AppInner({
                 setCredentials([]);
                 setVaultUnlocked(false);
                 clearEncryptionKey();
+                clearFileExplorerCache();
                 
                 if (currentUserRef.current) {
                     navigate("/login");
@@ -754,6 +755,8 @@ function AppInner({
         setSignOutLoading(true);
         setVaultUnlocked(false);
         setIsNewGoogleUser(false);
+        setCredentials([]);
+        clearFileExplorerCache();
         await signOutUser();
         setSignOutLoading(false);
     };

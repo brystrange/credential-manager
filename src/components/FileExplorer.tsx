@@ -292,6 +292,20 @@ const globalFolderCountsCache: Record<string, number> = {};
 let globalFoldersCache: VaultFolder[] | null = null;
 let globalFilesCache: VaultFile[] | null = null;
 
+export function clearFileExplorerCache(): void {
+    globalImageCache.forEach((url) => {
+        try {
+            URL.revokeObjectURL(url);
+        } catch {}
+    });
+    globalImageCache.clear();
+    for (const k in globalFolderCountsCache) {
+        delete globalFolderCountsCache[k];
+    }
+    globalFoldersCache = null;
+    globalFilesCache = null;
+}
+
 export default function FileExplorer() {
     const { startTask, updateTask, finishTask, dismissTask } = useTaskToast();
     const { storageUsed, storageLimit, isStorageAtLimit, isPro } = useSubscription();

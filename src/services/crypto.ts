@@ -3,9 +3,16 @@
 const PBKDF2_ITERATIONS = 100000;
 
 function hexToBuffer(hex: string): ArrayBuffer {
+    if (!hex || typeof hex !== "string" || hex.length % 2 !== 0) {
+        throw new Error("Invalid hexadecimal string: length must be an even non-empty number.");
+    }
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < hex.length; i += 2) {
-        bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+        const byte = parseInt(hex.substring(i, i + 2), 16);
+        if (Number.isNaN(byte)) {
+            throw new Error(`Invalid hexadecimal byte at index ${i}: '${hex.substring(i, i + 2)}'`);
+        }
+        bytes[i / 2] = byte;
     }
     return bytes.buffer;
 }
@@ -97,7 +104,21 @@ export async function decryptPassword(
     encrypted: string,
     key: CryptoKey
 ): Promise<string> {
-    const [ivHex, ciphertextHex] = encrypted.split(":");
+    if (!encrypted || typeof encrypted !== "string") {
+        throw new Error("Invalid encrypted payload: string expected.");
+    }
+    const colonIndex = encrypted.indexOf(":");
+    if (colonIndex === -1) {
+        throw new Error("Malformed ciphertext: missing IV separator ':'.");
+    }
+    const ivHex = encrypted.slice(0, colonIndex);
+    const ciphertextHex = encrypted.slice(colonIndex + 1);
+    if (ivHex.length !== 24) {
+        throw new Error(`Malformed IV: expected 24 hex characters (12 bytes), received ${ivHex.length}.`);
+    }
+    if (ciphertextHex.length < 32) {
+        throw new Error("Malformed ciphertext: payload too short for AES-GCM.");
+    }
     const iv = new Uint8Array(hexToBuffer(ivHex));
     const ciphertext = new Uint8Array(hexToBuffer(ciphertextHex));
 
@@ -129,7 +150,13 @@ export async function decryptFile(
     key: CryptoKey,
     mimeType: string = "application/octet-stream"
 ): Promise<Blob> {
+    if (!encryptedBlob || !(encryptedBlob instanceof Blob)) {
+        throw new Error("Invalid file blob provided for decryption.");
+    }
     const buffer = await encryptedBlob.arrayBuffer();
+    if (buffer.byteLength < 28) {
+        throw new Error("Ciphertext file is corrupted or too small for AES-GCM (minimum 28 bytes).");
+    }
     // Extract the 12-byte IV from the beginning
     const iv = buffer.slice(0, 12);
     const ciphertext = buffer.slice(12);
