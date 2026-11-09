@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isAllowedUrl = isAllowedUrl;
 exports.decodeReturnUrl = decodeReturnUrl;
 exports.parseOAuthState = parseOAuthState;
 exports.buildGoogleAuthUrl = buildGoogleAuthUrl;
@@ -42,16 +43,38 @@ exports.appendQueryParam = appendQueryParam;
 exports.completeGoogleOAuth = completeGoogleOAuth;
 const https = __importStar(require("https"));
 const admin = __importStar(require("firebase-admin"));
+const ALLOWED_HOSTS = new Set([
+    "fortsterling.app",
+    "www.fortsterling.app",
+    "localhost:5173",
+    "localhost:3000",
+    "localhost:5000",
+    "127.0.0.1:5173",
+]);
+function isAllowedUrl(urlStr) {
+    if (!urlStr || typeof urlStr !== "string")
+        return false;
+    try {
+        const parsed = new URL(urlStr);
+        return ALLOWED_HOSTS.has(parsed.host.toLowerCase());
+    }
+    catch (_a) {
+        // Safe relative path (e.g. /auth/callback)
+        return urlStr.startsWith("/") && !urlStr.startsWith("//");
+    }
+}
 function decodeReturnUrl(raw, defaultUrl) {
     if (!raw || typeof raw !== "string") {
         return defaultUrl;
     }
+    let decoded = raw;
     try {
-        return decodeURIComponent(raw);
+        decoded = decodeURIComponent(raw);
     }
     catch (_a) {
-        return raw;
+        decoded = raw;
     }
+    return isAllowedUrl(decoded) ? decoded : defaultUrl;
 }
 function parseOAuthState(state, defaultUrl) {
     let returnUrl = defaultUrl;
@@ -69,7 +92,9 @@ function parseOAuthState(state, defaultUrl) {
     return returnUrl;
 }
 function buildGoogleAuthUrl(clientId, returnUrl, redirectUri, defaultUrl, loginHint) {
-    const state = JSON.stringify({ returnUrl: decodeReturnUrl(returnUrl, defaultUrl) });
+    const validatedUrl = decodeReturnUrl(returnUrl, defaultUrl);
+    const nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const state = JSON.stringify({ returnUrl: validatedUrl, nonce });
     return ("https://accounts.google.com/o/oauth2/v2/auth?" +
         `client_id=${clientId}` +
         `&redirect_uri=${encodeURIComponent(redirectUri)}` +

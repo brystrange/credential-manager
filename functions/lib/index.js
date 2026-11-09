@@ -172,7 +172,7 @@ async function checkUserUsageAndGracePeriod(userRef, fallbackStorageUsed = 0) {
     const [credsSnap, filesSnap, sharesSnap] = await Promise.all([
         userRef.collection("credentials").count().get(),
         userRef.collection("files").get(),
-        admin.firestore().collection("shares").where("recipientUids", "array-contains", userRef.id).get(),
+        admin.firestore().collection("shares").where("senderUid", "==", userRef.id).get(),
     ]);
     const credsCount = credsSnap.data().count;
     const filesBytes = filesSnap.docs.reduce((sum, d) => sum + (Number(d.data().size) || 0), 0);
@@ -232,10 +232,24 @@ function lsRequest(path, method, apiKey, body) {
 // ─── createCheckoutSession ───────────────────────────────────────────────────
 // Called from the frontend when a user clicks "Upgrade".
 // Creates a Lemon Squeezy hosted checkout session and returns its URL.
+const checkoutTimestamps = new Map();
+function checkCheckoutRateLimit(uid) {
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    const maxRequests = 5;
+    let list = checkoutTimestamps.get(uid) || [];
+    list = list.filter((t) => now - t < windowMs);
+    checkoutTimestamps.set(uid, list);
+    if (list.length >= maxRequests) {
+        throw new https_1.HttpsError("resource-exhausted", "Too many checkout requests. Please wait a minute before trying again.");
+    }
+    list.push(now);
+}
 exports.createCheckoutSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_STORE_ID"] }, async (request) => {
     var _a, _b, _c, _d;
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "Must be signed in.");
+    checkCheckoutRateLimit(request.auth.uid);
     const variantId = (_a = request.data) === null || _a === void 0 ? void 0 : _a.variantId;
     if (!variantId || typeof variantId !== "string") {
         throw new https_1.HttpsError("invalid-argument", "variantId is required.");
@@ -286,7 +300,7 @@ exports.createCheckoutSession = (0, https_1.onCall)({ secrets: ["LEMONSQUEEZY_AP
 // Public HTTPS endpoint for Lemon Squeezy to POST events to.
 // Verifies HMAC-SHA256 signature before processing.
 exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_SECRET"] }, async (req, res) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
     if (req.method !== "POST") {
         res.status(405).send("Method Not Allowed");
         return;
@@ -312,8 +326,18 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
     const hmac = crypto.createHmac("sha256", secret);
     hmac.update(rawBody);
     const digest = hmac.digest("hex");
-    if (digest.length !== signature.length ||
-        !crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"))) {
+    let isSigValid = false;
+    try {
+        const digestBuf = Buffer.from(digest, "utf8");
+        const sigBuf = Buffer.from(signature, "utf8");
+        if (digestBuf.length === sigBuf.length && crypto.timingSafeEqual(digestBuf, sigBuf)) {
+            isSigValid = true;
+        }
+    }
+    catch (_t) {
+        isSigValid = false;
+    }
+    if (!isSigValid) {
         res.status(403).send("Invalid signature");
         return;
     }
@@ -322,8 +346,22 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
     const payload = JSON.parse(rawBody.toString("utf8"));
     const eventName = (_c = (_b = payload.meta) === null || _b === void 0 ? void 0 : _b.event_name) !== null && _c !== void 0 ? _c : "";
     let uid = (_e = (_d = payload.meta) === null || _d === void 0 ? void 0 : _d.custom_data) === null || _e === void 0 ? void 0 : _e.user_id;
-    const attributes = (_g = (_f = payload.data) === null || _f === void 0 ? void 0 : _f.attributes) !== null && _g !== void 0 ? _g : {};
-    const subId = ((_h = payload.data) === null || _h === void 0 ? void 0 : _h.id) ? String(payload.data.id) : "";
+    // Replay attack and idempotency protection
+    const eventId = ((_f = payload.meta) === null || _f === void 0 ? void 0 : _f.event_id) || ((_g = payload.meta) === null || _g === void 0 ? void 0 : _g.webhook_id) || `${eventName}_${(_h = payload.data) === null || _h === void 0 ? void 0 : _h.id}_${((_j = payload.meta) === null || _j === void 0 ? void 0 : _j.created_at) || Date.now()}`;
+    const eventRef = db.collection("processedWebhooks").doc(String(eventId));
+    const eventDoc = await eventRef.get();
+    if (eventDoc.exists) {
+        console.log(`Webhook event ${eventId} already processed, skipping duplicate.`);
+        res.status(200).json({ received: true, duplicate: true });
+        return;
+    }
+    await eventRef.set({
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        eventName,
+        uid: uid || null,
+    });
+    const attributes = (_l = (_k = payload.data) === null || _k === void 0 ? void 0 : _k.attributes) !== null && _l !== void 0 ? _l : {};
+    const subId = ((_m = payload.data) === null || _m === void 0 ? void 0 : _m.id) ? String(payload.data.id) : "";
     const customerId = attributes.customer_id ? String(attributes.customer_id) : "";
     const userEmail = attributes.user_email;
     if (!uid && subId) {
@@ -341,7 +379,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
             const userRecord = await admin.auth().getUserByEmail(userEmail);
             uid = userRecord.uid;
         }
-        catch (_p) {
+        catch (_u) {
             // Ignore if user email is not found in Firebase Auth
         }
     }
@@ -369,7 +407,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 await userRef.update({
                     plan: "pro",
                     subscriptionId: subId,
-                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_j = attributes.status) !== null && _j !== void 0 ? _j : "active"),
+                    subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_o = attributes.status) !== null && _o !== void 0 ? _o : "active"),
                     currentPeriodEnd: periodEndIso
                         ? admin.firestore.Timestamp.fromDate(new Date(periodEndIso))
                         : null,
@@ -384,7 +422,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                     attributes.status === "expired";
                 if (isCancelledOrExpired) {
                     const userDoc = await userRef.get();
-                    const usage = await checkUserUsageAndGracePeriod(userRef, ((_k = userDoc.data()) === null || _k === void 0 ? void 0 : _k.storageUsed) || 0);
+                    const usage = await checkUserUsageAndGracePeriod(userRef, ((_p = userDoc.data()) === null || _p === void 0 ? void 0 : _p.storageUsed) || 0);
                     await userRef.update({
                         plan: "free",
                         subscriptionStatus: attributes.status === "expired" ? "expired" : "cancelled",
@@ -397,7 +435,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
                 else {
                     await userRef.update({
                         plan: "pro",
-                        subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_l = attributes.status) !== null && _l !== void 0 ? _l : "active"),
+                        subscriptionStatus: attributes.status === "on_trial" ? "active" : ((_q = attributes.status) !== null && _q !== void 0 ? _q : "active"),
                         currentPeriodEnd: periodEndIso
                             ? admin.firestore.Timestamp.fromDate(new Date(periodEndIso))
                             : null,
@@ -407,7 +445,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
             }
             case "subscription_cancelled": {
                 const userDoc = await userRef.get();
-                const usage = await checkUserUsageAndGracePeriod(userRef, ((_m = userDoc.data()) === null || _m === void 0 ? void 0 : _m.storageUsed) || 0);
+                const usage = await checkUserUsageAndGracePeriod(userRef, ((_r = userDoc.data()) === null || _r === void 0 ? void 0 : _r.storageUsed) || 0);
                 await userRef.update({
                     plan: "free",
                     subscriptionStatus: "cancelled",
@@ -420,7 +458,7 @@ exports.lemonWebhook = (0, https_1.onRequest)({ secrets: ["LEMONSQUEEZY_WEBHOOK_
             }
             case "subscription_expired": {
                 const userDoc = await userRef.get();
-                const usage = await checkUserUsageAndGracePeriod(userRef, ((_o = userDoc.data()) === null || _o === void 0 ? void 0 : _o.storageUsed) || 0);
+                const usage = await checkUserUsageAndGracePeriod(userRef, ((_s = userDoc.data()) === null || _s === void 0 ? void 0 : _s.storageUsed) || 0);
                 await userRef.update({
                     plan: "free",
                     subscriptionStatus: "expired",
@@ -595,7 +633,7 @@ exports.getPendingCustomPlatforms = (0, https_1.onCall)({ timeoutSeconds: 300 },
         globalPlatformNames.add(doc.data().name.toLowerCase());
     });
     // 2. Fetch all credentials across all users using a collectionGroup query
-    const credentialsSnap = await db.collectionGroup("credentials").get();
+    const credentialsSnap = await db.collectionGroup("credentials").select("platform").limit(5000).get();
     const pendingMap = new Map();
     credentialsSnap.forEach((doc) => {
         const platform = doc.data().platform;
