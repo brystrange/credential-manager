@@ -11,6 +11,7 @@ import {
 import {
     getBiometricStatus,
     disableBiometricUnlock,
+    getBiometricButtonLabels,
     type BiometricStatus,
 } from "../services/biometricService";
 import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
@@ -304,7 +305,7 @@ export default function SettingsPage({
                     <h3 style={{ margin: 0 }}>Biometric Unlock</h3>
                 </div>
                 <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                    Use Fingerprint, Face ID, or Windows Hello to unlock your vault on this device without entering your password every time.
+                    Use Fingerprint, Face ID, or Windows Hello (PIN / Biometrics) to unlock your vault faster on this device. You can always use your vault password on desktop or any other device.
                 </p>
 
                 {biometricError && <div className="auth-error" style={{ marginBottom: "16px" }}>{biometricError}</div>}
@@ -314,7 +315,7 @@ export default function SettingsPage({
                     <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Checking device capabilities...</div>
                 ) : !biometricStatus.supported ? (
                     <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", padding: "12px", background: "var(--bg-glass)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)" }}>
-                        Biometric unlock (Fingerprint, Face ID, or Windows Hello) is not available on this device or browser.
+                        Biometric / Windows Hello quick unlock is not configured on this device or browser. You can continue unlocking your vault with your Vault Password.
                     </div>
                 ) : biometricStatus.enabled ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -367,9 +368,9 @@ export default function SettingsPage({
                                 {showBiometricPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                             </button>
                         </div>
-                        <button type="submit" className="auth-submit" disabled={biometricBusy} style={{ marginTop: "8px", maxWidth: "260px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                            <MdFingerprint size={18} />
-                            {biometricBusy ? "Waiting for device..." : "Enable Fingerprint / Face ID"}
+                        <button type="submit" className="auth-submit" disabled={biometricBusy} style={{ marginTop: "8px", maxWidth: "320px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                            <MdFingerprint size={18} style={{ flexShrink: 0 }} />
+                            {biometricBusy ? "Waiting for device..." : getBiometricButtonLabels().enable}
                         </button>
                     </form>
                 )}

@@ -72,6 +72,38 @@ function detectDeviceLabel(): string {
     return "Platform Authenticator";
 }
 
+export function getBiometricButtonLabels(): { enable: string; unlock: string } {
+    if (typeof navigator === "undefined") {
+        return {
+            enable: "Enable Biometric Unlock",
+            unlock: "Unlock with Biometrics",
+        };
+    }
+    const ua = navigator.userAgent || "";
+    if (/iPhone|iPad|iPod|Android/i.test(ua)) {
+        return {
+            enable: "Enable Fingerprint / Face ID",
+            unlock: "Unlock with Fingerprint / Face ID",
+        };
+    }
+    if (/Windows/i.test(ua)) {
+        return {
+            enable: "Enable Windows Hello (PIN / Biometrics)",
+            unlock: "Unlock with Windows Hello / PIN",
+        };
+    }
+    if (/Mac/i.test(ua)) {
+        return {
+            enable: "Enable Touch ID",
+            unlock: "Unlock with Touch ID",
+        };
+    }
+    return {
+        enable: "Enable Device Quick Unlock",
+        unlock: "Unlock with Device Biometrics / PIN",
+    };
+}
+
 function openDb(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
         if (typeof indexedDB === "undefined") {

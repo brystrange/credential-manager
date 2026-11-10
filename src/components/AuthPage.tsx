@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useLoginThrottle } from "../hooks/useLoginThrottle";
 import { isInAppBrowser } from "../utils/browserDetection";
 import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, unlockVaultWithBiometrics, resendVerificationEmail, resetPassword, validatePassword } from "../services/authService";
-import { hasBiometricEnrollment } from "../services/biometricService";
+import { hasBiometricEnrollment, getBiometricButtonLabels } from "../services/biometricService";
 import { auth } from "../firebaseConfig";
 import {
     FiMail,
@@ -419,10 +419,10 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                                 className="auth-submit"
                                 onClick={handleBiometricUnlock}
                                 disabled={loading || biometricBusy}
-                                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginBottom: "4px" }}
+                                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", gap: "8px", margin: "0 auto 4px" }}
                             >
-                                <MdFingerprint size={20} />
-                                {biometricBusy ? "Verifying..." : "Unlock with Fingerprint / Face ID"}
+                                <MdFingerprint size={20} style={{ flexShrink: 0 }} />
+                                {biometricBusy ? "Verifying..." : getBiometricButtonLabels().unlock}
                             </button>
                             <div className="auth-divider" style={{ margin: "16px 0" }}>
                                 <span>or enter password</span>

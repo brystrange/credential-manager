@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router-dom";
 import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, unlockVaultWithBiometrics, setupGoogleVault, resetGoogleVaultPassword, checkSecurityTerms, agreeSecurityTerms, validatePassword } from "./services/authService";
-import { hasBiometricEnrollment } from "./services/biometricService";
+import { hasBiometricEnrollment, getBiometricButtonLabels } from "./services/biometricService";
 import { ensureSharingKeys } from "./services/shareService";
 import type { Credential, CredentialInput } from "./services/credentialService";
 import {
@@ -476,10 +476,10 @@ function VaultUnlockGate({
                             className="auth-submit"
                             onClick={handleBiometricUnlock}
                             disabled={busy || biometricBusy}
-                            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginBottom: "4px" }}
+                            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", gap: "8px", margin: "0 auto 4px" }}
                         >
-                            <MdFingerprint size={20} />
-                            {biometricBusy ? "Verifying..." : "Unlock with Fingerprint / Face ID"}
+                            <MdFingerprint size={20} style={{ flexShrink: 0 }} />
+                            {biometricBusy ? "Verifying..." : getBiometricButtonLabels().unlock}
                         </button>
                         <div className="auth-divider" style={{ margin: "16px 0" }}>
                             <span>or enter password</span>
