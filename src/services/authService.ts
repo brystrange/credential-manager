@@ -25,6 +25,12 @@ import {
     generateRecoveryKey
 } from "./crypto";
 import { clearSharingKeys } from "./shareService";
+import {
+    enrollBiometricUnlock,
+    unwrapMasterKeyWithBiometrics,
+    disableBiometricUnlock,
+    type BiometricMode,
+} from "./biometricService";
 
 export type AuthUser = User;
 
@@ -485,4 +491,64 @@ export async function agreeSecurityTerms(): Promise<void> {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     await setDoc(doc(db, "users", uid), { hasAgreedToSecurityTerms: true }, { merge: true });
-}
+}
+
+
+/**
+ * Enables platform biometric unlock (Fingerprint / Face ID / Windows Hello) for the
+ * currently signed-in user on this device. Requires current vault password to prove ownership.
+ */
+export async function enableBiometricUnlockForCurrentUser(
+    currentPassword: string
+): Promise<{ mode: BiometricMode; deviceLabel: string }> {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Not authenticated.");
+
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    if (!userDoc.exists()) throw new Error("User profile not found.");
+
+    const data = userDoc.data();
+    const salt = data.salt as string;
+    const encryptedMasterKey = data.encryptedMasterKey as string | undefined;
+    if (!salt || !encryptedMasterKey) {
+        throw new Error("Vault encryption profile is incomplete.");
+    }
+
+    let masterKeyHex: string;
+    try {
+        const pdk = await deriveKey(currentPassword, salt);
+        masterKeyHex = await decryptPassword(encryptedMasterKey, pdk);
+    } catch {
+        throw new Error("Incorrect current password.");
+    }
+
+    const mk = await importKeyFromHex(masterKeyHex);
+    return await enrollBiometricUnlock(user.uid, user.email || "", mk);
+}
+
+/**
+ * Unlocks the vault using the device's enrolled biometric authenticator (Fingerprint / Face ID / Windows Hello).
+ */
+export async function unlockVaultWithBiometrics(): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Not authenticated.");
+
+    const masterKeyHex = await unwrapMasterKeyWithBiometrics(user.uid);
+    const mk = await importKeyFromHex(masterKeyHex);
+
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    if (!userDoc.exists()) throw new Error("User profile not found.");
+
+    const data = userDoc.data();
+    if (data.fullName && typeof data.fullName === "string" && data.fullName.includes(":")) {
+        try {
+            await decryptPassword(data.fullName, mk);
+        } catch {
+            await disableBiometricUnlock(user.uid).catch(() => {});
+            throw new Error("Biometric key does not match your current vault. Please unlock with your password.");
+        }
+    }
+
+    encryptionKey = mk;
+    pendingSyncPassword = null;
+}

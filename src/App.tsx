@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router-dom";
-import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, setupGoogleVault, resetGoogleVaultPassword, checkSecurityTerms, agreeSecurityTerms, validatePassword } from "./services/authService";
+import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, unlockVaultWithBiometrics, setupGoogleVault, resetGoogleVaultPassword, checkSecurityTerms, agreeSecurityTerms, validatePassword } from "./services/authService";
+import { hasBiometricEnrollment } from "./services/biometricService";
 import { ensureSharingKeys } from "./services/shareService";
 import type { Credential, CredentialInput } from "./services/credentialService";
 import {
@@ -41,6 +42,7 @@ import {
     FiInfo,
     FiCreditCard,
 } from "react-icons/fi";
+import { MdFingerprint } from "react-icons/md";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { updateProfile } from "firebase/auth";
 import type { User } from "firebase/auth";
@@ -247,9 +249,11 @@ function GoogleVaultSetup({
    The password is the same one used to sign in.
 ──────────────────────────────────────────────────────────────────────────── */
 function VaultUnlockGate({
+    userId,
     userEmail,
     onUnlocked,
 }: {
+    userId: string;
     userEmail: string;
     onUnlocked: () => void;
 }) {
@@ -257,7 +261,29 @@ function VaultUnlockGate({
     const [showPw, setShowPw] = useState(false);
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
+    const [biometricAvailable, setBiometricAvailable] = useState(false);
+    const [biometricBusy, setBiometricBusy] = useState(false);
     const [view, setView] = useState<"unlock" | "reset-vault">("unlock");
+
+    useEffect(() => {
+        if (!userId) return;
+        hasBiometricEnrollment(userId).then(setBiometricAvailable).catch(() => setBiometricAvailable(false));
+    }, [userId]);
+
+    const handleBiometricUnlock = async () => {
+        setError("");
+        setBiometricBusy(true);
+        try {
+            await unlockVaultWithBiometrics();
+            import("./hooks/useLoginThrottle").then(m => m.clearLoginThrottle());
+            onUnlocked();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Biometric unlock failed. Please enter your password.";
+            setError(msg);
+        } finally {
+            setBiometricBusy(false);
+        }
+    };
 
     // Reset-vault form state
     const [newPw, setNewPw] = useState("");
@@ -443,6 +469,24 @@ function VaultUnlockGate({
 
                 {error && <div className="auth-error">{error}</div>}
 
+                {biometricAvailable && (
+                    <>
+                        <button
+                            type="button"
+                            className="auth-submit"
+                            onClick={handleBiometricUnlock}
+                            disabled={busy || biometricBusy}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginBottom: "4px" }}
+                        >
+                            <MdFingerprint size={20} />
+                            {biometricBusy ? "Verifying..." : "Unlock with Fingerprint / Face ID"}
+                        </button>
+                        <div className="auth-divider" style={{ margin: "16px 0" }}>
+                            <span>or enter password</span>
+                        </div>
+                    </>
+                )}
+
                 <form onSubmit={handleSubmit} className="auth-form">
                     <div className="form-group">
                         <div className="input-icon">
@@ -465,7 +509,7 @@ function VaultUnlockGate({
                             {showPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
                         </button>
                     </div>
-                    <button type="submit" className="auth-submit" disabled={busy} style={{ marginTop: "10px" }}>
+                    <button type="submit" className="auth-submit" disabled={busy || biometricBusy} style={{ marginTop: "10px" }}>
                         {busy ? "Unlocking..." : "Unlock Vault"}
                     </button>
 
@@ -890,6 +934,7 @@ function AppInner({
     if (!vaultUnlocked && !loginInProgress) {
         return (
             <VaultUnlockGate
+                userId={user.uid}
                 userEmail={user.email ?? ""}
                 onUnlocked={handleAuthSuccess}
             />

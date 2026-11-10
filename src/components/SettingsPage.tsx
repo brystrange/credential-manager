@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
-import { FiLock, FiEye, FiEyeOff, FiLogOut, FiEdit2 } from "react-icons/fi";
+import { FiLock, FiEye, FiEyeOff, FiLogOut, FiEdit2, FiCheckCircle } from "react-icons/fi";
+import { MdFingerprint } from "react-icons/md";
 import type { User } from "firebase/auth";
-import { changeVaultPassword, generateNewRecoveryKey, validatePassword } from "../services/authService";
+import {
+    changeVaultPassword,
+    generateNewRecoveryKey,
+    validatePassword,
+    enableBiometricUnlockForCurrentUser,
+} from "../services/authService";
+import {
+    getBiometricStatus,
+    disableBiometricUnlock,
+    type BiometricStatus,
+} from "../services/biometricService";
 import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
 import { deleteAccount } from "../services/userService";
 import { useSubscription } from "../context/SubscriptionContext";
@@ -57,9 +68,62 @@ export default function SettingsPage({
     const [deleteStatusMsg, setDeleteStatusMsg] = useState("");
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+    const [biometricStatus, setBiometricStatus] = useState<BiometricStatus | null>(null);
+    const [biometricPw, setBiometricPw] = useState("");
+    const [showBiometricPw, setShowBiometricPw] = useState(false);
+    const [biometricBusy, setBiometricBusy] = useState(false);
+    const [biometricError, setBiometricError] = useState("");
+    const [biometricSuccess, setBiometricSuccess] = useState("");
+
     useEffect(() => {
         hasLegacyCredentials().then(setShowMigration).catch(console.error);
     }, []);
+
+    useEffect(() => {
+        if (!user?.uid) {
+            setBiometricStatus(null);
+            return;
+        }
+        getBiometricStatus(user.uid).then(setBiometricStatus).catch(console.error);
+    }, [user?.uid]);
+
+    const handleEnableBiometric = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user?.uid) return;
+        setBiometricError("");
+        setBiometricSuccess("");
+        setBiometricBusy(true);
+        try {
+            const res = await enableBiometricUnlockForCurrentUser(biometricPw);
+            const updated = await getBiometricStatus(user.uid);
+            setBiometricStatus(updated);
+            setBiometricPw("");
+            setBiometricSuccess(`Biometric unlock enabled for ${res.deviceLabel}.`);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to enable biometric unlock.";
+            setBiometricError(msg);
+        } finally {
+            setBiometricBusy(false);
+        }
+    };
+
+    const handleDisableBiometric = async () => {
+        if (!user?.uid) return;
+        setBiometricError("");
+        setBiometricSuccess("");
+        setBiometricBusy(true);
+        try {
+            await disableBiometricUnlock(user.uid);
+            const updated = await getBiometricStatus(user.uid);
+            setBiometricStatus(updated);
+            setBiometricSuccess("Biometric unlock disabled on this device.");
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to disable biometric unlock.";
+            setBiometricError(msg);
+        } finally {
+            setBiometricBusy(false);
+        }
+    };
 
     const handleMigrate = async () => {
         setMigrationError("");
@@ -232,6 +296,83 @@ export default function SettingsPage({
                         {signOutLoading ? "Signing Out..." : "Sign Out"}
                     </button>
                 </div>
+            </div>
+
+            <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                    <MdFingerprint size={22} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                    <h3 style={{ margin: 0 }}>Biometric Unlock</h3>
+                </div>
+                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                    Use Fingerprint, Face ID, or Windows Hello to unlock your vault on this device without entering your password every time.
+                </p>
+
+                {biometricError && <div className="auth-error" style={{ marginBottom: "16px" }}>{biometricError}</div>}
+                {biometricSuccess && <div className="auth-success" style={{ marginBottom: "16px", color: "var(--success)" }}>{biometricSuccess}</div>}
+
+                {!biometricStatus ? (
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Checking device capabilities...</div>
+                ) : !biometricStatus.supported ? (
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", padding: "12px", background: "var(--bg-glass)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)" }}>
+                        Biometric unlock (Fingerprint, Face ID, or Windows Hello) is not available on this device or browser.
+                    </div>
+                ) : biometricStatus.enabled ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", padding: "14px 16px", background: "var(--bg-glass)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <FiCheckCircle size={18} style={{ color: "var(--success)", flexShrink: 0 }} />
+                                <div>
+                                    <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                                        Active on {biometricStatus.deviceLabel || "This Device"}
+                                    </div>
+                                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
+                                        {biometricStatus.mode === "prf" ? "Hardware PRF Key Wrapping" : "Device Biometric Key Gate"}
+                                        {biometricStatus.enabledAt ? ` • Enabled ${new Date(biometricStatus.enabledAt).toLocaleDateString()}` : ""}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleDisableBiometric}
+                            disabled={biometricBusy}
+                            className="settings-signout-btn"
+                            style={{
+                                alignSelf: "flex-start",
+                                background: "rgba(127, 29, 29, 0.1)",
+                                border: "1px solid rgba(127, 29, 29, 0.4)",
+                                color: "var(--danger)",
+                            }}
+                        >
+                            {biometricBusy ? "Disabling..." : "Disable Biometric Unlock"}
+                        </button>
+                    </div>
+                ) : (
+                    <form onSubmit={handleEnableBiometric} className="auth-form" style={{ gap: "12px", display: "flex", flexDirection: "column" }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                            <div className="input-icon"><FiLock size={16} /></div>
+                            <input
+                                type={showBiometricPw ? "text" : "password"}
+                                placeholder="Current vault password"
+                                value={biometricPw}
+                                onChange={(e) => setBiometricPw(e.target.value)}
+                                required
+                                autoComplete="current-password"
+                            />
+                            <button
+                                type="button"
+                                className="input-suffix"
+                                onClick={() => setShowBiometricPw(!showBiometricPw)}
+                            >
+                                {showBiometricPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                            </button>
+                        </div>
+                        <button type="submit" className="auth-submit" disabled={biometricBusy} style={{ marginTop: "8px", maxWidth: "260px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                            <MdFingerprint size={18} />
+                            {biometricBusy ? "Waiting for device..." : "Enable Fingerprint / Face ID"}
+                        </button>
+                    </form>
+                )}
             </div>
 
             <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>

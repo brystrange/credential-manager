@@ -4,6 +4,7 @@ import { collection, getDocs, doc, deleteDoc, getDoc } from "firebase/firestore"
 import { ref, deleteObject } from "firebase/storage";
 import { deriveKey, decryptPassword } from "./crypto";
 import { clearEncryptionKey } from "./authService";
+import { disableBiometricUnlock } from "./biometricService";
 
 export async function deleteAccount(password: string, onProgress?: (msg: string) => void): Promise<void> {
     const user = auth.currentUser;
@@ -96,5 +97,6 @@ export async function deleteAccount(password: string, onProgress?: (msg: string)
         }
     }
     
+    await disableBiometricUnlock(uid).catch(() => {});
     clearEncryptionKey();
 }

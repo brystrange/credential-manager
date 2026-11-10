@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLoginThrottle } from "../hooks/useLoginThrottle";
 import { isInAppBrowser } from "../utils/browserDetection";
-import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, resendVerificationEmail, resetPassword, validatePassword } from "../services/authService";
+import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, unlockVaultWithBiometrics, resendVerificationEmail, resetPassword, validatePassword } from "../services/authService";
+import { hasBiometricEnrollment } from "../services/biometricService";
+import { auth } from "../firebaseConfig";
 import {
     FiMail,
     FiLock,
@@ -17,6 +19,7 @@ import {
     FiInfo,
 } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
+import { MdFingerprint } from "react-icons/md";
 
 interface AuthPageProps {
     onAuthSuccess: () => void;
@@ -88,6 +91,35 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     const [pendingPassword, setPendingPassword] = useState("");
     const [recoveryKey, setRecoveryKey] = useState("");
     const [resetPasswordSuccess, setResetPasswordSuccess] = useState("");
+    const [biometricAvailable, setBiometricAvailable] = useState(false);
+    const [biometricBusy, setBiometricBusy] = useState(false);
+
+    useEffect(() => {
+        if (view !== "vault-unlock") return;
+        const uid = auth.currentUser?.uid;
+        if (!uid) {
+            setBiometricAvailable(false);
+            return;
+        }
+        hasBiometricEnrollment(uid).then(setBiometricAvailable).catch(() => setBiometricAvailable(false));
+    }, [view]);
+
+    const handleBiometricUnlock = async () => {
+        setError("");
+        setBiometricBusy(true);
+        try {
+            onAuthStart?.();
+            await unlockVaultWithBiometrics();
+            recordSuccess();
+            onAuthSuccess();
+        } catch (err: unknown) {
+            onAuthEnd?.();
+            const msg = err instanceof Error ? err.message : "Biometric unlock failed. Please enter your password.";
+            setError(msg);
+        } finally {
+            setBiometricBusy(false);
+        }
+    };
     
 
     const resetFields = () => {
@@ -379,6 +411,24 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                     </div>
 
                     {error && <div className="auth-error">{error}</div>}
+
+                    {biometricAvailable && (
+                        <>
+                            <button
+                                type="button"
+                                className="auth-submit"
+                                onClick={handleBiometricUnlock}
+                                disabled={loading || biometricBusy}
+                                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginBottom: "4px" }}
+                            >
+                                <MdFingerprint size={20} />
+                                {biometricBusy ? "Verifying..." : "Unlock with Fingerprint / Face ID"}
+                            </button>
+                            <div className="auth-divider" style={{ margin: "16px 0" }}>
+                                <span>or enter password</span>
+                            </div>
+                        </>
+                    )}
 
                     <form onSubmit={handleSubmit} className="auth-form">
                         <div className="form-group">
