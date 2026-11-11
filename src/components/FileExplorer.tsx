@@ -29,6 +29,7 @@ import type { SharedItem, SharedFileEntry, ShareableItem } from "../services/sha
 import { useSubscription } from "../context/SubscriptionContext";
 import { compressImage } from "../utils/imageCompressor";
 import PDFEditor from "./PDFEditor";
+import { attachDocumentPinchZoom, attachMediaPinchPan } from "../utils/pinchZoom";
 import { renderAsync } from "docx-preview";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
@@ -81,6 +82,25 @@ const isExcelFile = (type: string) =>
     type === 'application/vnd.ms-excel';
 const isPptxFile = (type: string) =>
     type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+const isPreviewMediaZoomable = (sel: { file: VaultFile; pptxThumbnailUrl?: string }) =>
+    sel.file.type.startsWith('image/') ||
+    sel.file.type.startsWith('video/') ||
+    (isPptxFile(sel.file.type) && Boolean(sel.pptxThumbnailUrl));
+
+const isPreviewHeaderZoomSupported = (sel: { file: VaultFile; excelHtml?: string; pptxThumbnailUrl?: string }) => {
+    const t = sel.file.type;
+    if (t === 'application/pdf' || t.startsWith('audio/')) return false;
+    if (
+        isOfficeFile(t) &&
+        !isDocxFile(t) &&
+        !(isExcelFile(t) && sel.excelHtml) &&
+        !(isPptxFile(t) && sel.pptxThumbnailUrl)
+    ) {
+        return false;
+    }
+    return true;
+};
 
 const resolveMimeType = (name: string, declaredType?: string): string => {
     const n = (name || "").toLowerCase();
@@ -518,12 +538,17 @@ export default function FileExplorer() {
     const [zoomLevel, setZoomLevel] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
+    const [isTouchInteracting, setIsTouchInteracting] = useState(false);
+    const [docPinchScale, setDocPinchScale] = useState(1);
     const lastPanPos = useRef({ x: 0, y: 0 });
     const lastDragTime = useRef(0);
     const imageRef = useRef<HTMLDivElement>(null);
-    const activePointers = useRef<Map<number, {x: number, y: number}>>(new Map());
-    const initialPinchDist = useRef<number | null>(null);
-    const initialPinchZoom = useRef<number>(1);
+    const zoomRef = useRef(zoomLevel);
+    zoomRef.current = zoomLevel;
+    const panRef = useRef(pan);
+    panRef.current = pan;
+    const activeIframeRef = useRef<HTMLIFrameElement | null>(null);
+    const iframeCleanupRef = useRef<(() => void) | null>(null);
 
     // Block navigation during upload
     useBlocker(uploadProgress !== null);
@@ -614,24 +639,23 @@ export default function FileExplorer() {
 
     useEffect(() => {
         const handleResize = () => {
-            if (activePointers.current.size === 0) {
-                setPan(prev => {
-                    const el = imageRef.current;
-                    if (!el) return prev;
-                    
-                    const rect = el.getBoundingClientRect();
-                    const boundaryMult = zoomLevel - 1;
-                    const w = rect.width;
-                    const h = rect.height;
-                    const maxDragX = w * boundaryMult + window.innerWidth / 2;
-                    const maxDragY = h * boundaryMult + window.innerHeight / 2;
-                    
-                    if (Math.abs(prev.x) >= maxDragX - 5 || Math.abs(prev.y) >= maxDragY - 5) {
-                        return { x: 0, y: 0 };
-                    }
-                    return prev;
-                });
-            }
+            setPan(prev => {
+                const el = imageRef.current;
+                if (!el) return prev;
+                const z = zoomRef.current;
+                if (z <= 1) return { x: 0, y: 0 };
+                const rect = el.getBoundingClientRect();
+                const boundaryMult = z - 1;
+                const w = rect.width;
+                const h = rect.height;
+                const maxDragX = w * boundaryMult + window.innerWidth / 2;
+                const maxDragY = h * boundaryMult + window.innerHeight / 2;
+
+                if (Math.abs(prev.x) >= maxDragX - 5 || Math.abs(prev.y) >= maxDragY - 5) {
+                    return { x: 0, y: 0 };
+                }
+                return prev;
+            });
         };
         window.addEventListener("resize", handleResize);
         return () => window.removeEventListener("resize", handleResize);
@@ -644,7 +668,99 @@ export default function FileExplorer() {
                 el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
             }
         }
+    }, [selectedImage]);
+
+    // Attach mobile 2-finger pinch-to-zoom & pan for media previews (images, PPTX slides, video)
+    useEffect(() => {
+        if (!selectedImage || !isPreviewMediaZoomable(selectedImage) || !imageRef.current) return;
+        return attachMediaPinchPan({
+            el: imageRef.current,
+            getZoom: () => zoomRef.current,
+            getPan: () => panRef.current,
+            minZoom: 0.5,
+            maxZoom: 5,
+            onUpdate: (nextZoom, nextPan, interacting) => {
+                setZoomLevel(nextZoom);
+                setPan(nextPan);
+                setIsTouchInteracting(interacting);
+            },
+        });
+    }, [selectedImage]);
+
+    // Attach mobile 2-finger pinch-to-zoom for scrollable Office documents (Word DOCX, Excel XLSX)
+    useEffect(() => {
+        setDocPinchScale(1);
+        if (!selectedImage) {
+            if (iframeCleanupRef.current) {
+                iframeCleanupRef.current();
+                iframeCleanupRef.current = null;
+            }
+            activeIframeRef.current = null;
+            return;
+        }
+        const t = selectedImage.file.type;
+        const isScrollDoc = isDocxFile(t) || (isExcelFile(t) && Boolean(selectedImage.excelHtml));
+        if (!isScrollDoc || !scrollContainerRef.current) return;
+
+        const el = scrollContainerRef.current;
+        return attachDocumentPinchZoom({
+            target: el,
+            scrollEl: el,
+            getScale: () => zoomRef.current,
+            minScale: 0.35,
+            maxScale: 4,
+            onLivePinch: setDocPinchScale,
+            onCommitScale: (next) => setZoomLevel(next),
+        });
+    }, [selectedImage]);
+
+    // Sync header zoom buttons with active iframe preview (text / html / code)
+    useEffect(() => {
+        try {
+            const doc = activeIframeRef.current?.contentDocument;
+            if (doc?.documentElement) {
+                (doc.documentElement.style as any).zoom = String(zoomLevel);
+            }
+        } catch {
+            // Ignore cross-origin sandbox restrictions
+        }
     }, [zoomLevel]);
+
+    const attachIframePinch = (iframe: HTMLIFrameElement) => {
+        activeIframeRef.current = iframe;
+        if (iframeCleanupRef.current) {
+            iframeCleanupRef.current();
+            iframeCleanupRef.current = null;
+        }
+        try {
+            const doc = iframe.contentDocument;
+            if (!doc || !doc.documentElement) return;
+            const scrollTarget = (doc.scrollingElement as HTMLElement) || doc.documentElement;
+            doc.documentElement.style.touchAction = 'pan-x pan-y';
+            (doc.documentElement.style as any).zoom = String(zoomRef.current);
+
+            iframeCleanupRef.current = attachDocumentPinchZoom({
+                target: doc,
+                scrollEl: scrollTarget,
+                getScale: () => zoomRef.current,
+                minScale: 0.4,
+                maxScale: 4,
+                onLivePinch: (ratio) => {
+                    const targetEl = doc.body || doc.documentElement;
+                    if (ratio === 1) {
+                        targetEl.style.transform = '';
+                        targetEl.style.transformOrigin = '';
+                    } else {
+                        targetEl.style.transform = `scale(${ratio})`;
+                        targetEl.style.transformOrigin = 'top left';
+                    }
+                },
+                onCommitScale: (next) => setZoomLevel(next),
+            });
+        } catch {
+            // Fallback gracefully if contentDocument is inaccessible
+        }
+    };
 
     // Render docx files when officeContainerRef is available
     useEffect(() => {
@@ -3005,10 +3121,10 @@ export default function FileExplorer() {
                         <div className="image-viewer-title">{selectedImage.file.name}</div>
                         
                         <div className="image-viewer-actions desktop-only">
-                            {selectedImage.file.type.startsWith('image/') && (
+                            {isPreviewHeaderZoomSupported(selectedImage) && (
                                 <>
-                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In"><FiZoomIn /></button>
-                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
+                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.35, 5))} title="Zoom In"><FiZoomIn /></button>
+                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.35, 0.35)); setPan({x:0, y:0}); }} title="Zoom Out"><FiZoomOut /></button>
                                     <button onClick={() => { setZoomLevel(1); setPan({ x: 0, y: 0 }); }} title="Reset Zoom"><FiMaximize /></button>
                                     <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 8px" }} />
                                 </>
@@ -3077,10 +3193,10 @@ export default function FileExplorer() {
                         </div>
                         
                         <div className="image-viewer-actions mobile-only">
-                            {selectedImage.file.type.startsWith('image/') && (
+                            {isPreviewHeaderZoomSupported(selectedImage) && (
                                 <>
-                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.5, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
-                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
+                                    <button onClick={() => setZoomLevel(prev => Math.min(prev + 0.35, 5))} title="Zoom In" style={{ padding: "8px" }}><FiZoomIn size={20} /></button>
+                                    <button onClick={() => { setZoomLevel(prev => Math.max(prev - 0.35, 0.35)); setPan({x:0, y:0}); }} title="Zoom Out" style={{ padding: "8px" }}><FiZoomOut size={20} /></button>
                                     <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.2)", margin: "0 4px" }} />
                                 </>
                             )}
@@ -3172,7 +3288,7 @@ export default function FileExplorer() {
                             }
                         }}
                         onWheel={(e) => {
-                            if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
+                            if (!isPreviewMediaZoomable(selectedImage)) return;
                             if (e.ctrlKey || e.metaKey) {
                                 if (e.deltaY < 0) {
                                     setZoomLevel(prev => Math.min(prev + 0.25, 5));
@@ -3183,27 +3299,21 @@ export default function FileExplorer() {
                                         return newZoom;
                                     });
                                 }
-                            } else {
-                                if (zoomLevel > 1) {
-                                    setPan(prev => {
-                                        let newX = prev.x - e.deltaX;
-                                        let newY = prev.y - e.deltaY;
-                                        
-                                        if (imageRef.current) {
-                                            const w = imageRef.current.clientWidth * zoomLevel;
-                                            const h = imageRef.current.clientHeight * zoomLevel;
-                                            const boundaryMult = window.innerWidth <= 768 ? 0.4 : 0.2;
-                                            const maxDragX = w * boundaryMult + window.innerWidth / 2;
-                                            const maxDragY = h * boundaryMult + window.innerHeight / 2;
-                                            
-                                            if (newX > maxDragX) newX = maxDragX;
-                                            if (newX < -maxDragX) newX = -maxDragX;
-                                            if (newY > maxDragY) newY = maxDragY;
-                                            if (newY < -maxDragY) newY = -maxDragY;
-                                        }
-                                        return { x: newX, y: newY };
-                                    });
-                                }
+                            } else if (zoomLevel > 1) {
+                                setPan(prev => {
+                                    let newX = prev.x - e.deltaX;
+                                    let newY = prev.y - e.deltaY;
+                                    if (imageRef.current) {
+                                        const w = imageRef.current.clientWidth * zoomLevel;
+                                        const h = imageRef.current.clientHeight * zoomLevel;
+                                        const boundaryMult = window.innerWidth <= 768 ? 0.45 : 0.25;
+                                        const maxDragX = w * boundaryMult + window.innerWidth / 2;
+                                        const maxDragY = h * boundaryMult + window.innerHeight / 2;
+                                        newX = Math.max(-maxDragX, Math.min(maxDragX, newX));
+                                        newY = Math.max(-maxDragY, Math.min(maxDragY, newY));
+                                    }
+                                    return { x: newX, y: newY };
+                                });
                             }
                         }}
                     >
@@ -3211,99 +3321,51 @@ export default function FileExplorer() {
                             ref={imageRef}
                             className="image-viewer-zoom-wrapper"
                             onPointerDown={(e) => {
-                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
-                                activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-                                if (activePointers.current.size === 2) {
-                                    const pts = Array.from(activePointers.current.values());
-                                    initialPinchDist.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-                                    initialPinchZoom.current = zoomLevel;
-                                    e.currentTarget.setPointerCapture(e.pointerId);
-                                    return;
-                                }
-
+                                if (e.pointerType === 'touch' || !isPreviewMediaZoomable(selectedImage)) return;
                                 if (zoomLevel <= 1) return;
                                 setIsDragging(true);
                                 lastPanPos.current = { x: e.clientX, y: e.clientY };
                                 e.currentTarget.setPointerCapture(e.pointerId);
                             }}
                             onPointerMove={(e) => {
-                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
-                                if (activePointers.current.has(e.pointerId)) {
-                                    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-                                }
-                                if (activePointers.current.size === 2) {
-                                    const pts = Array.from(activePointers.current.values());
-                                    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-                                    if (initialPinchDist.current) {
-                                        const scale = dist / initialPinchDist.current;
-                                        setZoomLevel(Math.max((selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 1 : 0.5, Math.min(initialPinchZoom.current * scale, 5)));
-                                    }
-                                    return;
-                                }
-
-                                if (!isDragging || activePointers.current.size !== 1) return;
+                                if (e.pointerType === 'touch' || !isPreviewMediaZoomable(selectedImage) || !isDragging) return;
                                 const dx = e.clientX - lastPanPos.current.x;
                                 const dy = e.clientY - lastPanPos.current.y;
                                 if (Math.abs(dx) > 2 || Math.abs(dy) > 2) lastDragTime.current = Date.now();
-                                
                                 setPan(prev => {
                                     let newX = prev.x + dx;
                                     let newY = prev.y + dy;
-                                    
                                     if (imageRef.current) {
                                         const w = imageRef.current.clientWidth * zoomLevel;
                                         const h = imageRef.current.clientHeight * zoomLevel;
-                                        const boundaryMult = window.innerWidth <= 768 ? 0.4 : 0.2;
+                                        const boundaryMult = window.innerWidth <= 768 ? 0.45 : 0.25;
                                         const maxDragX = w * boundaryMult + window.innerWidth / 2;
                                         const maxDragY = h * boundaryMult + window.innerHeight / 2;
-                                        
-                                        if (newX > maxDragX) newX = maxDragX;
-                                        if (newX < -maxDragX) newX = -maxDragX;
-                                        if (newY > maxDragY) newY = maxDragY;
-                                        if (newY < -maxDragY) newY = -maxDragY;
+                                        newX = Math.max(-maxDragX, Math.min(maxDragX, newX));
+                                        newY = Math.max(-maxDragY, Math.min(maxDragY, newY));
                                     }
                                     return { x: newX, y: newY };
                                 });
                                 lastPanPos.current = { x: e.clientX, y: e.clientY };
                             }}
                             onPointerUp={(e) => {
-                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
-                                activePointers.current.delete(e.pointerId);
-                                if (activePointers.current.size < 2) {
-                                    initialPinchDist.current = null;
-                                }
-
+                                if (e.pointerType === 'touch' || !isPreviewMediaZoomable(selectedImage)) return;
                                 setIsDragging(false);
-                                e.currentTarget.releasePointerCapture(e.pointerId);
-                                
-                                setPan(prev => {
-                                    if (!imageRef.current) return prev;
-                                    const w = imageRef.current.clientWidth * zoomLevel;
-                                    const h = imageRef.current.clientHeight * zoomLevel;
-                                    const boundaryMult = window.innerWidth <= 768 ? 0.4 : 0.2;
-                                    const maxDragX = w * boundaryMult + window.innerWidth / 2;
-                                    const maxDragY = h * boundaryMult + window.innerHeight / 2;
-                                    
-                                    if (Math.abs(prev.x) >= maxDragX - 5 || Math.abs(prev.y) >= maxDragY - 5) {
-                                        return { x: 0, y: 0 };
-                                    }
-                                    return prev;
-                                });
+                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                                    e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
                             }}
                             onPointerCancel={(e) => {
-                                if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) return;
-                                activePointers.current.delete(e.pointerId);
-                                if (activePointers.current.size < 2) {
-                                    initialPinchDist.current = null;
-                                }
-
+                                if (e.pointerType === 'touch' || !isPreviewMediaZoomable(selectedImage)) return;
                                 setIsDragging(false);
-                                e.currentTarget.releasePointerCapture(e.pointerId);
+                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                                    e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
                             }}
-                            style={{ 
-                                transform: selectedImage.file.type.startsWith('image/') ? `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` : undefined,
-                                transition: isDragging || activePointers.current.size === 2 ? 'none' : 'transform 0.1s ease-out',
-                                cursor: zoomLevel > 1 && selectedImage.file.type.startsWith('image/') ? (isDragging ? "grabbing" : "grab") : "default",
+                            style={{
+                                transform: isPreviewMediaZoomable(selectedImage) ? `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` : undefined,
+                                transition: isDragging || isTouchInteracting ? 'none' : 'transform 0.1s ease-out',
+                                cursor: zoomLevel > 1 && isPreviewMediaZoomable(selectedImage) ? (isDragging ? "grabbing" : "grab") : "default",
                                 width: '100%',
                                 height: '100%',
                                 flex: 1,
@@ -3311,7 +3373,7 @@ export default function FileExplorer() {
                                 flexDirection: 'column',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                touchAction: zoomLevel > 1 && selectedImage.file.type.startsWith('image/') ? 'none' : 'pan-x pan-y'
+                                touchAction: isPreviewMediaZoomable(selectedImage) ? 'none' : 'pan-x pan-y'
                             }}
                         >
                             {selectedImage.file.type.startsWith('image/') ? (
@@ -3348,17 +3410,27 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
-                                        background: '#ffffff',
+                                        touchAction: 'pan-x pan-y',
+                                        background: '#e6e6e6',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
                                         display: 'block',
                                     }}
                                 >
-                                    <div style={{ margin: '0 auto', width: '100%' }}>
+                                    <div
+                                        style={{
+                                            margin: '0 auto',
+                                            width: 'max-content',
+                                            minWidth: '100%',
+                                            transform: docPinchScale !== 1 ? `scale(${docPinchScale})` : undefined,
+                                            transformOrigin: 'top left',
+                                        }}
+                                    >
                                         <div
                                             ref={officeContainerRef}
                                             onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
                                             className="office-document-container"
+                                            style={{ zoom: zoomLevel } as any}
                                         />
                                     </div>
                                 </div>
@@ -3372,6 +3444,7 @@ export default function FileExplorer() {
                                         flex: 1,
                                         overflow: 'auto',
                                         WebkitOverflowScrolling: 'touch',
+                                        touchAction: 'pan-x pan-y',
                                         background: '#ffffff',
                                         color: '#000',
                                         borderRadius: 'var(--radius-md)',
@@ -3379,7 +3452,14 @@ export default function FileExplorer() {
                                         display: 'block',
                                     }}
                                 >
-                                    <div style={{ margin: '0 auto', width: 'max-content' }}>
+                                    <div
+                                        style={{
+                                            margin: '0 auto',
+                                            width: 'max-content',
+                                            transform: docPinchScale !== 1 ? `scale(${docPinchScale})` : undefined,
+                                            transformOrigin: 'top left',
+                                        }}
+                                    >
                                         <div
                                             className="excel-preview-wrapper"
                                             style={{ zoom: zoomLevel } as any}
@@ -3420,10 +3500,11 @@ export default function FileExplorer() {
                                 </div>
                             )
                         ) : (
-                            <div style={{ width: '100%', height: '100%', overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                            <div style={{ width: '100%', height: '100%', overflow: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
                                 <iframe 
                                     src={selectedImage.url} 
                                     sandbox="allow-same-origin allow-popups"
+                                    onLoad={(e) => attachIframePinch(e.currentTarget)}
                                     style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-md)', background: '#fff' }}
                                     title={selectedImage.file.name}
                                 />

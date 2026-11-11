@@ -77,6 +77,8 @@
 .pdf-document-wrapper {
     flex: 1;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
     padding: 24px;
 }
 

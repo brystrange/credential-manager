@@ -1,4 +1,5 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
+import { attachDocumentPinchZoom } from '../utils/pinchZoom';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { FiZoomIn, FiZoomOut, FiSidebar, FiSearch, FiChevronDown, FiChevronUp, FiX } from 'react-icons/fi';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -15,6 +16,9 @@ interface PDFEditorProps {
 export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [scale, setScale] = useState(window.innerWidth <= 768 ? 0.6 : 1.2);
+  const [pinchRatio, setPinchRatio] = useState(1);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
   const [showSidebar, setShowSidebar] = useState(false);
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
@@ -22,6 +26,20 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
   const [passwordPrompt, setPasswordPrompt] = useState<{ callback: (password: string) => void, reason: number } | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    return attachDocumentPinchZoom({
+      target: el,
+      scrollEl: el,
+      getScale: () => scaleRef.current,
+      minScale: 0.35,
+      maxScale: 4,
+      onLivePinch: setPinchRatio,
+      onCommitScale: (next) => setScale(next),
+    });
+  }, []);
 
   const handlePassword = (callback: (password: string) => void, reason: number) => {
     setPasswordPrompt({ callback, reason });
@@ -89,11 +107,11 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
         </div>
 
         <div className="pdf-toolbar-group pdf-toolbar-center">
-          <button className="pdf-icon-btn" onClick={() => setScale(s => Math.max(0.5, s - 0.2))} title="Zoom Out">
+          <button className="pdf-icon-btn" onClick={() => setScale(s => Math.max(0.35, Number((s - 0.2).toFixed(2))))} title="Zoom Out">
             <FiZoomOut />
           </button>
-          <span className="pdf-zoom-label">{Math.round(scale * 100)}%</span>
-          <button className="pdf-icon-btn" onClick={() => setScale(s => Math.min(3, s + 0.2))} title="Zoom In">
+          <span className="pdf-zoom-label">{Math.round(scale * pinchRatio * 100)}%</span>
+          <button className="pdf-icon-btn" onClick={() => setScale(s => Math.min(4, Number((s + 0.2).toFixed(2))))} title="Zoom In">
             <FiZoomIn />
           </button>
         </div>
@@ -153,7 +171,14 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
           )}
 
           <div className="pdf-document-wrapper" ref={wrapperRef}>
-            <div className="pdf-document">
+            <div
+              className="pdf-document"
+              style={{
+                transform: pinchRatio !== 1 ? `scale(${pinchRatio})` : undefined,
+                transformOrigin: 'top left',
+                transition: pinchRatio !== 1 ? 'none' : undefined,
+              }}
+            >
                   {Array.from(new Array(numPages || 0), (_, index) => (
                     <div 
                       key={`page_${index + 1}`} 

@@ -4451,10 +4451,11 @@ option {
 /* Office preview styling isolation — override dark theme inheritance */
 .docx-wrapper, .office-document-container > div {
   display: block !important;
-  width: 100% !important;
+  width: max-content !important;
+  min-width: 100% !important;
   background: #e6e6e6 !important;
   background-color: #e6e6e6 !important;
-  overflow-x: auto !important;
+  overflow-x: visible !important;
   padding: 0 !important; /* Remove library's injected wrapper padding */
 }
 
