@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useBlocker } from "react-router-dom";
 import { 
     FiFolder, FiFile, FiUpload, FiPlus, FiTrash2, FiEdit2, FiDownload, 
-    FiChevronRight, FiChevronUp, FiChevronDown, FiHome, FiX, FiFileText, FiImage, FiArchive,
+    FiChevronLeft, FiChevronRight, FiChevronUp, FiChevronDown, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
     FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers, FiUploadCloud
 } from "react-icons/fi";
@@ -31,8 +31,17 @@ import { compressImage } from "../utils/imageCompressor";
 import PDFEditor from "./PDFEditor";
 import { attachDocumentPinchZoom, attachMediaPinchPan } from "../utils/pinchZoom";
 import { renderAsync } from "docx-preview";
-import * as XLSX from "xlsx";
 import JSZip from "jszip";
+import {
+    isOfficeFile,
+    isDocxFile,
+    isSpreadsheetFile,
+    isPptxFile,
+    buildOfficePreviewData,
+    type SheetPreview,
+    type PptxSlidePreview,
+    type OfficePreviewData,
+} from "../utils/officePreview";
 
 const gradientColorsList = [
     { id: 'golden-sand', name: 'Golden Sand', start: '#fde68a', end: '#facc15' },
@@ -64,41 +73,27 @@ const gradientColors = gradientColorsList.reduce((acc, c) => {
     return acc;
 }, {} as Record<string, string>);
 
-const MS_OFFICE_TYPES = [
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'application/msword',
-    'application/vnd.ms-excel',
-    'application/vnd.ms-powerpoint',
-];
-
-const isOfficeFile = (type: string) => MS_OFFICE_TYPES.includes(type);
-const isDocxFile = (type: string) =>
-    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-    type === 'application/msword';
-const isExcelFile = (type: string) =>
-    type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    type === 'application/vnd.ms-excel';
-const isPptxFile = (type: string) =>
-    type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-
-const isPreviewMediaZoomable = (sel: { file: VaultFile; pptxThumbnailUrl?: string }) =>
+const isPreviewMediaZoomable = (sel: {
+    file: VaultFile;
+    pptxThumbnailUrl?: string;
+    pptxSlides?: PptxSlidePreview[];
+}) =>
     sel.file.type.startsWith('image/') ||
     sel.file.type.startsWith('video/') ||
-    (isPptxFile(sel.file.type) && Boolean(sel.pptxThumbnailUrl));
+    (isPptxFile(sel.file.type) && !sel.pptxSlides?.length && Boolean(sel.pptxThumbnailUrl));
 
-const isPreviewHeaderZoomSupported = (sel: { file: VaultFile; excelHtml?: string; pptxThumbnailUrl?: string }) => {
+const isPreviewHeaderZoomSupported = (sel: {
+    file: VaultFile;
+    excelSheets?: SheetPreview[];
+    pptxThumbnailUrl?: string;
+    pptxSlides?: PptxSlidePreview[];
+}) => {
     const t = sel.file.type;
     if (t === 'application/pdf' || t.startsWith('audio/')) return false;
-    if (
-        isOfficeFile(t) &&
-        !isDocxFile(t) &&
-        !(isExcelFile(t) && sel.excelHtml) &&
-        !(isPptxFile(t) && sel.pptxThumbnailUrl)
-    ) {
-        return false;
-    }
+    if (isSpreadsheetFile(t, sel.file.name)) return Boolean(sel.excelSheets?.length);
+    if (isDocxFile(t)) return true;
+    if (isPptxFile(t)) return Boolean(sel.pptxSlides?.length || sel.pptxThumbnailUrl);
+    if (isOfficeFile(t)) return false;
     return true;
 };
 
@@ -364,28 +359,6 @@ const globalFolderCountsCache: Record<string, number> = {};
 let globalFoldersCache: VaultFolder[] | null = null;
 let globalFilesCache: VaultFile[] | null = null;
 
-function sanitizeExcelHtml(html: string): string {
-    if (!html) return '';
-    try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        doc.querySelectorAll('script, iframe, object, embed, link, meta, base').forEach(el => el.remove());
-        doc.querySelectorAll('*').forEach(el => {
-            for (const attr of Array.from(el.attributes)) {
-                const name = attr.name.toLowerCase();
-                const val = attr.value.toLowerCase().trim();
-                if (name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('data:text/html')) {
-                    el.removeAttribute(attr.name);
-                }
-            }
-        });
-        const table = doc.querySelector('table');
-        return table ? table.outerHTML : (doc.body ? doc.body.innerHTML : '');
-    } catch {
-        return '';
-    }
-}
-
 export function clearFileExplorerCache(): void {
     globalImageCache.forEach((url) => {
         try {
@@ -468,21 +441,25 @@ export default function FileExplorer() {
         });
     };
 
-    // Image Viewer
+    // File Preview Viewer
     const [selectedImage, setSelectedImage] = useState<{ 
         file: VaultFile; 
         url: string; 
         pdfData?: Uint8Array; 
         officeData?: ArrayBuffer; 
-        excelHtml?: string; 
+        excelSheets?: SheetPreview[];
+        pptxSlides?: PptxSlidePreview[];
         pptxThumbnailUrl?: string;
         sharedItem?: SharedItem;
         sharedFileEntry?: SharedFileEntry;
     } | null>(null);
+    const [activeSheetIdx, setActiveSheetIdx] = useState(0);
+    const [activeSlideIdx, setActiveSlideIdx] = useState(0);
+    const [showSlideNotes, setShowSlideNotes] = useState(false);
     const officeContainerRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [imageCache, setImageCache] = useState<Record<string, string>>({});
-    const [officeDataCache, setOfficeDataCache] = useState<Record<string, { arrayBuffer?: ArrayBuffer, excelHtml?: string, pptxThumbnailUrl?: string }>>({});
+    const [officeDataCache, setOfficeDataCache] = useState<Record<string, OfficePreviewData>>({});
     const [imageMenuOpen, setImageMenuOpen] = useState(false);
     const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
     const [loadingColor, setLoadingColor] = useState<string | null>(null);
@@ -687,9 +664,12 @@ export default function FileExplorer() {
         });
     }, [selectedImage]);
 
-    // Attach mobile 2-finger pinch-to-zoom for scrollable Office documents (Word DOCX, Excel XLSX)
+    // Attach mobile 2-finger pinch-to-zoom for scrollable Office / CSV / Slide documents
     useEffect(() => {
         setDocPinchScale(1);
+        setActiveSheetIdx(0);
+        setActiveSlideIdx(0);
+        setShowSlideNotes(false);
         if (!selectedImage) {
             if (iframeCleanupRef.current) {
                 iframeCleanupRef.current();
@@ -699,7 +679,10 @@ export default function FileExplorer() {
             return;
         }
         const t = selectedImage.file.type;
-        const isScrollDoc = isDocxFile(t) || (isExcelFile(t) && Boolean(selectedImage.excelHtml));
+        const isScrollDoc =
+            isDocxFile(t) ||
+            Boolean(selectedImage.excelSheets?.length) ||
+            Boolean(selectedImage.pptxSlides?.length);
         if (!isScrollDoc || !scrollContainerRef.current) return;
 
         const el = scrollContainerRef.current;
@@ -1231,13 +1214,15 @@ export default function FileExplorer() {
         setZoomLevel(1);
         setPan({ x: 0, y: 0 });
         if (imageCache[file.id]) {
-            if (isOfficeFile(file.type) && officeDataCache[file.id]) {
+            if ((isOfficeFile(file.type) || isSpreadsheetFile(file.type, file.name)) && officeDataCache[file.id]) {
+                const cached = officeDataCache[file.id];
                 setSelectedImage({ 
                     file, 
                     url: imageCache[file.id], 
-                    officeData: officeDataCache[file.id].arrayBuffer,
-                    excelHtml: officeDataCache[file.id].excelHtml,
-                    pptxThumbnailUrl: officeDataCache[file.id].pptxThumbnailUrl
+                    officeData: cached.arrayBuffer,
+                    excelSheets: cached.excelSheets,
+                    pptxSlides: cached.pptxSlides,
+                    pptxThumbnailUrl: cached.pptxThumbnailUrl
                 });
             } else {
                 setSelectedImage({ file, url: imageCache[file.id] });
@@ -1255,86 +1240,17 @@ export default function FileExplorer() {
                 // Pass raw data to react-pdf instead of blob URL (fixes mobile)
                 const arrayBuffer = await blob.arrayBuffer();
                 setSelectedImage({ file, url, pdfData: new Uint8Array(arrayBuffer) });
-            } else if (isOfficeFile(file.type)) {
-                const arrayBuffer = await blob.arrayBuffer();
-                let excelHtml = undefined;
-                let pptxThumbnailUrl = undefined;
-                
-                if (isExcelFile(file.type)) {
-                    try {
-                        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-                        const firstSheetName = workbook.SheetNames[0];
-                        const worksheet = workbook.Sheets[firstSheetName];
-                        worksheet['!ref'] = 'A1:AJ50'; // Force preview to show exactly A1 to AJ50
-                        let rawHtml = XLSX.utils.sheet_to_html(worksheet);
-                        if (worksheet['!ref']) {
-                            const parser = new DOMParser();
-                            const doc = parser.parseFromString(rawHtml, 'text/html');
-                            const table = doc.querySelector('table');
-                            if (table) {
-                                const range = XLSX.utils.decode_range(worksheet['!ref']);
-                                const colCount = range.e.c;
-                                
-                                const headerRow = doc.createElement('tr');
-                                const cornerTh = doc.createElement('th');
-                                cornerTh.style.background = '#f3f4f6';
-                                cornerTh.style.border = '1px solid #ccc';
-                                cornerTh.style.minWidth = '40px';
-                                headerRow.appendChild(cornerTh);
-                                
-                                for (let i = 0; i <= colCount; i++) {
-                                    const th = doc.createElement('th');
-                                    th.textContent = XLSX.utils.encode_col(i);
-                                    th.style.background = '#f3f4f6';
-                                    th.style.border = '1px solid #ccc';
-                                    th.style.padding = '4px 8px';
-                                    th.style.textAlign = 'center';
-                                    headerRow.appendChild(th);
-                                }
-                                table.prepend(headerRow);
-                                
-                                const rows = table.querySelectorAll('tr');
-                                for (let i = 1; i < rows.length; i++) {
-                                    const th = doc.createElement('th');
-                                    th.textContent = i.toString();
-                                    th.style.background = '#f3f4f6';
-                                    th.style.border = '1px solid #ccc';
-                                    th.style.padding = '4px 8px';
-                                    th.style.textAlign = 'center';
-                                    rows[i].prepend(th);
-                                }
-                                
-                                const cells = table.querySelectorAll('td, th');
-                                cells.forEach(cell => {
-                                    (cell as HTMLElement).style.border = '1px solid #ccc';
-                                });
-                                
-                                table.style.borderCollapse = 'collapse';
-                                excelHtml = sanitizeExcelHtml(table.outerHTML);
-                            } else {
-                                excelHtml = sanitizeExcelHtml(rawHtml);
-                            }
-                        } else {
-                            excelHtml = sanitizeExcelHtml(rawHtml);
-                        }
-                    } catch (e) {
-                        console.error("Excel parse failed", e);
-                    }
-                } else if (isPptxFile(file.type)) {
-                    try {
-                        const zip = await JSZip.loadAsync(arrayBuffer);
-                        const thumbnailFile = zip.file("docProps/thumbnail.jpeg");
-                        if (thumbnailFile) {
-                            const thumbBlob = await thumbnailFile.async("blob");
-                            pptxThumbnailUrl = URL.createObjectURL(thumbBlob);
-                        }
-                    } catch (e) {
-                        console.error("PPTX thumb parse failed", e);
-                    }
-                }
-
-                setOfficeDataCache(prev => ({ ...prev, [file.id]: { arrayBuffer, excelHtml, pptxThumbnailUrl } }));
-                setSelectedImage({ file, url, officeData: arrayBuffer, excelHtml, pptxThumbnailUrl });
+            } else if (isOfficeFile(file.type) || isSpreadsheetFile(file.type, file.name)) {
+                const officePreview = await buildOfficePreviewData(blob, file.type, file.name);
+                setOfficeDataCache(prev => ({ ...prev, [file.id]: officePreview }));
+                setSelectedImage({
+                    file,
+                    url,
+                    officeData: officePreview.arrayBuffer,
+                    excelSheets: officePreview.excelSheets,
+                    pptxSlides: officePreview.pptxSlides,
+                    pptxThumbnailUrl: officePreview.pptxThumbnailUrl,
+                });
             } else {
                 setSelectedImage({ file, url });
             }
@@ -1579,13 +1495,15 @@ export default function FileExplorer() {
         };
 
         if (imageCache[fileId]) {
-            if (isOfficeFile(fileType) && officeDataCache[fileId]) {
+            if ((isOfficeFile(fileType) || isSpreadsheetFile(fileType, displayName)) && officeDataCache[fileId]) {
+                const cached = officeDataCache[fileId];
                 setSelectedImage({ 
                     file: syntheticFile, 
                     url: imageCache[fileId], 
-                    officeData: officeDataCache[fileId].arrayBuffer,
-                    excelHtml: officeDataCache[fileId].excelHtml,
-                    pptxThumbnailUrl: officeDataCache[fileId].pptxThumbnailUrl,
+                    officeData: cached.arrayBuffer,
+                    excelSheets: cached.excelSheets,
+                    pptxSlides: cached.pptxSlides,
+                    pptxThumbnailUrl: cached.pptxThumbnailUrl,
                     sharedItem: share,
                     sharedFileEntry: fileEntry,
                 });
@@ -1616,91 +1534,16 @@ export default function FileExplorer() {
                     sharedItem: share,
                     sharedFileEntry: fileEntry,
                 });
-            } else if (isOfficeFile(fileType)) {
-                const arrayBuffer = await blob.arrayBuffer();
-                let excelHtml = undefined;
-                let pptxThumbnailUrl = undefined;
-                
-                if (isExcelFile(fileType)) {
-                    try {
-                        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-                        const firstSheetName = workbook.SheetNames[0];
-                        const worksheet = workbook.Sheets[firstSheetName];
-                        worksheet['!ref'] = 'A1:AJ50';
-                        let rawHtml = XLSX.utils.sheet_to_html(worksheet);
-                        if (worksheet['!ref']) {
-                            const parser = new DOMParser();
-                            const doc = parser.parseFromString(rawHtml, 'text/html');
-                            const table = doc.querySelector('table');
-                            if (table) {
-                                const range = XLSX.utils.decode_range(worksheet['!ref']);
-                                const colCount = range.e.c;
-                                
-                                const headerRow = doc.createElement('tr');
-                                const cornerTh = doc.createElement('th');
-                                cornerTh.style.background = '#f3f4f6';
-                                cornerTh.style.border = '1px solid #ccc';
-                                cornerTh.style.minWidth = '40px';
-                                headerRow.appendChild(cornerTh);
-                                
-                                for (let i = 0; i <= colCount; i++) {
-                                    const th = doc.createElement('th');
-                                    th.textContent = XLSX.utils.encode_col(i);
-                                    th.style.background = '#f3f4f6';
-                                    th.style.border = '1px solid #ccc';
-                                    th.style.padding = '4px 8px';
-                                    th.style.textAlign = 'center';
-                                    headerRow.appendChild(th);
-                                }
-                                table.prepend(headerRow);
-                                
-                                const rows = table.querySelectorAll('tr');
-                                for (let i = 1; i < rows.length; i++) {
-                                    const th = doc.createElement('th');
-                                    th.textContent = i.toString();
-                                    th.style.background = '#f3f4f6';
-                                    th.style.border = '1px solid #ccc';
-                                    th.style.padding = '4px 8px';
-                                    th.style.textAlign = 'center';
-                                    rows[i].prepend(th);
-                                }
-                                
-                                const cells = table.querySelectorAll('td, th');
-                                cells.forEach(cell => {
-                                    (cell as HTMLElement).style.border = '1px solid #ccc';
-                                });
-                                
-                                table.style.borderCollapse = 'collapse';
-                                excelHtml = sanitizeExcelHtml(table.outerHTML);
-                            } else {
-                                excelHtml = sanitizeExcelHtml(rawHtml);
-                            }
-                        } else {
-                            excelHtml = sanitizeExcelHtml(rawHtml);
-                        }
-                    } catch (e) {
-                        console.error("Excel parse failed", e);
-                    }
-                } else if (isPptxFile(fileType)) {
-                    try {
-                        const zip = await JSZip.loadAsync(arrayBuffer);
-                        const thumbnailFile = zip.file("docProps/thumbnail.jpeg");
-                        if (thumbnailFile) {
-                            const thumbBlob = await thumbnailFile.async("blob");
-                            pptxThumbnailUrl = URL.createObjectURL(thumbBlob);
-                        }
-                    } catch (e) {
-                        console.error("PPTX thumb parse failed", e);
-                    }
-                }
-
-                setOfficeDataCache(prev => ({ ...prev, [fileId]: { arrayBuffer, excelHtml, pptxThumbnailUrl } }));
+            } else if (isOfficeFile(fileType) || isSpreadsheetFile(fileType, displayName)) {
+                const officePreview = await buildOfficePreviewData(blob, fileType, displayName);
+                setOfficeDataCache(prev => ({ ...prev, [fileId]: officePreview }));
                 setSelectedImage({ 
                     file: syntheticFile, 
                     url, 
-                    officeData: arrayBuffer, 
-                    excelHtml, 
-                    pptxThumbnailUrl,
+                    officeData: officePreview.arrayBuffer,
+                    excelSheets: officePreview.excelSheets,
+                    pptxSlides: officePreview.pptxSlides,
+                    pptxThumbnailUrl: officePreview.pptxThumbnailUrl,
                     sharedItem: share,
                     sharedFileEntry: fileEntry,
                 });
@@ -3278,11 +3121,11 @@ export default function FileExplorer() {
                     <div 
                         className="image-viewer-content" 
                         style={{ 
-                            padding: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? 0 : undefined,
-                            background: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) ? '#ffffff' : undefined
+                            padding: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type) || isSpreadsheetFile(selectedImage.file.type, selectedImage.file.name)) ? 0 : undefined,
+                            background: (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type) || isSpreadsheetFile(selectedImage.file.type, selectedImage.file.name)) ? '#ffffff' : undefined
                         }}
                         onClick={(e) => {
-                            if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type)) {
+                            if (selectedImage.file.type === 'application/pdf' || isOfficeFile(selectedImage.file.type) || isSpreadsheetFile(selectedImage.file.type, selectedImage.file.name)) {
                                 e.stopPropagation();
                                 if (imageMenuOpen) setImageMenuOpen(false);
                             }
@@ -3400,7 +3243,7 @@ export default function FileExplorer() {
                                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{selectedImage.file.name}</p>
                                 <audio src={selectedImage.url} controls style={{ maxWidth: '100%', width: '320px' }} />
                             </div>
-                        ) : isOfficeFile(selectedImage.file.type) ? (
+                        ) : (isOfficeFile(selectedImage.file.type) || isSpreadsheetFile(selectedImage.file.type, selectedImage.file.name)) ? (
                             isDocxFile(selectedImage.file.type) ? (
                                 <div
                                     ref={scrollContainerRef}
@@ -3434,39 +3277,199 @@ export default function FileExplorer() {
                                         />
                                     </div>
                                 </div>
-                            ) : isExcelFile(selectedImage.file.type) && selectedImage.excelHtml ? (
-                                <div
-                                    ref={scrollContainerRef}
-                                    onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
-                                    style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        flex: 1,
-                                        overflow: 'auto',
-                                        WebkitOverflowScrolling: 'touch',
-                                        touchAction: 'pan-x pan-y',
-                                        background: '#ffffff',
-                                        color: '#000',
-                                        borderRadius: 'var(--radius-md)',
-                                        padding: '20px',
-                                        display: 'block',
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            margin: '0 auto',
-                                            width: 'max-content',
-                                            transform: docPinchScale !== 1 ? `scale(${docPinchScale})` : undefined,
-                                            transformOrigin: 'top left',
-                                        }}
-                                    >
+                            ) : isSpreadsheetFile(selectedImage.file.type, selectedImage.file.name) && selectedImage.excelSheets?.length ? (
+                                (() => {
+                                    const sheets = selectedImage.excelSheets!;
+                                    const currentSheet = sheets[activeSheetIdx] || sheets[0];
+                                    return (
                                         <div
-                                            className="excel-preview-wrapper"
-                                            style={{ zoom: zoomLevel } as any}
-                                            dangerouslySetInnerHTML={{ __html: selectedImage.excelHtml }}
-                                        />
-                                    </div>
-                                </div>
+                                            onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                            style={{
+                                                width: '100%',
+                                                height: '100%',
+                                                flex: 1,
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                overflow: 'hidden',
+                                                background: '#ffffff',
+                                                color: '#000',
+                                                borderRadius: 'var(--radius-md)',
+                                            }}
+                                        >
+                                            <div
+                                                ref={scrollContainerRef}
+                                                style={{
+                                                    width: '100%',
+                                                    flex: 1,
+                                                    overflow: 'auto',
+                                                    WebkitOverflowScrolling: 'touch',
+                                                    touchAction: 'pan-x pan-y',
+                                                    padding: '16px',
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        margin: '0 auto',
+                                                        width: 'max-content',
+                                                        minWidth: '100%',
+                                                        transform: docPinchScale !== 1 ? `scale(${docPinchScale})` : undefined,
+                                                        transformOrigin: 'top left',
+                                                    }}
+                                                >
+                                                    <div
+                                                        className="excel-preview-wrapper"
+                                                        style={{ zoom: zoomLevel } as any}
+                                                        dangerouslySetInnerHTML={{ __html: currentSheet.html }}
+                                                    />
+                                                    {currentSheet.truncatedNote && (
+                                                        <div className="excel-truncated-note">
+                                                            {currentSheet.truncatedNote}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {sheets.length > 1 && (
+                                                <div className="excel-sheet-tabs">
+                                                    {sheets.map((sheet, idx) => (
+                                                        <button
+                                                            key={`${sheet.name}-${idx}`}
+                                                            type="button"
+                                                            className={`excel-sheet-tab ${idx === activeSheetIdx ? 'active' : ''}`}
+                                                            onClick={() => {
+                                                                setActiveSheetIdx(idx);
+                                                                if (scrollContainerRef.current) {
+                                                                    scrollContainerRef.current.scrollTo({ top: 0, left: 0 });
+                                                                }
+                                                            }}
+                                                        >
+                                                            {sheet.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()
+                            ) : isPptxFile(selectedImage.file.type) && selectedImage.pptxSlides?.length ? (
+                                (() => {
+                                    const slides = selectedImage.pptxSlides!;
+                                    const currentSlide = slides[activeSlideIdx] || slides[0];
+                                    return (
+                                        <div
+                                            onClick={(e) => { e.stopPropagation(); if (imageMenuOpen) setImageMenuOpen(false); }}
+                                            className="pptx-viewer-container"
+                                        >
+                                            <div className="pptx-viewer-toolbar">
+                                                <div className="pptx-nav-controls">
+                                                    <button
+                                                        type="button"
+                                                        className="pptx-nav-btn"
+                                                        disabled={activeSlideIdx === 0}
+                                                        onClick={() => {
+                                                            setActiveSlideIdx((i) => Math.max(0, i - 1));
+                                                            scrollContainerRef.current?.scrollTo({ top: 0, left: 0 });
+                                                        }}
+                                                        title="Previous slide"
+                                                    >
+                                                        <FiChevronLeft size={18} />
+                                                    </button>
+                                                    <span className="pptx-slide-counter">
+                                                        Slide {activeSlideIdx + 1} of {slides.length}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        className="pptx-nav-btn"
+                                                        disabled={activeSlideIdx >= slides.length - 1}
+                                                        onClick={() => {
+                                                            setActiveSlideIdx((i) => Math.min(slides.length - 1, i + 1));
+                                                            scrollContainerRef.current?.scrollTo({ top: 0, left: 0 });
+                                                        }}
+                                                        title="Next slide"
+                                                    >
+                                                        <FiChevronRight size={18} />
+                                                    </button>
+                                                </div>
+                                                {currentSlide.notes && (
+                                                    <button
+                                                        type="button"
+                                                        className={`pptx-notes-toggle ${showSlideNotes ? 'active' : ''}`}
+                                                        onClick={() => setShowSlideNotes((prev) => !prev)}
+                                                    >
+                                                        <FiFileText size={14} />
+                                                        {showSlideNotes ? 'Hide Notes' : 'Speaker Notes'}
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <div ref={scrollContainerRef} className="pptx-slide-scroll">
+                                                <div
+                                                    className="pptx-slide-scale-wrap"
+                                                    style={{
+                                                        transform: docPinchScale !== 1 ? `scale(${docPinchScale})` : undefined,
+                                                        transformOrigin: 'top left',
+                                                    }}
+                                                >
+                                                    <div className="pptx-slide-card" style={{ zoom: zoomLevel } as any}>
+                                                        {currentSlide.title && (
+                                                            <h2 className="pptx-slide-title">{currentSlide.title}</h2>
+                                                        )}
+                                                        {currentSlide.paragraphs.length > 0 && (
+                                                            <div className="pptx-slide-body">
+                                                                {currentSlide.paragraphs.map((p, idx) => (
+                                                                    <p key={idx} className={p.isBullet ? 'pptx-bullet' : undefined}>
+                                                                        {p.text}
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {currentSlide.images.length > 0 && (
+                                                            <div className="pptx-slide-images">
+                                                                {currentSlide.images.map((src, idx) => (
+                                                                    <img
+                                                                        key={idx}
+                                                                        src={src}
+                                                                        alt={`Slide ${currentSlide.slideNumber} visual ${idx + 1}`}
+                                                                        draggable={false}
+                                                                    />
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {!currentSlide.title && currentSlide.paragraphs.length === 0 && currentSlide.images.length === 0 && (
+                                                            <div className="pptx-slide-empty">
+                                                                This slide contains vector shapes without extractable text or images.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {showSlideNotes && currentSlide.notes && (
+                                                <div className="pptx-notes-panel">
+                                                    <div className="pptx-notes-heading">Speaker Notes</div>
+                                                    <div className="pptx-notes-content">{currentSlide.notes}</div>
+                                                </div>
+                                            )}
+
+                                            {slides.length > 1 && (
+                                                <div className="pptx-slide-strip">
+                                                    {slides.map((slide, idx) => (
+                                                        <button
+                                                            key={slide.slideNumber}
+                                                            type="button"
+                                                            className={`pptx-slide-pill ${idx === activeSlideIdx ? 'active' : ''}`}
+                                                            onClick={() => {
+                                                                setActiveSlideIdx(idx);
+                                                                scrollContainerRef.current?.scrollTo({ top: 0, left: 0 });
+                                                            }}
+                                                        >
+                                                            {idx + 1}{slide.title ? `: ${slide.title.slice(0, 18)}${slide.title.length > 18 ? '…' : ''}` : ''}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()
                             ) : isPptxFile(selectedImage.file.type) && selectedImage.pptxThumbnailUrl ? (
                                 <img
                                     src={selectedImage.pptxThumbnailUrl}
