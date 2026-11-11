@@ -3,50 +3,105 @@ export interface Point {
     y: number;
 }
 
+export interface LivePinchMeta {
+    dx: number;
+    dy: number;
+    originX: number;
+    originY: number;
+}
+
 interface DocumentPinchOptions {
     target: HTMLElement | Document;
     scrollEl: HTMLElement;
+    getContentEl?: () => HTMLElement | null;
     getScale: () => number;
     minScale?: number;
     maxScale?: number;
-    onLivePinch: (pinchRatio: number) => void;
+    onLivePinch: (pinchRatio: number, meta?: LivePinchMeta) => void;
     onCommitScale: (nextScale: number) => void;
+    onDoubleTap?: (clientX: number, clientY: number) => void;
 }
 
 /**
- * Attaches smooth 2-finger pinch-to-zoom gestures to scrollable document previews
- * (PDF, DOCX, Excel, Text/HTML iframes) while preserving 1-finger native scrolling.
+ * Attaches smooth midpoint-anchored 2-finger pinch-to-zoom (and optional double-tap zoom)
+ * to scrollable document previews (PDF, DOCX, Excel, Text/HTML iframes) while preserving
+ * 1-finger native scrolling.
  */
 export function attachDocumentPinchZoom({
     target,
     scrollEl,
+    getContentEl,
     getScale,
     minScale = 0.35,
     maxScale = 4,
     onLivePinch,
     onCommitScale,
+    onDoubleTap,
 }: DocumentPinchOptions): () => void {
     let initialDist: number | null = null;
     let currentRatio = 1;
+    let startCenter: Point = { x: 0, y: 0 };
     let pinchCenter: Point = { x: 0, y: 0 };
+    let originInContent: Point = { x: 0, y: 0 };
+    let lastTapTime = 0;
+    let lastTapPos: Point = { x: 0, y: 0 };
+    let singleMoved = false;
+
+    const beginPinch = (t0: Touch, t1: Touch) => {
+        initialDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY) || 1;
+        startCenter = {
+            x: (t0.clientX + t1.clientX) / 2,
+            y: (t0.clientY + t1.clientY) / 2,
+        };
+        pinchCenter = { ...startCenter };
+        const contentRect = (getContentEl?.() || scrollEl).getBoundingClientRect();
+        originInContent = {
+            x: startCenter.x - contentRect.left,
+            y: startCenter.y - contentRect.top,
+        };
+        currentRatio = 1;
+    };
 
     const handleTouchStart = (e: Event) => {
         const te = e as TouchEvent;
         if (te.touches.length === 2) {
             if (te.cancelable) te.preventDefault();
-            const t0 = te.touches[0];
-            const t1 = te.touches[1];
-            initialDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY) || 1;
-            pinchCenter = {
-                x: (t0.clientX + t1.clientX) / 2,
-                y: (t0.clientY + t1.clientY) / 2,
-            };
-            currentRatio = 1;
+            lastTapTime = 0;
+            beginPinch(te.touches[0], te.touches[1]);
+            return;
+        }
+
+        if (te.touches.length === 1 && onDoubleTap) {
+            const t = te.touches[0];
+            singleMoved = false;
+            const targetEl = te.target as HTMLElement | null;
+            if (targetEl && (targetEl.closest("button") || targetEl.closest("input"))) {
+                return;
+            }
+            const now = Date.now();
+            const tapDist = Math.hypot(t.clientX - lastTapPos.x, t.clientY - lastTapPos.y);
+            if (now - lastTapTime < 280 && tapDist < 32) {
+                if (te.cancelable) te.preventDefault();
+                lastTapTime = 0;
+                onDoubleTap(t.clientX, t.clientY);
+                return;
+            }
+            lastTapTime = now;
+            lastTapPos = { x: t.clientX, y: t.clientY };
         }
     };
 
     const handleTouchMove = (e: Event) => {
         const te = e as TouchEvent;
+        if (te.touches.length === 1 && !singleMoved) {
+            const t = te.touches[0];
+            if (Math.hypot(t.clientX - lastTapPos.x, t.clientY - lastTapPos.y) > 10) {
+                singleMoved = true;
+                lastTapTime = 0;
+            }
+            return;
+        }
+
         if (te.touches.length !== 2) return;
         if (te.cancelable) te.preventDefault();
 
@@ -55,12 +110,7 @@ export function attachDocumentPinchZoom({
         const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
 
         if (initialDist === null) {
-            initialDist = dist || 1;
-            pinchCenter = {
-                x: (t0.clientX + t1.clientX) / 2,
-                y: (t0.clientY + t1.clientY) / 2,
-            };
-            currentRatio = 1;
+            beginPinch(t0, t1);
             return;
         }
 
@@ -72,7 +122,12 @@ export function attachDocumentPinchZoom({
             x: (t0.clientX + t1.clientX) / 2,
             y: (t0.clientY + t1.clientY) / 2,
         };
-        onLivePinch(currentRatio);
+        onLivePinch(currentRatio, {
+            dx: pinchCenter.x - startCenter.x,
+            dy: pinchCenter.y - startCenter.y,
+            originX: originInContent.x,
+            originY: originInContent.y,
+        });
     };
 
     const handleTouchEnd = (e: Event) => {
@@ -86,20 +141,22 @@ export function attachDocumentPinchZoom({
         );
 
         const rect = scrollEl.getBoundingClientRect();
-        const offsetX = pinchCenter.x - rect.left;
-        const offsetY = pinchCenter.y - rect.top;
+        const startOffsetX = startCenter.x - rect.left;
+        const startOffsetY = startCenter.y - rect.top;
+        const curOffsetX = pinchCenter.x - rect.left;
+        const curOffsetY = pinchCenter.y - rect.top;
         const oldScrollLeft = scrollEl.scrollLeft;
         const oldScrollTop = scrollEl.scrollTop;
         const factor = nextScale / baseScale;
 
         initialDist = null;
         currentRatio = 1;
-        onLivePinch(1);
+        onLivePinch(1, { dx: 0, dy: 0, originX: 0, originY: 0 });
         onCommitScale(nextScale);
 
         requestAnimationFrame(() => {
-            scrollEl.scrollLeft = Math.max(0, (oldScrollLeft + offsetX) * factor - offsetX);
-            scrollEl.scrollTop = Math.max(0, (oldScrollTop + offsetY) * factor - offsetY);
+            scrollEl.scrollLeft = Math.max(0, (oldScrollLeft + startOffsetX) * factor - curOffsetX);
+            scrollEl.scrollTop = Math.max(0, (oldScrollTop + startOffsetY) * factor - curOffsetY);
         });
     };
 
