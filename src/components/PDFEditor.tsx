@@ -78,15 +78,10 @@ function LazyPdfPage({
 }: LazyPdfPageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [inRange, setInRange] = useState(pageNumber <= 2);
-  const [pageSize, setPageSize] = useState(defaultSize);
+  const [loadedPageSize, setLoadedPageSize] = useState<{ width: number; height: number } | null>(null);
   const [textRendered, setTextRendered] = useState(false);
 
-  // Sync default size before individual page loads
-  useEffect(() => {
-    setPageSize((prev) =>
-      prev.width === 612 && prev.height === 792 ? defaultSize : prev
-    );
-  }, [defaultSize]);
+  const pageSize = loadedPageSize ?? defaultSize;
 
   // Pre-render pages within 900px of viewport to keep large PDFs fast and lightweight on mobile
   useEffect(() => {
@@ -147,7 +142,7 @@ function LazyPdfPage({
           renderTextLayer={true}
           renderAnnotationLayer={false}
           onLoadSuccess={(page: PageCallback) => {
-            setPageSize({
+            setLoadedPageSize({
               width: page.originalWidth || defaultSize.width,
               height: page.originalHeight || defaultSize.height,
             });
@@ -331,10 +326,12 @@ export default function PDFEditor({ url, onContainerClick }: PDFEditorProps) {
     setPasswordInput('');
   };
 
+  const docUrlStr = typeof url === 'string' ? url : null;
+  const docUrlBytes = typeof url === 'string' ? null : url.data;
   const documentFile = useMemo(() => {
-    if (typeof url === 'string') return url;
-    return { data: url.data };
-  }, [typeof url === 'string' ? url : url.data]);
+    if (docUrlStr !== null) return docUrlStr;
+    return { data: docUrlBytes! };
+  }, [docUrlStr, docUrlBytes]);
 
   async function onDocumentLoadSuccess(pdf: DocumentCallback) {
     pdfDocRef.current = pdf;
