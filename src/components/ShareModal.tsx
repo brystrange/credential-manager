@@ -434,7 +434,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                         <FiLock size={36} style={{ color: "var(--accent)", marginBottom: 10 }} />
                         <h3 style={{ marginBottom: 8 }}>File sharing is a Pro feature</h3>
                         <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                            Upgrade to Pro to securely share end-to-end encrypted files and folders with other Fort Sterling users.
+                            Upgrade to Pro to securely send end-to-end encrypted copies of files and folders to other Fort Sterling users.
                         </p>
                         <div className="confirm-actions" style={{ marginTop: 18 }}>
                             <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
@@ -445,7 +445,7 @@ export default function ShareModal({ isOpen, items, onClose, onShared }: ShareMo
                         <FiCheck size={36} style={{ color: "var(--green, #22c55e)", marginBottom: 10 }} />
                         <h3 style={{ marginBottom: 8 }}>Sent successfully</h3>
                         <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                            Sent to {sentGroupName || sentRecipients.map((s) => s.email).join(", ")}. They'll find it under <strong>Shared with me</strong>.
+                            Sent a copy to {sentGroupName || sentRecipients.map((s) => s.email).join(", ")}.
                         </p>
                         <div className="confirm-actions" style={{ marginTop: 18 }}>
                             <button type="button" className="btn-primary" onClick={onClose}>Done</button>

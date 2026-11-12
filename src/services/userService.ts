@@ -5,6 +5,7 @@ import { ref, deleteObject } from "firebase/storage";
 import { deriveKey, decryptPassword } from "./crypto";
 import { clearEncryptionKey } from "./authService";
 import { disableBiometricUnlock } from "./biometricService";
+import { listShares, removeShare } from "./shareService";
 
 export async function deleteAccount(password: string, onProgress?: (msg: string) => void): Promise<void> {
     const user = auth.currentUser;
@@ -76,6 +77,17 @@ export async function deleteAccount(password: string, onProgress?: (msg: string)
         await deleteDoc(folderDoc.ref);
     }
     console.log("Folders deleted.");
+
+    // 3b. Delete user's shared folder copies
+    try {
+        if (onProgress) onProgress("Deleting received files...");
+        const shares = await listShares();
+        for (const item of shares.received) {
+            await removeShare(item.id).catch((e) => console.warn("Failed to remove share on account deletion:", e));
+        }
+    } catch (e) {
+        console.warn("Could not list shares during account deletion:", e);
+    }
 
     // 4. Delete user document
     console.log("Deleting user document...");

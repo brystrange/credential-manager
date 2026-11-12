@@ -473,7 +473,7 @@ function VaultUnlockGate({
                     <>
                         <button
                             type="button"
-                            className="auth-submit"
+                            className="auth-submit auth-biometric-btn"
                             onClick={handleBiometricUnlock}
                             disabled={busy || biometricBusy}
                             style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", gap: "8px", margin: "0 auto 4px" }}
@@ -481,37 +481,39 @@ function VaultUnlockGate({
                             <MdFingerprint size={20} style={{ flexShrink: 0 }} />
                             {biometricBusy ? "Verifying..." : getBiometricButtonLabels().unlock}
                         </button>
-                        <div className="auth-divider" style={{ margin: "16px 0" }}>
+                        <div className="auth-divider biometric-password-fallback" style={{ margin: "16px 0" }}>
                             <span>or enter password</span>
                         </div>
                     </>
                 )}
 
                 <form onSubmit={handleSubmit} className="auth-form">
-                    <div className="form-group">
-                        <div className="input-icon">
-                            <FiLock size={16} />
+                    <div className={biometricAvailable ? "biometric-password-wrapper biometric-password-fallback" : "biometric-password-wrapper"}>
+                        <div className="form-group">
+                            <div className="input-icon">
+                                <FiLock size={16} />
+                            </div>
+                            <input
+                                type={showPw ? "text" : "password"}
+                                placeholder="Your password"
+                                value={pw}
+                                onChange={(e) => setPw(e.target.value)}
+                                required
+                                autoFocus
+                                autoComplete="current-password"
+                            />
+                            <button
+                                type="button"
+                                className="input-suffix"
+                                onClick={() => setShowPw(!showPw)}
+                            >
+                                {showPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                            </button>
                         </div>
-                        <input
-                            type={showPw ? "text" : "password"}
-                            placeholder="Your password"
-                            value={pw}
-                            onChange={(e) => setPw(e.target.value)}
-                            required
-                            autoFocus
-                            autoComplete="current-password"
-                        />
-                        <button
-                            type="button"
-                            className="input-suffix"
-                            onClick={() => setShowPw(!showPw)}
-                        >
-                            {showPw ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        <button type="submit" className="auth-submit" disabled={busy || biometricBusy} style={{ marginTop: "10px" }}>
+                            {busy ? "Unlocking..." : "Unlock Vault"}
                         </button>
                     </div>
-                    <button type="submit" className="auth-submit" disabled={busy || biometricBusy} style={{ marginTop: "10px" }}>
-                        {busy ? "Unlocking..." : "Unlock Vault"}
-                    </button>
 
                     <button
                     type="button"

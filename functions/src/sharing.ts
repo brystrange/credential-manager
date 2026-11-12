@@ -403,9 +403,8 @@ export const createShare = onCall(async (request) => {
     if (!wrappedKeys || typeof wrappedKeys !== "object") {
         throw new HttpsError("invalid-argument", "Missing encryption keys.");
     }
-    const requiredKeyHolders = [uid, ...recipients];
     const cleanWrappedKeys: Record<string, string> = {};
-    for (const holder of requiredKeyHolders) {
+    for (const holder of recipients) {
         const wk = (wrappedKeys as Record<string, unknown>)[holder];
         if (!isNonEmptyString(wk, 4000)) {
             throw new HttpsError("invalid-argument", "Missing encryption key for a recipient.");
@@ -426,10 +425,7 @@ export const createShare = onCall(async (request) => {
         throw new HttpsError("failed-precondition", "Some shared files were not uploaded.");
     }
 
-    const [sender, recipientSummaries] = await Promise.all([
-        getUserSummary(uid),
-        Promise.all(recipients.map((r) => getUserSummary(r))),
-    ]);
+    const recipientSummaries = await Promise.all(recipients.map((r) => getUserSummary(r)));
     const validRecipients = recipientSummaries.filter((s): s is UserSummary => s !== null);
     if (validRecipients.length !== recipients.length) {
         throw new HttpsError("not-found", "One or more recipients no longer exist.");
@@ -437,36 +433,73 @@ export const createShare = onCall(async (request) => {
 
     const shareSize = cleanFiles.reduce((sum, f) => sum + (f.size || 0), 0);
 
-    // Verify sender has sufficient storage capacity for the shared files
-    const senderDoc = await db().collection("users").doc(uid).get();
-    const senderUsage = Number(senderDoc.data()?.storageUsed) || 0;
-    const SENDER_LIMIT = 5 * 1024 * 1024 * 1024; // 5 GB limit for Pro users
-    if (senderUsage + shareSize > SENDER_LIMIT) {
-        throw new HttpsError(
-            "failed-precondition",
-            "You have insufficient storage space to share these files. Please delete some files or previous shares."
-        );
+    // Verify each recipient has sufficient storage capacity for their independent copy
+    for (const r of validRecipients) {
+        const [isPro, currentUsage] = await Promise.all([
+            isUserPro(r.uid),
+            getUserStorageUsageBytes(r.uid),
+        ]);
+        const limit = isPro ? 5 * 1024 * 1024 * 1024 : 500 * 1024 * 1024;
+        if (currentUsage + shareSize > limit) {
+            await deleteShareObjects(cleanFiles).catch(() => {});
+            throw new HttpsError(
+                "failed-precondition",
+                `Recipient ${r.displayName || r.email} has insufficient storage space.`
+            );
+        }
     }
 
-    const shareRef = db().collection("shares").doc(shareId);
-    try {
-        await shareRef.create({
-            senderUid: uid,
-            senderEmail: sender?.email || "",
-            senderName: sender?.displayName || "",
-            itemType,
-            encryptedName,
-            files: cleanFiles,
-            recipientUids: recipients,
-            recipients: validRecipients.map((r) => ({ uid: r.uid, email: r.email, displayName: r.displayName })),
-            wrappedKeys: cleanWrappedKeys,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-    } catch {
+    const existingHead = await db().collection("shares").doc(shareId).get();
+    if (existingHead.exists) {
         throw new HttpsError("already-exists", "This share already exists.");
     }
 
-    // Track frequent recipients
+    // Create an independent Storage copy and Firestore share doc owned by each recipient.
+    const createdDocIds: string[] = [];
+    const createdCopies: { storagePath?: string }[] = [];
+    try {
+        for (let idx = 0; idx < validRecipients.length; idx++) {
+            const r = validRecipients[idx];
+            const copyShareId = idx === 0 ? shareId : randomUUID();
+            const copiedFiles: ShareFileInput[] = [];
+
+            for (const f of cleanFiles) {
+                const destPath = `users/${r.uid}/shared/${copyShareId}/${randomUUID()}`;
+                await bucket().file(f.storagePath).copy(bucket().file(destPath));
+                createdCopies.push({ storagePath: destPath });
+                copiedFiles.push({
+                    storagePath: destPath,
+                    encryptedName: f.encryptedName,
+                    encryptedType: f.encryptedType,
+                    encryptedPath: f.encryptedPath,
+                    size: f.size,
+                });
+            }
+
+            await db().collection("shares").doc(copyShareId).create({
+                ownerUid: r.uid,
+                recipientUids: [r.uid],
+                itemType,
+                encryptedName,
+                files: copiedFiles,
+                wrappedKeys: { [r.uid]: cleanWrappedKeys[r.uid] },
+                color: null,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            createdDocIds.push(copyShareId);
+        }
+    } catch (err) {
+        await deleteShareObjects(createdCopies).catch(() => {});
+        await Promise.all(createdDocIds.map((id) => db().collection("shares").doc(id).delete().catch(() => {})));
+        throw err;
+    }
+
+    // Clean up temporary sender staging objects now that each recipient owns a copy.
+    await deleteShareObjects(cleanFiles).catch((e) =>
+        console.warn("Failed to delete staging share files:", e)
+    );
+
+    // Track frequent recipients and count copies toward each recipient's storage usage.
     const batch = db().batch();
     validRecipients.forEach((r) => {
         const ref = db().collection("shareContacts").doc(uid).collection("contacts").doc(r.uid);
@@ -476,39 +509,165 @@ export const createShare = onCall(async (request) => {
             shareCount: admin.firestore.FieldValue.increment(1),
             lastSharedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
-    });
 
-    // Count shared files towards the sender's storage usage
-    if (shareSize > 0) {
-        batch.set(
-            db().collection("users").doc(uid),
-            { storageUsed: admin.firestore.FieldValue.increment(shareSize) },
-            { merge: true }
-        );
-    }
+        if (shareSize > 0) {
+            batch.set(
+                db().collection("users").doc(r.uid),
+                { storageUsed: admin.firestore.FieldValue.increment(shareSize) },
+                { merge: true }
+            );
+        }
+    });
     await batch.commit();
 
     return { ok: true, shareId };
 });
 
+async function getUserStorageUsageBytes(uid: string): Promise<number> {
+    const [filesSnap, sharesSnap] = await Promise.all([
+        db().collection("users").doc(uid).collection("files").get(),
+        db().collection("shares").where("recipientUids", "array-contains", uid).get(),
+    ]);
+    const filesBytes = filesSnap.docs.reduce((sum, d) => sum + (Number(d.data().size) || 0), 0);
+    const sharedBytes = sharesSnap.docs.reduce((sum, d) => {
+        const files = (d.data().files as ShareFileInput[]) || [];
+        return sum + files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0);
+    }, 0);
+    return filesBytes + sharedBytes;
+}
+
+/**
+ * Ensures a share document is exclusively owned by `uid` as an independent copy.
+ * Legacy single-recipient docs are promoted in-place; legacy multi-recipient docs
+ * are forked into a dedicated document and isolated GCS objects for `uid`.
+ */
+async function ensureExclusiveRecipientShare(shareId: string, uid: string): Promise<{
+    ref: FirebaseFirestore.DocumentReference;
+    data: FirebaseFirestore.DocumentData;
+    pathMap: Map<string, string>;
+}> {
+    const ref = db().collection("shares").doc(shareId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+        throw new HttpsError("not-found", "Item not found.");
+    }
+    const s = snap.data() || {};
+    const recipientUids: string[] = Array.isArray(s.recipientUids) ? s.recipientUids : [];
+    const allowed = s.ownerUid === uid || recipientUids.includes(uid);
+    if (!allowed) {
+        throw new HttpsError("permission-denied", "You do not have access to this item.");
+    }
+
+    const existingFiles: ShareFileInput[] = Array.isArray(s.files) ? s.files : [];
+    const pathMap = new Map<string, string>(existingFiles.map((f) => [f.storagePath, f.storagePath]));
+
+    if (s.ownerUid === uid && recipientUids.length === 1 && !s.senderUid) {
+        return { ref, data: s, pathMap };
+    }
+
+    const wrappedKeyForUser = (s.wrappedKeys || {})[uid];
+
+    if (recipientUids.length <= 1) {
+        const migratedFiles: ShareFileInput[] = [];
+        const oldSenderPathsToDelete: { storagePath: string }[] = [];
+        const newOwnerPrefix = `users/${uid}/shared/`;
+        const copiedTemp: { storagePath: string }[] = [];
+
+        try {
+            for (const f of existingFiles) {
+                if (f.storagePath.startsWith(newOwnerPrefix)) {
+                    migratedFiles.push(f);
+                } else {
+                    const destPath = `users/${uid}/shared/${shareId}/${randomUUID()}`;
+                    await bucket().file(f.storagePath).copy(bucket().file(destPath));
+                    copiedTemp.push({ storagePath: destPath });
+                    pathMap.set(f.storagePath, destPath);
+                    oldSenderPathsToDelete.push({ storagePath: f.storagePath });
+                    migratedFiles.push({ ...f, storagePath: destPath });
+                }
+            }
+        } catch (err) {
+            await deleteShareObjects(copiedTemp).catch(() => {});
+            throw err;
+        }
+
+        const updatedFields: Record<string, unknown> = {
+            ownerUid: uid,
+            recipientUids: [uid],
+            files: migratedFiles,
+            wrappedKeys: wrappedKeyForUser ? { [uid]: wrappedKeyForUser } : (s.wrappedKeys || {}),
+            senderUid: admin.firestore.FieldValue.delete(),
+            senderEmail: admin.firestore.FieldValue.delete(),
+            senderName: admin.firestore.FieldValue.delete(),
+            recipients: admin.firestore.FieldValue.delete(),
+        };
+        await ref.update(updatedFields);
+        if (oldSenderPathsToDelete.length > 0) {
+            await deleteShareObjects(oldSenderPathsToDelete).catch(() => {});
+        }
+        return {
+            ref,
+            data: { ...s, ownerUid: uid, recipientUids: [uid], files: migratedFiles },
+            pathMap,
+        };
+    }
+
+    // Legacy multi-recipient share: fork an exclusive independent copy for uid
+    const newShareId = randomUUID();
+    const copiedFiles: ShareFileInput[] = [];
+    const createdTemp: { storagePath: string }[] = [];
+    try {
+        for (const f of existingFiles) {
+            const destPath = `users/${uid}/shared/${newShareId}/${randomUUID()}`;
+            await bucket().file(f.storagePath).copy(bucket().file(destPath));
+            createdTemp.push({ storagePath: destPath });
+            pathMap.set(f.storagePath, destPath);
+            copiedFiles.push({ ...f, storagePath: destPath });
+        }
+    } catch (err) {
+        await deleteShareObjects(createdTemp).catch(() => {});
+        throw err;
+    }
+
+    const newRef = db().collection("shares").doc(newShareId);
+    const newData: FirebaseFirestore.DocumentData = {
+        ownerUid: uid,
+        recipientUids: [uid],
+        itemType: s.itemType,
+        encryptedName: s.encryptedName,
+        files: copiedFiles,
+        wrappedKeys: wrappedKeyForUser ? { [uid]: wrappedKeyForUser } : {},
+        color: s.color || null,
+        createdAt: s.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+    };
+    await newRef.create(newData);
+
+    const remaining = recipientUids.filter((r) => r !== uid);
+    await ref.update({
+        recipientUids: remaining,
+        recipients: (s.recipients || []).filter((r: { uid: string }) => r.uid !== uid),
+        [`wrappedKeys.${uid}`]: admin.firestore.FieldValue.delete(),
+    });
+
+    return { ref: newRef, data: newData, pathMap };
+}
+
 export const listShares = onCall(async (request) => {
     const uid = requireVerifiedAuth(request);
 
-    const [receivedSnap, sentSnap] = await Promise.all([
-        db().collection("shares").where("recipientUids", "array-contains", uid).limit(500).get(),
-        db().collection("shares").where("senderUid", "==", uid).limit(500).get(),
-    ]);
+    const receivedSnap = await db()
+        .collection("shares")
+        .where("recipientUids", "array-contains", uid)
+        .limit(500)
+        .get();
 
-    const toClient = (d: FirebaseFirestore.QueryDocumentSnapshot, isSender: boolean) => {
+    const toClient = (d: FirebaseFirestore.QueryDocumentSnapshot) => {
         const s = d.data();
         return {
             id: d.id,
-            isSender,
-            senderUid: s.senderUid,
-            senderEmail: s.senderEmail || "",
-            senderName: s.senderName || "",
             itemType: s.itemType,
             encryptedName: s.encryptedName,
+            color: s.color || undefined,
             files: (s.files || []).map((f: ShareFileInput) => ({
                 storagePath: f.storagePath,
                 encryptedName: f.encryptedName,
@@ -516,15 +675,14 @@ export const listShares = onCall(async (request) => {
                 encryptedPath: f.encryptedPath,
                 size: f.size,
             })),
-            recipients: isSender ? (s.recipients || []) : [],
             wrappedKey: (s.wrappedKeys || {})[uid] ?? null,
             createdAt: s.createdAt?.toMillis?.() ?? Date.now(),
         };
     };
 
     return {
-        received: receivedSnap.docs.map((d) => toClient(d, false)),
-        sent: sentSnap.docs.map((d) => toClient(d, true)),
+        received: receivedSnap.docs.map((d) => toClient(d)),
+        sent: [],
     };
 });
 
@@ -536,12 +694,12 @@ export const getSharedFileUrl = onCall(async (request) => {
     }
 
     const snap = await db().collection("shares").doc(shareId).get();
-    if (!snap.exists) throw new HttpsError("not-found", "Share not found.");
+    if (!snap.exists) throw new HttpsError("not-found", "Item not found.");
     const s = snap.data() || {};
-    const allowed = s.senderUid === uid || (Array.isArray(s.recipientUids) && s.recipientUids.includes(uid));
-    if (!allowed) throw new HttpsError("permission-denied", "You do not have access to this share.");
+    const allowed = s.ownerUid === uid || (Array.isArray(s.recipientUids) && s.recipientUids.includes(uid));
+    if (!allowed) throw new HttpsError("permission-denied", "You do not have access to this item.");
     if (!(s.files || []).some((f: ShareFileInput) => f.storagePath === storagePath)) {
-        throw new HttpsError("not-found", "File not found in share.");
+        throw new HttpsError("not-found", "File not found.");
     }
 
     const file = bucket().file(storagePath);
@@ -557,6 +715,119 @@ export const getSharedFileUrl = onCall(async (request) => {
     return { url };
 });
 
+export const updateShareItem = onCall(async (request) => {
+    const uid = requireVerifiedAuth(request);
+    const { shareId, encryptedName, color, updatedFiles } = request.data || {};
+    if (!isNonEmptyString(shareId, 64)) {
+        throw new HttpsError("invalid-argument", "Invalid share id.");
+    }
+
+    const { ref, data, pathMap } = await ensureExclusiveRecipientShare(shareId, uid);
+    const patch: Record<string, unknown> = {};
+
+    if (encryptedName !== undefined) {
+        if (!isNonEmptyString(encryptedName, 4000)) {
+            throw new HttpsError("invalid-argument", "Invalid name.");
+        }
+        patch.encryptedName = encryptedName;
+    }
+
+    if (color !== undefined) {
+        if (color !== null && (typeof color !== "string" || color.length > 32)) {
+            throw new HttpsError("invalid-argument", "Invalid color.");
+        }
+        patch.color = color || null;
+    }
+
+    if (updatedFiles !== undefined) {
+        if (!Array.isArray(updatedFiles) || updatedFiles.length > MAX_FILES_PER_SHARE) {
+            throw new HttpsError("invalid-argument", "Invalid file updates.");
+        }
+        const updateByPath = new Map<string, { encryptedName?: string; encryptedPath?: string }>();
+        for (const u of updatedFiles) {
+            if (!u || !isNonEmptyString(u.storagePath, 512)) {
+                throw new HttpsError("invalid-argument", "Invalid file update entry.");
+            }
+            const resolvedPath = pathMap.get(u.storagePath) ?? u.storagePath;
+            const entryUpdate: { encryptedName?: string; encryptedPath?: string } = {};
+            if (u.encryptedName !== undefined) {
+                if (!isNonEmptyString(u.encryptedName, 4000)) {
+                    throw new HttpsError("invalid-argument", "Invalid file name.");
+                }
+                entryUpdate.encryptedName = u.encryptedName;
+            }
+            if (u.encryptedPath !== undefined) {
+                if (!isNonEmptyString(u.encryptedPath, 8000)) {
+                    throw new HttpsError("invalid-argument", "Invalid file path.");
+                }
+                entryUpdate.encryptedPath = u.encryptedPath;
+            }
+            updateByPath.set(resolvedPath, entryUpdate);
+        }
+
+        const existingFiles: ShareFileInput[] = Array.isArray(data.files) ? data.files : [];
+        patch.files = existingFiles.map((f) => {
+            const upd = updateByPath.get(f.storagePath);
+            if (!upd) return f;
+            return {
+                ...f,
+                encryptedName: upd.encryptedName ?? f.encryptedName,
+                encryptedPath: upd.encryptedPath ?? f.encryptedPath,
+            };
+        });
+    }
+
+    if (Object.keys(patch).length > 0) {
+        await ref.update(patch);
+    }
+
+    return { ok: true, shareId: ref.id };
+});
+
+export const deleteSharedFiles = onCall(async (request) => {
+    const uid = requireVerifiedAuth(request);
+    const { shareId, storagePaths } = request.data || {};
+    if (!isNonEmptyString(shareId, 64)) {
+        throw new HttpsError("invalid-argument", "Invalid share id.");
+    }
+    if (!Array.isArray(storagePaths) || storagePaths.length === 0 || storagePaths.length > MAX_FILES_PER_SHARE) {
+        throw new HttpsError("invalid-argument", "Invalid files list.");
+    }
+
+    const { ref, data, pathMap } = await ensureExclusiveRecipientShare(shareId, uid);
+    const targetPaths = new Set<string>(
+        storagePaths
+            .filter((p: unknown): p is string => isNonEmptyString(p, 512))
+            .map((p) => pathMap.get(p) ?? p)
+    );
+
+    const existingFiles: ShareFileInput[] = Array.isArray(data.files) ? data.files : [];
+    const toDelete = existingFiles.filter((f) => targetPaths.has(f.storagePath));
+    const remaining = existingFiles.filter((f) => !targetPaths.has(f.storagePath));
+
+    if (toDelete.length === 0) {
+        return { ok: true, shareId: ref.id, remainingCount: existingFiles.length };
+    }
+
+    const freedSize = toDelete.reduce((sum, f) => sum + (Number(f.size) || 0), 0);
+    await deleteShareObjects(toDelete);
+
+    if (remaining.length === 0 && data.itemType !== "folder") {
+        await ref.delete();
+    } else {
+        await ref.update({ files: remaining });
+    }
+
+    if (freedSize > 0) {
+        await db().collection("users").doc(uid).set(
+            { storageUsed: admin.firestore.FieldValue.increment(-freedSize) },
+            { merge: true }
+        ).catch((e) => console.warn("Failed to decrement storage for recipient:", e));
+    }
+
+    return { ok: true, shareId: ref.id, remainingCount: remaining.length };
+});
+
 export const deleteShare = onCall(async (request) => {
     const uid = requireVerifiedAuth(request);
     const { shareId } = request.data || {};
@@ -569,45 +840,28 @@ export const deleteShare = onCall(async (request) => {
     const recipientUids: string[] = Array.isArray(s.recipientUids) ? s.recipientUids : [];
     const shareSize = (s.files || []).reduce((sum: number, f: ShareFileInput) => sum + (Number(f.size) || 0), 0);
 
-    if (s.senderUid === uid) {
-        // Sender revokes the share for everyone.
-        await deleteShareObjects(s.files || []);
-        await ref.delete();
-
-        // Free up storage for the sender
-        if (shareSize > 0) {
-            await db().collection("users").doc(uid).set(
-                { storageUsed: admin.firestore.FieldValue.increment(-shareSize) },
-                { merge: true }
-            ).catch((e) => console.warn("Failed to decrement storage for sender:", e));
-        }
-
-        return { ok: true, revoked: true };
+    const isOwner = s.ownerUid === uid || recipientUids.includes(uid);
+    if (!isOwner) {
+        throw new HttpsError("permission-denied", "You do not have access to this item.");
     }
 
-    if (!recipientUids.includes(uid)) {
-        throw new HttpsError("permission-denied", "You do not have access to this share.");
-    }
-
-    // Recipient removes the share from their own list.
     const remaining = recipientUids.filter((r) => r !== uid);
     if (remaining.length === 0) {
         await deleteShareObjects(s.files || []);
         await ref.delete();
-
-        // Since all recipients left and files are deleted, free storage for sender
-        if (shareSize > 0) {
-            await db().collection("users").doc(s.senderUid).set(
-                { storageUsed: admin.firestore.FieldValue.increment(-shareSize) },
-                { merge: true }
-            ).catch((e) => console.warn("Failed to decrement storage for sender:", e));
-        }
     } else {
         await ref.update({
             recipientUids: remaining,
             recipients: (s.recipients || []).filter((r: { uid: string }) => r.uid !== uid),
             [`wrappedKeys.${uid}`]: admin.firestore.FieldValue.delete(),
         });
+    }
+
+    if (shareSize > 0) {
+        await db().collection("users").doc(uid).set(
+            { storageUsed: admin.firestore.FieldValue.increment(-shareSize) },
+            { merge: true }
+        ).catch((e) => console.warn("Failed to decrement storage for user:", e));
     }
 
     return { ok: true, revoked: false };

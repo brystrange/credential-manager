@@ -161,7 +161,7 @@ async function checkUserUsageAndGracePeriod(
     const [credsSnap, filesSnap, sharesSnap] = await Promise.all([
         userRef.collection("credentials").count().get(),
         userRef.collection("files").get(),
-        admin.firestore().collection("shares").where("senderUid", "==", userRef.id).get(),
+        admin.firestore().collection("shares").where("recipientUids", "array-contains", userRef.id).get(),
     ]);
     const credsCount = credsSnap.data().count;
     const filesBytes = filesSnap.docs.reduce(
@@ -965,6 +965,49 @@ export const autoDeleteExcessData = onSchedule("every day 00:00", async (event) 
                 }
 
                 // Update storageUsed on user document
+                await userRef.update({ storageUsed: Math.max(0, storageUsed) });
+            }
+
+            // 2b. If still above 500MB, delete excess copied items in Shared with Me
+            if (storageUsed > LIMIT_500MB) {
+                const receivedSharesSnap = await db.collection("shares")
+                    .where("recipientUids", "array-contains", uid)
+                    .get();
+
+                const sortedShareDocs = [...receivedSharesSnap.docs].sort((a, b) => {
+                    const aMs = a.data().createdAt?.toMillis?.() ?? 0;
+                    const bMs = b.data().createdAt?.toMillis?.() ?? 0;
+                    return bMs - aMs;
+                });
+
+                for (const shareDoc of sortedShareDocs) {
+                    if (storageUsed <= LIMIT_500MB) break;
+
+                    const s = shareDoc.data();
+                    const sFiles = (s.files as Array<{ storagePath?: string; size?: number }>) || [];
+                    const shareSize = sFiles.reduce((sum, f) => sum + (Number(f.size) || 0), 0);
+                    const recipientUids: string[] = Array.isArray(s.recipientUids) ? s.recipientUids : [];
+                    const remaining = recipientUids.filter((r) => r !== uid);
+
+                    if (remaining.length === 0) {
+                        for (const f of sFiles) {
+                            if (!f.storagePath) continue;
+                            try {
+                                await admin.storage().bucket().file(f.storagePath).delete({ ignoreNotFound: true });
+                            } catch (err) {
+                                console.warn(`Failed to delete shared file ${f.storagePath}:`, err);
+                            }
+                        }
+                        await shareDoc.ref.delete();
+                    } else {
+                        await shareDoc.ref.update({
+                            recipientUids: remaining,
+                            recipients: (s.recipients || []).filter((r: { uid: string }) => r.uid !== uid),
+                            [`wrappedKeys.${uid}`]: admin.firestore.FieldValue.delete(),
+                        });
+                    }
+                    storageUsed -= shareSize;
+                }
                 await userRef.update({ storageUsed: Math.max(0, storageUsed) });
             }
 

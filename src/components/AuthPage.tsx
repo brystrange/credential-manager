@@ -406,7 +406,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                         <FiLock size={20} />
                         <div>
                             <strong>Unlock Your Vault</strong>
-                            <p>Enter your password to decrypt your credentials.</p>
+                            <p>{biometricAvailable ? "Verify your identity to decrypt your credentials." : "Enter your password to decrypt your credentials."}</p>
                         </div>
                     </div>
 
@@ -416,7 +416,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                         <>
                             <button
                                 type="button"
-                                className="auth-submit"
+                                className="auth-submit auth-biometric-btn"
                                 onClick={handleBiometricUnlock}
                                 disabled={loading || biometricBusy}
                                 style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", gap: "8px", margin: "0 auto 4px" }}
@@ -424,13 +424,13 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                                 <MdFingerprint size={20} style={{ flexShrink: 0 }} />
                                 {biometricBusy ? "Verifying..." : getBiometricButtonLabels().unlock}
                             </button>
-                            <div className="auth-divider" style={{ margin: "16px 0" }}>
+                            <div className="auth-divider biometric-password-fallback" style={{ margin: "16px 0" }}>
                                 <span>or enter password</span>
                             </div>
                         </>
                     )}
 
-                    <form onSubmit={handleSubmit} className="auth-form">
+                    <form onSubmit={handleSubmit} className={biometricAvailable ? "auth-form biometric-password-fallback" : "auth-form"}>
                         <div className="form-group">
                             <div className="input-icon">
                                 <FiLock size={16} />

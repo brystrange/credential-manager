@@ -52,13 +52,10 @@ export interface SharedFileEntry {
 
 export interface SharedItem {
     id: string;
-    isSender: boolean;
-    senderEmail: string;
-    senderName: string;
     itemType: "file" | "folder";
     name: string;
+    color?: string;
     files: SharedFileEntry[];
-    recipients: { uid: string; email: string; displayName: string }[];
     createdAt: Date;
     /** Decrypted per-share key (kept in memory only). */
     shareKey: CryptoKey | null;
@@ -67,7 +64,12 @@ export interface SharedItem {
 export type ShareableItem =
     | { kind: "file"; file: VaultFile }
     | { kind: "folder"; folder: VaultFolder }
-    | { kind: "shared"; share: SharedItem; fileEntry?: SharedFileEntry };
+    | {
+          kind: "shared";
+          share: SharedItem;
+          fileEntry?: SharedFileEntry;
+          virtualSubFolder?: { name: string; subPath: string; entries: SharedFileEntry[] };
+      };
 
 // ─── Callable helpers ────────────────────────────────────────────────────────
 
@@ -248,7 +250,6 @@ export async function shareItems(
     }
 
     await ensureSharingKeys();
-    const myPublicKey = await importPublicKeyJwk(cachedPublicKeyJwk!);
     const recipientKeys = await Promise.all(
         recipients.map(async (r) => ({ uid: r.uid, key: await importPublicKeyJwk(r.publicKeyJwk!) }))
     );
@@ -287,6 +288,29 @@ export async function shareItems(
                         type: item.fileEntry.type,
                         relativePath: item.fileEntry.name
                     }]
+                });
+            } else if (item.virtualSubFolder) {
+                const sub = item.virtualSubFolder;
+                if (sub.entries.length === 0) throw new Error(`Folder "${sub.name}" is empty.`);
+                const normPrefix = `${sub.subPath.replace(/^\/+|\/+$/g, "")}/`;
+                plans.push({
+                    item,
+                    name: sub.name,
+                    itemType: "folder",
+                    files: sub.entries.map((f) => {
+                        const cleanPath = (f.path || f.name).replace(/^\/+/, "");
+                        const relativePath = cleanPath.startsWith(normPrefix)
+                            ? cleanPath.slice(normPrefix.length)
+                            : f.name;
+                        return {
+                            sharedFile: f,
+                            share,
+                            name: f.name,
+                            size: f.size,
+                            type: f.type,
+                            relativePath: relativePath || f.name,
+                        };
+                    }),
                 });
             } else if (share.itemType === "file" && share.files[0]) {
                 plans.push({
@@ -357,7 +381,7 @@ export async function shareItems(
             });
         }
 
-        const wrappedKeys: Record<string, string> = { [uid]: await wrapShareKey(shareKey, myPublicKey) };
+        const wrappedKeys: Record<string, string> = {};
         for (const rk of recipientKeys) {
             wrappedKeys[rk.uid] = await wrapShareKey(shareKey, rk.key);
         }
@@ -382,13 +406,10 @@ export async function shareItems(
 
 interface RawShare {
     id: string;
-    isSender: boolean;
-    senderEmail: string;
-    senderName: string;
     itemType: "file" | "folder";
     encryptedName: string;
+    color?: string;
     files: { storagePath: string; encryptedName: string; encryptedType: string; encryptedPath: string; size: number }[];
-    recipients: { uid: string; email: string; displayName: string }[];
     wrappedKey: string | null;
     createdAt: number;
 }
@@ -427,45 +448,125 @@ async function decodeShare(raw: RawShare): Promise<SharedItem> {
 
     return {
         id: raw.id,
-        isSender: raw.isSender,
-        senderEmail: raw.senderEmail,
-        senderName: raw.senderName,
         itemType: raw.itemType,
         name: await safeDecrypt(raw.encryptedName, shareKey, "[Encrypted]"),
+        color: raw.color || undefined,
         files: files.sort((a, b) => a.path.localeCompare(b.path)),
-        recipients: raw.recipients,
         createdAt: new Date(raw.createdAt),
         shareKey,
     };
 }
 
-export async function listShares(): Promise<{ received: SharedItem[]; sent: SharedItem[] }> {
+function notifySharesUpdated(): void {
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("shared-files-updated"));
+    }
+}
+
+export async function listShares(): Promise<{ received: SharedItem[] }> {
     await ensureSharingKeys();
-    const res = await call<void, { received: RawShare[]; sent: RawShare[] }>("listShares")(undefined);
-    const [received, sent] = await Promise.all([
-        Promise.all(res.received.map(decodeShare)),
-        Promise.all(res.sent.map(decodeShare)),
-    ]);
+    const res = await call<void, { received: RawShare[] }>("listShares")(undefined);
+    const received = await Promise.all((res.received || []).map(decodeShare));
     const byDate = (a: SharedItem, b: SharedItem) => b.createdAt.getTime() - a.createdAt.getTime();
-    return { received: received.sort(byDate), sent: sent.sort(byDate) };
+    return { received: received.sort(byDate) };
 }
 
 export async function downloadSharedFile(share: SharedItem, file: SharedFileEntry): Promise<Blob> {
-    if (!share.shareKey) throw new Error("Unable to decrypt this shared item.");
+    if (!share.shareKey) throw new Error("Unable to decrypt this item.");
     const { url } = await call<{ shareId: string; storagePath: string }, { url: string }>("getSharedFileUrl")({
         shareId: share.id,
         storagePath: file.storagePath,
     });
     const response = await fetch(url);
-    if (!response.ok) throw new Error("Failed to download shared file.");
+    if (!response.ok) throw new Error("Failed to download file.");
     return await decryptFile(await response.blob(), share.shareKey, file.type);
 }
 
-/** Sender: revokes the share for everyone. Recipient: removes it from their list. */
+/** Deletes a shared file/folder copy belonging to the current user. */
 export async function removeShare(shareId: string): Promise<void> {
     await call<{ shareId: string }, { ok: boolean }>("deleteShare")({ shareId });
-    if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("shared-files-updated"));
+    notifySharesUpdated();
+}
+
+interface UpdateShareItemPayload {
+    shareId: string;
+    encryptedName?: string;
+    color?: string | null;
+    updatedFiles?: { storagePath: string; encryptedName?: string; encryptedPath?: string }[];
+}
+
+async function callUpdateShareItem(payload: UpdateShareItemPayload): Promise<string> {
+    const res = await call<UpdateShareItemPayload, { ok: boolean; shareId: string }>("updateShareItem")(payload);
+    notifySharesUpdated();
+    return res.shareId || payload.shareId;
+}
+
+/** Renames a top-level shared file or folder in E2EE Firestore. Returns resolved shareId. */
+export async function renameSharedItem(share: SharedItem, newName: string): Promise<string> {
+    if (!share.shareKey) throw new Error("Unable to decrypt this item.");
+    const encryptedName = await encryptPassword(newName, share.shareKey);
+    return callUpdateShareItem({ shareId: share.id, encryptedName });
+}
+
+/** Persists a folder color on a shared folder copy in Firestore. Returns resolved shareId. */
+export async function updateSharedFolderColor(share: SharedItem, color: string): Promise<string> {
+    return callUpdateShareItem({ shareId: share.id, color: color || null });
+}
+
+/**
+ * Renames a file or virtual subfolder inside a shared folder copy and persists
+ * the updated encrypted metadata in Firestore. Returns resolved shareId.
+ */
+export async function renameSharedEntry(
+    share: SharedItem,
+    target: { fileEntry?: SharedFileEntry; subPath?: string },
+    newName: string
+): Promise<string> {
+    if (!share.shareKey) throw new Error("Unable to decrypt this item.");
+    const shareKey = share.shareKey;
+    const updatedFiles: NonNullable<UpdateShareItemPayload["updatedFiles"]> = [];
+
+    if (target.fileEntry) {
+        const currentPath = (target.fileEntry.path || target.fileEntry.name).replace(/^\/+/, "");
+        const lastSlash = currentPath.lastIndexOf("/");
+        const newPath = lastSlash !== -1 ? `${currentPath.slice(0, lastSlash + 1)}${newName}` : newName;
+        updatedFiles.push({
+            storagePath: target.fileEntry.storagePath,
+            encryptedName: await encryptPassword(newName, shareKey),
+            encryptedPath: await encryptPassword(newPath, shareKey),
+        });
+    } else if (target.subPath) {
+        const oldSub = target.subPath.replace(/^\/+|\/+$/g, "");
+        const lastSlash = oldSub.lastIndexOf("/");
+        const parentSub = lastSlash !== -1 ? oldSub.slice(0, lastSlash) : "";
+        const newSub = parentSub ? `${parentSub}/${newName}` : newName;
+        const oldPrefix = `${oldSub}/`;
+
+        for (const entry of share.files) {
+            const cleanPath = (entry.path || entry.name).replace(/^\/+/, "");
+            if (cleanPath.startsWith(oldPrefix)) {
+                const updatedPath = `${newSub}/${cleanPath.slice(oldPrefix.length)}`;
+                updatedFiles.push({
+                    storagePath: entry.storagePath,
+                    encryptedPath: await encryptPassword(updatedPath, shareKey),
+                });
+            }
+        }
     }
+
+    if (updatedFiles.length === 0) return share.id;
+    return callUpdateShareItem({ shareId: share.id, updatedFiles });
+}
+
+/** Deletes specific file entries inside a shared folder copy and frees storage quota. */
+export async function deleteSharedEntries(share: SharedItem, entries: SharedFileEntry[]): Promise<string> {
+    const storagePaths = entries.map((e) => e.storagePath).filter(Boolean);
+    if (storagePaths.length === 0) return share.id;
+    const res = await call<
+        { shareId: string; storagePaths: string[] },
+        { ok: boolean; shareId: string; remainingCount: number }
+    >("deleteSharedFiles")({ shareId: share.id, storagePaths });
+    notifySharesUpdated();
+    return res.shareId || share.id;
 }
 

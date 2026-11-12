@@ -231,8 +231,8 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════════
     match /shares/{shareId} {
       allow read: if isAuthenticated() && (
-        resource.data.senderUid == request.auth.uid ||
-        resource.data.recipientUids.hasAny([request.auth.uid])
+        resource.data.ownerUid == request.auth.uid ||
+        request.auth.uid in resource.data.recipientUids
       );
       allow write: if false;
     }

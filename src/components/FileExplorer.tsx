@@ -5,7 +5,7 @@ import {
     FiChevronLeft, FiChevronRight, FiChevronUp, FiChevronDown, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
     FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers, FiUploadCloud,
-    FiCode, FiTerminal, FiRotateCw, FiLayers, FiFolderPlus
+    FiCode, FiTerminal, FiRotateCw, FiFolderPlus
 } from "react-icons/fi";
 import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv, FaFilePdf } from "react-icons/fa";
 import { 
@@ -24,6 +24,10 @@ import {
     listShares,
     downloadSharedFile,
     removeShare,
+    renameSharedItem,
+    updateSharedFolderColor,
+    renameSharedEntry,
+    deleteSharedEntries,
     ensureSharingKeys,
 } from "../services/shareService";
 import type { SharedItem, SharedFileEntry, ShareableItem } from "../services/shareService";
@@ -404,7 +408,14 @@ export default function FileExplorer() {
     const [newFolderName, setNewFolderName] = useState("");
     const [renameModalOpen, setRenameModalOpen] = useState(false);
     const [downloadPromptFile, setDownloadPromptFile] = useState<VaultFile | null>(null);
-    const [renameTarget, setRenameTarget] = useState<{id: string, name: string, isFolder: boolean, sharedItem?: SharedItem, sharedFileEntry?: SharedFileEntry} | null>(null);
+    const [renameTarget, setRenameTarget] = useState<{
+        id: string;
+        name: string;
+        isFolder: boolean;
+        sharedItem?: SharedItem;
+        sharedFileEntry?: SharedFileEntry;
+        virtualSubFolder?: SharedVirtualFolder;
+    } | null>(null);
     const [newName, setNewName] = useState("");
 
     const [deleteTarget, setDeleteTarget] = useState<{id: string, name: string, isFolder: boolean, file?: VaultFile} | null>(null);
@@ -487,7 +498,6 @@ export default function FileExplorer() {
     const [activeSlideIdx, setActiveSlideIdx] = useState(0);
     const [showSlideNotes, setShowSlideNotes] = useState(false);
     const [imageRotation, setImageRotation] = useState(0);
-    const [imageBgMode, setImageBgMode] = useState<"dark" | "checker" | "light">("dark");
     const [mediaMeta, setMediaMeta] = useState<{ width?: number; height?: number; duration?: number } | null>(null);
     const [isAudioPlaying, setIsAudioPlaying] = useState(false);
     const officeContainerRef = useRef<HTMLDivElement>(null);
@@ -522,24 +532,93 @@ export default function FileExplorer() {
     const [sharedItems, setSharedItems] = useState<SharedItem[]>([]);
     const [loadingShares, setLoadingShares] = useState(false);
     const [selectedSharedIds, setSelectedSharedIds] = useState<Set<string>>(new Set());
-    const [confirmRemoveShare, setConfirmRemoveShare] = useState<SharedItem | null>(null);
+    const [confirmDeleteShared, setConfirmDeleteShared] = useState<{
+        title: string;
+        message: React.ReactNode;
+        sharesToDelete?: SharedItem[];
+        entriesToDelete?: { share: SharedItem; entries: SharedFileEntry[] }[];
+    } | null>(null);
     const [downloadingSharedId, setDownloadingSharedId] = useState<string | null>(null);
 
-    const refreshShares = async () => {
+    const refreshShares = async (): Promise<SharedItem[]> => {
         setLoadingShares(true);
         try {
             await ensureSharingKeys();
             const res = await listShares();
-            const customNames = JSON.parse(localStorage.getItem(`shared_custom_names_${auth.currentUser?.uid}`) || "{}");
-            const applyCustomNames = (list: SharedItem[]) => list.map(s => customNames[s.id] ? { ...s, name: customNames[s.id] } : s);
-            setSharedItems(applyCustomNames(res.received));
+            setSharedItems(res.received);
+            setSharedFolderColors((prev) => {
+                const next = { ...prev };
+                res.received.forEach((s) => {
+                    if (s.color) next[s.id] = s.color;
+                });
+                return next;
+            });
             if (typeof window !== "undefined") {
                 window.dispatchEvent(new CustomEvent("shared-files-updated"));
             }
+            return res.received;
         } catch (err) {
             console.debug("Failed to list shares:", err);
+            return [];
         } finally {
             setLoadingShares(false);
+        }
+    };
+
+    const syncForkedShareId = (oldId: string, newId: string) => {
+        if (!newId || oldId === newId) return;
+        const replacePrefix = (id: string) =>
+            id === `__shared__:${oldId}`
+                ? `__shared__:${newId}`
+                : id.startsWith(`__shared__:${oldId}::`)
+                ? `__shared__:${newId}::${id.slice(`__shared__:${oldId}::`.length)}`
+                : id;
+        setCurrentFolderId((prev) => (prev ? replacePrefix(prev) : prev));
+        setBreadcrumbs((prev) =>
+            prev.map((b) => (b.id ? { ...b, id: replacePrefix(b.id) } : b))
+        );
+    };
+
+    const promptDeleteSharedTarget = (target: {
+        id: string;
+        name: string;
+        isFolder: boolean;
+        sharedItem?: SharedItem;
+        sharedFileEntry?: SharedFileEntry;
+        virtualSubFolder?: SharedVirtualFolder;
+    }) => {
+        if (!target.sharedItem) return;
+        const share = target.sharedItem;
+        if (target.virtualSubFolder) {
+            setConfirmDeleteShared({
+                title: "Delete Folder",
+                message: (
+                    <>
+                        Are you sure you want to delete <strong>"{target.virtualSubFolder.name}"</strong>? This action cannot be undone.
+                    </>
+                ),
+                entriesToDelete: [{ share, entries: target.virtualSubFolder.entries }],
+            });
+        } else if (target.sharedFileEntry && share.itemType === "folder") {
+            setConfirmDeleteShared({
+                title: "Delete File",
+                message: (
+                    <>
+                        Are you sure you want to delete <strong>"{target.name}"</strong>? This action cannot be undone.
+                    </>
+                ),
+                entriesToDelete: [{ share, entries: [target.sharedFileEntry] }],
+            });
+        } else {
+            setConfirmDeleteShared({
+                title: share.itemType === "folder" ? "Delete Folder" : "Delete File",
+                message: (
+                    <>
+                        Are you sure you want to delete <strong>"{share.name}"</strong>? This action cannot be undone.
+                    </>
+                ),
+                sharesToDelete: [share],
+            });
         }
     };
 
@@ -925,24 +1004,52 @@ export default function FileExplorer() {
         try {
             let finalName = newName.trim();
             if (renameTarget.sharedItem) {
-                if (renameTarget.sharedFileEntry) {
-                    setRenameModalOpen(false);
-                    setRenameTarget(null);
-                    setNewName("");
-                    return;
-                }
-                const shareId = renameTarget.sharedItem.id;
-                if (!renameTarget.isFolder) {
+                const share = renameTarget.sharedItem;
+                let nextShareId = share.id;
+
+                if (renameTarget.virtualSubFolder) {
+                    nextShareId = await renameSharedEntry(share, { subPath: renameTarget.virtualSubFolder.subPath }, finalName);
+                } else if (renameTarget.sharedFileEntry && share.itemType === "folder") {
                     const ext = getExtension(renameTarget.name);
                     if (finalName.endsWith(ext) && ext !== '') {
                         finalName = finalName.slice(0, -ext.length);
                     }
                     finalName = finalName + ext;
+                    nextShareId = await renameSharedEntry(share, { fileEntry: renameTarget.sharedFileEntry }, finalName);
+                } else {
+                    if (!renameTarget.isFolder) {
+                        const ext = getExtension(renameTarget.name);
+                        if (finalName.endsWith(ext) && ext !== '') {
+                            finalName = finalName.slice(0, -ext.length);
+                        }
+                        finalName = finalName + ext;
+                    }
+                    nextShareId = await renameSharedItem(share, finalName);
                 }
-                const customNames = JSON.parse(localStorage.getItem(`shared_custom_names_${auth.currentUser?.uid}`) || "{}");
-                customNames[shareId] = finalName;
-                localStorage.setItem(`shared_custom_names_${auth.currentUser?.uid}`, JSON.stringify(customNames));
-                setSharedItems(prev => prev.map(s => s.id === shareId ? { ...s, name: finalName } : s));
+
+                syncForkedShareId(share.id, nextShareId);
+                const updatedShares = await refreshShares();
+                const updatedShare = updatedShares.find((s) => s.id === nextShareId);
+
+                setSelectedImage((prev) => {
+                    if (!prev) return null;
+                    if (renameTarget.sharedFileEntry && prev.sharedFileEntry?.storagePath === renameTarget.sharedFileEntry.storagePath) {
+                        return {
+                            ...prev,
+                            file: { ...prev.file, name: finalName },
+                            sharedItem: updatedShare || prev.sharedItem,
+                            sharedFileEntry: { ...prev.sharedFileEntry, name: finalName },
+                        };
+                    }
+                    if (!renameTarget.sharedFileEntry && !renameTarget.virtualSubFolder && prev.sharedItem?.id === share.id) {
+                        return {
+                            ...prev,
+                            file: { ...prev.file, name: finalName },
+                            sharedItem: updatedShare || { ...prev.sharedItem, name: finalName },
+                        };
+                    }
+                    return prev;
+                });
             } else if (renameTarget.isFolder) {
                 await renameFolder(renameTarget.id, finalName);
             } else {
@@ -1016,22 +1123,36 @@ export default function FileExplorer() {
                         folderId,
                         target.virtualSubFolder.subPath
                     );
-                } else if (fileEntry) {
-                    await copySharedEntriesToVault(share, [fileEntry], destinationFolderId);
+                    if (!isCopy) {
+                        const nextShareId = await deleteSharedEntries(share, target.virtualSubFolder.entries);
+                        syncForkedShareId(share.id, nextShareId);
+                        await refreshShares();
+                    }
+                } else if (fileEntry && share.itemType === "folder") {
+                    const blob = await downloadSharedFile(share, fileEntry);
+                    const fileObj = new File([blob], target.name || fileEntry.name, {
+                        type: fileEntry.type || blob.type || "application/octet-stream",
+                    });
+                    await uploadVaultFile(fileObj, destinationFolderId);
+                    if (!isCopy) {
+                        const nextShareId = await deleteSharedEntries(share, [fileEntry]);
+                        syncForkedShareId(share.id, nextShareId);
+                        await refreshShares();
+                    }
                 } else if (share.itemType === "file" && share.files[0]) {
                     const blob = await downloadSharedFile(share, share.files[0]);
                     const fileObj = new File([blob], share.name, {
                         type: share.files[0].type || blob.type || "application/octet-stream",
                     });
                     await uploadVaultFile(fileObj, destinationFolderId);
-                    if (!share.isSender && !isCopy) {
+                    if (!isCopy) {
                         await removeShare(share.id);
                         await refreshShares();
                     }
                 } else {
                     const newFolderId = await createFolder(share.name, destinationFolderId);
                     await copySharedEntriesToVault(share, share.files, newFolderId);
-                    if (!share.isSender && !isCopy) {
+                    if (!isCopy) {
                         await removeShare(share.id);
                         await refreshShares();
                     }
@@ -1046,8 +1167,22 @@ export default function FileExplorer() {
             if (!isCopy) {
                 setSelectedImage(prev => {
                     if (!prev) return null;
-                    const matches = prev.file.id === target.id || 
-                        Boolean(target.sharedItem && prev.sharedItem?.id === target.sharedItem.id);
+                    const matchesChild = Boolean(
+                        target.sharedFileEntry &&
+                        prev.sharedFileEntry?.storagePath === target.sharedFileEntry.storagePath
+                    );
+                    const matchesFolderSub = Boolean(
+                        target.virtualSubFolder &&
+                        prev.sharedFileEntry &&
+                        target.virtualSubFolder.entries.some((e) => e.storagePath === prev.sharedFileEntry?.storagePath)
+                    );
+                    const matchesTopShare = Boolean(
+                        target.sharedItem &&
+                        !target.sharedFileEntry &&
+                        !target.virtualSubFolder &&
+                        prev.sharedItem?.id === target.sharedItem.id
+                    );
+                    const matches = prev.file.id === target.id || matchesChild || matchesFolderSub || matchesTopShare;
                     return matches ? null : prev;
                 });
             }
@@ -1072,10 +1207,15 @@ export default function FileExplorer() {
         setLoadingColor(color || "reset");
         try {
             if (colorPickerTarget.sharedItem) {
+                const share = colorPickerTarget.sharedItem;
+                const nextShareId = await updateSharedFolderColor(share, color);
+                syncForkedShareId(share.id, nextShareId);
                 const colors = JSON.parse(localStorage.getItem(`shared_folder_colors_${auth.currentUser?.uid}`) || "{}");
-                colors[colorPickerTarget.sharedItem.id] = color;
+                if (color) colors[nextShareId] = color;
+                else delete colors[nextShareId];
                 localStorage.setItem(`shared_folder_colors_${auth.currentUser?.uid}`, JSON.stringify(colors));
                 setSharedFolderColors(colors);
+                await refreshShares();
             } else {
                 await updateFolderColor(colorPickerTarget.id, color);
             }
@@ -1302,7 +1442,6 @@ export default function FileExplorer() {
         setZoomLevel(1);
         setPan({ x: 0, y: 0 });
         setImageRotation(0);
-        setImageBgMode("dark");
         setMediaMeta(null);
         setIsAudioPlaying(false);
     };
@@ -1497,12 +1636,29 @@ export default function FileExplorer() {
         }
     };
 
-    const handleShareTarget = (target: { id: string; name: string; isFolder: boolean; file?: VaultFile; sharedItem?: SharedItem; sharedFileEntry?: SharedFileEntry }) => {
+    const handleShareTarget = (target: {
+        id: string;
+        name: string;
+        isFolder: boolean;
+        file?: VaultFile;
+        sharedItem?: SharedItem;
+        sharedFileEntry?: SharedFileEntry;
+        virtualSubFolder?: SharedVirtualFolder;
+    }) => {
         if (target.sharedItem) {
             setItemsToShare([{
                 kind: "shared",
                 share: target.sharedItem,
-                fileEntry: target.sharedFileEntry || (target.sharedItem.itemType === "file" ? target.sharedItem.files[0] : undefined),
+                fileEntry: target.virtualSubFolder
+                    ? undefined
+                    : target.sharedFileEntry || (target.sharedItem.itemType === "file" ? target.sharedItem.files[0] : undefined),
+                virtualSubFolder: target.virtualSubFolder
+                    ? {
+                          name: target.virtualSubFolder.name,
+                          subPath: target.virtualSubFolder.subPath,
+                          entries: target.virtualSubFolder.entries,
+                      }
+                    : undefined,
             }]);
         } else if (target.isFolder) {
             const fo = folders.find(f => f.id === target.id);
@@ -1542,8 +1698,8 @@ export default function FileExplorer() {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         } catch (err) {
-            console.error("Failed to download shared file:", err);
-            alert("Failed to download shared file. It may have been removed or access revoked.");
+            console.error("Failed to download file:", err);
+            alert("Failed to download file.");
         } finally {
             setDownloadingSharedId(null);
         }
@@ -1585,21 +1741,41 @@ export default function FileExplorer() {
         }
     };
 
-    const handleConfirmRemoveShare = async () => {
-        if (!confirmRemoveShare) return;
+    const handleConfirmDeleteShared = async () => {
+        if (!confirmDeleteShared) return;
         setActionLoading(true);
+        const taskId = startTask({ title: "Deleting…", detail: "Removing files and freeing storage…" });
         try {
-            await removeShare(confirmRemoveShare.id);
+            const deletedShareIds = new Set<string>();
+            const deletedPaths = new Set<string>();
+
+            for (const s of confirmDeleteShared.sharesToDelete || []) {
+                await removeShare(s.id);
+                deletedShareIds.add(s.id);
+            }
+            for (const group of confirmDeleteShared.entriesToDelete || []) {
+                const nextShareId = await deleteSharedEntries(group.share, group.entries);
+                syncForkedShareId(group.share.id, nextShareId);
+                group.entries.forEach((e) => deletedPaths.add(e.storagePath));
+            }
+
             const loc = parseSharedFolderLocation(currentFolderId);
-            if (loc?.shareId === confirmRemoveShare.id) {
+            if (loc?.shareId && deletedShareIds.has(loc.shareId)) {
                 navigateToFolder("__shared__", "Shared with Me");
             }
-            setConfirmRemoveShare(null);
-            setSelectedImage(prev => prev && prev.sharedItem?.id === confirmRemoveShare.id ? null : prev);
+            setSelectedImage((prev) => {
+                if (!prev) return null;
+                if (prev.sharedItem && deletedShareIds.has(prev.sharedItem.id)) return null;
+                if (prev.sharedFileEntry && deletedPaths.has(prev.sharedFileEntry.storagePath)) return null;
+                return prev;
+            });
+            setConfirmDeleteShared(null);
+            setSelectedSharedIds(new Set());
             await refreshShares();
+            finishTask(taskId, { status: "success", title: "Deleted" });
         } catch (err) {
-            console.error("Failed to remove share:", err);
-            alert("Failed to remove share.");
+            console.error("Failed to delete item:", err);
+            finishTask(taskId, { status: "error", title: "Failed to delete item" });
         } finally {
             setActionLoading(false);
         }
@@ -1828,23 +2004,40 @@ export default function FileExplorer() {
         };
         try {
             const sharesToRemove = new Set<string>();
+            const entriesToDeleteByShare = new Map<string, { share: SharedItem; entries: SharedFileEntry[] }>();
+
             for (const t of targets) {
-                if (t.fileEntry) {
-                    await copySharedEntriesToVault(t.share, [t.fileEntry], targetFolderId);
-                    if (t.share.itemType === "file" && !t.share.isSender && !isCopy) {
-                        sharesToRemove.add(t.share.id);
+                if (t.fileEntry && t.share.itemType === "folder") {
+                    const blob = await downloadSharedFile(t.share, t.fileEntry);
+                    const fileObj = new File([blob], t.fileEntry.name, {
+                        type: t.fileEntry.type || blob.type || "application/octet-stream",
+                    });
+                    await uploadVaultFile(fileObj, targetFolderId);
+                    if (!isCopy) {
+                        const existing = entriesToDeleteByShare.get(t.share.id);
+                        if (existing) existing.entries.push(t.fileEntry);
+                        else entriesToDeleteByShare.set(t.share.id, { share: t.share, entries: [t.fileEntry] });
                     }
+                } else if (t.fileEntry) {
+                    const blob = await downloadSharedFile(t.share, t.fileEntry);
+                    const fileObj = new File([blob], t.share.name, {
+                        type: t.fileEntry.type || blob.type || "application/octet-stream",
+                    });
+                    await uploadVaultFile(fileObj, targetFolderId);
+                    if (!isCopy) sharesToRemove.add(t.share.id);
                 } else if (t.share.itemType === "folder") {
                     const newFolderId = await createFolder(t.share.name, targetFolderId);
                     await copySharedEntriesToVault(t.share, t.share.files, newFolderId);
-                    if (!t.share.isSender && !isCopy) {
-                        sharesToRemove.add(t.share.id);
-                    }
+                    if (!isCopy) sharesToRemove.add(t.share.id);
                 }
                 tick();
             }
             for (const shareId of sharesToRemove) {
                 await removeShare(shareId);
+            }
+            for (const group of entriesToDeleteByShare.values()) {
+                const nextShareId = await deleteSharedEntries(group.share, group.entries);
+                syncForkedShareId(group.share.id, nextShareId);
             }
             setSelectedSharedIds(new Set());
             await refreshShares();
@@ -1872,26 +2065,36 @@ export default function FileExplorer() {
         setShareModalOpen(true);
     };
 
-    const handleBulkDeleteShared = async () => {
+    const handleBulkDeleteShared = () => {
         const targets = getSelectedSharedTargets();
         if (targets.length === 0) return;
-        setActionLoading(true);
-        const taskId = startTask({ title: "Deleting selected", detail: "Removing shared items…" });
-        try {
-            const shareIds = new Set<string>();
-            targets.forEach(t => shareIds.add(t.share.id));
-            for (const shareId of shareIds) {
-                await removeShare(shareId);
+
+        const sharesToDelete: SharedItem[] = [];
+        const entriesMap = new Map<string, { share: SharedItem; entries: SharedFileEntry[] }>();
+        const seenShareIds = new Set<string>();
+
+        for (const t of targets) {
+            if (t.fileEntry && t.share.itemType === "folder") {
+                const existing = entriesMap.get(t.share.id);
+                if (existing) existing.entries.push(t.fileEntry);
+                else entriesMap.set(t.share.id, { share: t.share, entries: [t.fileEntry] });
+            } else if (!seenShareIds.has(t.share.id)) {
+                seenShareIds.add(t.share.id);
+                sharesToDelete.push(t.share);
             }
-            setSelectedSharedIds(new Set());
-            await refreshShares();
-            finishTask(taskId, { status: "success", title: "Deleted selected items" });
-        } catch (e) {
-            console.error(e);
-            finishTask(taskId, { status: "error", title: "Failed to delete items" });
-        } finally {
-            setActionLoading(false);
         }
+
+        const count = targets.length;
+        setConfirmDeleteShared({
+            title: `Delete ${count} Item${count === 1 ? "" : "s"}`,
+            message: (
+                <>
+                    Are you sure you want to delete <strong>{count} selected item{count === 1 ? "" : "s"}</strong>? This action cannot be undone.
+                </>
+            ),
+            sharesToDelete,
+            entriesToDelete: Array.from(entriesMap.values()),
+        });
     };
 
     const handleBulkMove = async (targetFolderId: string | null) => {
@@ -2229,7 +2432,7 @@ export default function FileExplorer() {
                 deleteTarget ||
                 moveTarget ||
                 shareModalOpen ||
-                confirmRemoveShare ||
+                confirmDeleteShared ||
                 colorPickerTarget ||
                 downloadPromptFile ||
                 newFolderModalOpen ||
@@ -2528,7 +2731,7 @@ export default function FileExplorer() {
                                         <div
                                             key={item.id}
                                             className="file-card"
-                                            title={`${item.name} (From: ${item.senderName || item.senderEmail})`}
+                                            title={item.name}
                                             onClick={() => {
                                                 if (selectedSharedIds.size > 0) {
                                                     setSelectedSharedIds(prev => {
@@ -2567,17 +2770,12 @@ export default function FileExplorer() {
                                                     ) : isImage ? (
                                                         <SharedImageThumbnail share={item} fileEntry={item.files[0]} />
                                                     ) : (
-                                                        getSharedItemIcon(item.name, isFolder, sharedFolderColors[item.id], item.files[0]?.type)
+                                                        getSharedItemIcon(item.name, isFolder, item.color || sharedFolderColors[item.id], item.files[0]?.type)
                                                     )}
                                                 </div>
                                             </div>
                                             <div className="file-card-info">
-                                                <div className="file-name-group">
-                                                    <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
-                                                    <span className="shared-sender-chip">
-                                                        {item.isSender ? "Shared by you" : `From ${item.senderName || item.senderEmail}`}
-                                                    </span>
-                                                </div>
+                                                <span className="file-name" style={{ fontWeight: 'normal' }}>{item.name}</span>
                                                 <span className="file-col file-date">{formatDateModified(item.createdAt)}</span>
                                                 <span className="file-col file-type">{getFileTypeLabel(item.name, isFolder, item.files[0]?.type)}</span>
                                                 <span className="file-col file-size">
@@ -2610,7 +2808,7 @@ export default function FileExplorer() {
                     if (!activeShare) {
                         return (
                             <div className="empty-state">
-                                <p>Shared folder not found or revoked.</p>
+                                <p>Folder not found.</p>
                             </div>
                         );
                     }
@@ -2627,9 +2825,7 @@ export default function FileExplorer() {
                             <div className="shared-folder-banner">
                                 <div className="shared-folder-meta">
                                     <div style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 500 }}>
-                                        {activeShare.isSender
-                                            ? `Shared with: ${activeShare.recipients.map(r => r.email).join(", ")}`
-                                            : `Shared by: ${activeShare.senderName ? `${activeShare.senderName} (${activeShare.senderEmail})` : activeShare.senderEmail}`}
+                                        {currentDirName}
                                     </div>
                                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
                                         {activeSharedDir.allEntries.length} file{activeSharedDir.allEntries.length === 1 ? "" : "s"} • {formatSize(subFolderTotalSize)} • {activeShare.createdAt.toLocaleDateString()}
@@ -2680,10 +2876,17 @@ export default function FileExplorer() {
                                         <button
                                             className="auth-submit"
                                             style={{ width: "auto", margin: 0, padding: "6px 12px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: "1px solid var(--danger)", color: "var(--danger)" }}
-                                            onClick={() => setConfirmRemoveShare(activeShare)}
+                                            onClick={() =>
+                                                promptDeleteSharedTarget({
+                                                    id: activeShare.id,
+                                                    name: activeShare.name,
+                                                    isFolder: true,
+                                                    sharedItem: activeShare,
+                                                })
+                                            }
                                         >
                                             <FiTrash2 size={14} />
-                                            {activeShare.isSender ? "Revoke" : "Remove"}
+                                            Delete
                                         </button>
                                     )}
                                 </div>
@@ -2738,13 +2941,13 @@ export default function FileExplorer() {
                             {activeSharedDir.folders.length === 0 && activeSharedDir.files.length === 0 ? (
                                 <div className="empty-state">
                                     <FiFolder size={48} style={{ color: "var(--text-muted)", marginBottom: "16px" }} />
-                                    <p>This shared folder is empty.</p>
+                                    <p>This folder is empty.</p>
                                 </div>
                             ) : (
                                 <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
                                     {activeSharedDir.folders.map((subFolder) => {
                                         const subFolderKey = `${activeShare.id}:${subFolder.subPath}`;
-                                        const folderColor = sharedFolderColors[activeShare.id];
+                                        const folderColor = activeShare.color || sharedFolderColors[activeShare.id];
                                         return (
                                             <div
                                                 key={subFolderKey}
@@ -3068,42 +3271,34 @@ export default function FileExplorer() {
                             <button className="context-menu-item" onClick={() => { setMoveTarget({ ...contextMenu.target, copyOnly: true }); setContextMenu(null); }}>
                                 <FiFolderPlus /> Save to Vault
                             </button>
-                            {!contextMenu.target.sharedFileEntry && !contextMenu.target.virtualSubFolder && (
-                                <>
-                                    <button className="context-menu-item" onClick={() => { 
-                                        setRenameTarget(contextMenu.target); 
-                                        setNewName(contextMenu.target.isFolder ? contextMenu.target.name : getNameWithoutExtension(contextMenu.target.name)); 
-                                        setRenameModalOpen(true); 
-                                        setContextMenu(null); 
-                                    }}>
-                                        <FiEdit2 /> Rename
-                                    </button>
-                                    <button className="context-menu-item" onClick={() => { setMoveTarget(contextMenu.target); setContextMenu(null); }}>
-                                        <FiCornerUpRight /> Move
-                                    </button>
-                                </>
-                            )}
-                            {!contextMenu.target.virtualSubFolder && (
-                                <button className="context-menu-item" onClick={() => { handleShareTarget(contextMenu.target); setContextMenu(null); }}>
-                                    <FiShare2 /> Share
-                                </button>
-                            )}
+                            <button className="context-menu-item" onClick={() => { 
+                                setRenameTarget(contextMenu.target); 
+                                setNewName(contextMenu.target.isFolder ? contextMenu.target.name : getNameWithoutExtension(contextMenu.target.name)); 
+                                setRenameModalOpen(true); 
+                                setContextMenu(null); 
+                            }}>
+                                <FiEdit2 /> Rename
+                            </button>
+                            <button className="context-menu-item" onClick={() => { setMoveTarget(contextMenu.target); setContextMenu(null); }}>
+                                <FiCornerUpRight /> Move
+                            </button>
+                            <button className="context-menu-item" onClick={() => { handleShareTarget(contextMenu.target); setContextMenu(null); }}>
+                                <FiShare2 /> Share
+                            </button>
                             {contextMenu.target.isFolder && !contextMenu.target.virtualSubFolder && (
                                 <button className="context-menu-item" onClick={() => { setColorPickerTarget({ id: contextMenu.target.id, name: contextMenu.target.name, sharedItem: contextMenu.target.sharedItem }); setContextMenu(null); }}>
                                     <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: 'linear-gradient(135deg, #ffd1dc, #ffdfba, #bae1ff)' }} /> Color
                                 </button>
                             )}
-                            {!contextMenu.target.sharedFileEntry && !contextMenu.target.virtualSubFolder && (
-                                <button 
-                                    className="context-menu-item danger" 
-                                    onClick={() => { 
-                                        setConfirmRemoveShare(contextMenu.target.sharedItem!); 
-                                        setContextMenu(null); 
-                                    }}
-                                >
-                                    <FiTrash2 /> {contextMenu.target.sharedItem.isSender ? "Revoke" : "Remove"}
-                                </button>
-                            )}
+                            <button 
+                                className="context-menu-item danger" 
+                                onClick={() => { 
+                                    promptDeleteSharedTarget(contextMenu.target); 
+                                    setContextMenu(null); 
+                                }}
+                            >
+                                <FiTrash2 /> Delete
+                            </button>
                         </>
                     ) : (
                         <>
@@ -3206,18 +3401,16 @@ export default function FileExplorer() {
                     >
                         <FiFolderPlus size={16} /> Save to Vault
                     </button>
-                    {!activeSharedLocation && (
-                        <button 
-                            onClick={() => {
-                                setBulkMoveSharedCopyOnly(false);
-                                setBulkMoveSharedModalOpen(true);
-                            }} 
-                            disabled={actionLoading} 
-                            style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
-                        >
-                            <FiCornerUpRight size={16} /> Move
-                        </button>
-                    )}
+                    <button 
+                        onClick={() => {
+                            setBulkMoveSharedCopyOnly(false);
+                            setBulkMoveSharedModalOpen(true);
+                        }} 
+                        disabled={actionLoading} 
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
+                    >
+                        <FiCornerUpRight size={16} /> Move
+                    </button>
                     <button 
                         onClick={handleBulkShareShared} 
                         disabled={actionLoading} 
@@ -3225,15 +3418,13 @@ export default function FileExplorer() {
                     >
                         <FiShare2 size={16} /> Share
                     </button>
-                    {!activeSharedLocation && (
-                        <button 
-                            onClick={handleBulkDeleteShared} 
-                            disabled={actionLoading} 
-                            style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
-                        >
-                            <FiTrash2 size={16} /> Remove
-                        </button>
-                    )}
+                    <button 
+                        onClick={handleBulkDeleteShared} 
+                        disabled={actionLoading} 
+                        style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
+                    >
+                        <FiTrash2 size={16} /> Delete
+                    </button>
                     <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
                     <button onClick={() => setSelectedSharedIds(new Set())} disabled={actionLoading} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}>
                         <FiX size={16} /> Clear
@@ -3376,13 +3567,6 @@ export default function FileExplorer() {
                     }}>
                         <div className="image-viewer-title-wrap">
                             <div className="image-viewer-title" title={selectedImage.file.name}>{selectedImage.file.name}</div>
-                            {selectedImage.sharedItem && (
-                                <span className="preview-sender-pill">
-                                    {selectedImage.sharedItem.isSender
-                                        ? "Shared by you"
-                                        : `From ${selectedImage.sharedItem.senderName || selectedImage.sharedItem.senderEmail}`}
-                                </span>
-                            )}
                         </div>
                         
                         <div className="image-viewer-actions desktop-only">
@@ -3401,24 +3585,12 @@ export default function FileExplorer() {
                                 </>
                             )}
                             {selectedImage.file.type.startsWith('image/') && (
-                                <>
-                                    <button
-                                        onClick={() => setImageRotation(r => (r + 90) % 360)}
-                                        title="Rotate 90°"
-                                    >
-                                        <FiRotateCw />
-                                    </button>
-                                    <button
-                                        onClick={() =>
-                                            setImageBgMode(prev =>
-                                                prev === "dark" ? "checker" : prev === "checker" ? "light" : "dark"
-                                            )
-                                        }
-                                        title={`Canvas background: ${imageBgMode}`}
-                                    >
-                                        <FiLayers />
-                                    </button>
-                                </>
+                                <button
+                                    onClick={() => setImageRotation(r => (r + 90) % 360)}
+                                    title="Rotate 90°"
+                                >
+                                    <FiRotateCw />
+                                </button>
                             )}
                             {isPreviewHeaderZoomSupported(selectedImage) && (
                                 <>
@@ -3445,7 +3617,7 @@ export default function FileExplorer() {
                                         onClick={() => {
                                             setMoveTarget({
                                                 id: selectedImage.file.id,
-                                                name: selectedImage.sharedFileEntry?.name || selectedImage.file.name,
+                                                name: selectedImage.file.name,
                                                 isFolder: false,
                                                 sharedItem: selectedImage.sharedItem,
                                                 sharedFileEntry: selectedImage.sharedFileEntry,
@@ -3456,22 +3628,35 @@ export default function FileExplorer() {
                                     >
                                         <FiFolderPlus /> Save to Vault
                                     </button>
-                                    {!selectedImage.sharedFileEntry && (
-                                        <button
-                                            onClick={() => {
-                                                setRenameTarget({
-                                                    id: selectedImage.file.id,
-                                                    name: selectedImage.file.name,
-                                                    isFolder: false,
-                                                    sharedItem: selectedImage.sharedItem,
-                                                });
-                                                setNewName(getNameWithoutExtension(selectedImage.file.name));
-                                                setRenameModalOpen(true);
-                                            }}
-                                        >
-                                            <FiEdit2 /> Rename
-                                        </button>
-                                    )}
+                                    <button
+                                        onClick={() => {
+                                            const name = selectedImage.file.name;
+                                            setRenameTarget({
+                                                id: selectedImage.file.id,
+                                                name,
+                                                isFolder: false,
+                                                sharedItem: selectedImage.sharedItem,
+                                                sharedFileEntry: selectedImage.sharedFileEntry,
+                                            });
+                                            setNewName(getNameWithoutExtension(name));
+                                            setRenameModalOpen(true);
+                                        }}
+                                    >
+                                        <FiEdit2 /> Rename
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setMoveTarget({
+                                                id: selectedImage.file.id,
+                                                name: selectedImage.file.name,
+                                                isFolder: false,
+                                                sharedItem: selectedImage.sharedItem,
+                                                sharedFileEntry: selectedImage.sharedFileEntry,
+                                            });
+                                        }}
+                                    >
+                                        <FiCornerUpRight /> Move
+                                    </button>
                                     <button
                                         onClick={() => {
                                             handleShareTarget({
@@ -3485,11 +3670,20 @@ export default function FileExplorer() {
                                     >
                                         <FiShare2 /> Share
                                     </button>
-                                    {!selectedImage.sharedFileEntry && (
-                                        <button className="danger" onClick={() => setConfirmRemoveShare(selectedImage.sharedItem!)}>
-                                            <FiTrash2 /> {selectedImage.sharedItem.isSender ? "Revoke" : "Remove"}
-                                        </button>
-                                    )}
+                                    <button
+                                        className="danger"
+                                        onClick={() =>
+                                            promptDeleteSharedTarget({
+                                                id: selectedImage.file.id,
+                                                name: selectedImage.file.name,
+                                                isFolder: false,
+                                                sharedItem: selectedImage.sharedItem,
+                                                sharedFileEntry: selectedImage.sharedFileEntry,
+                                            })
+                                        }
+                                    >
+                                        <FiTrash2 /> Delete
+                                    </button>
                                 </>
                             ) : (
                                 <>
@@ -3539,18 +3733,6 @@ export default function FileExplorer() {
                             
                             {imageMenuOpen && (
                                 <div className="image-viewer-dropdown">
-                                    {selectedImage.file.type.startsWith('image/') && (
-                                        <button
-                                            onClick={() => {
-                                                setImageBgMode(prev =>
-                                                    prev === "dark" ? "checker" : prev === "checker" ? "light" : "dark"
-                                                );
-                                                setImageMenuOpen(false);
-                                            }}
-                                        >
-                                            <FiLayers size={16} /> Background: {imageBgMode}
-                                        </button>
-                                    )}
                                     <button 
                                         onClick={() => { handleDownload(selectedImage.file); setImageMenuOpen(false); }}
                                         disabled={loadingFileId === selectedImage.file.id}
@@ -3567,7 +3749,7 @@ export default function FileExplorer() {
                                                 onClick={() => {
                                                     setMoveTarget({
                                                         id: selectedImage.file.id,
-                                                        name: selectedImage.sharedFileEntry?.name || selectedImage.file.name,
+                                                        name: selectedImage.file.name,
                                                         isFolder: false,
                                                         sharedItem: selectedImage.sharedItem,
                                                         sharedFileEntry: selectedImage.sharedFileEntry,
@@ -3578,23 +3760,37 @@ export default function FileExplorer() {
                                             >
                                                 <FiFolderPlus /> Save to Vault
                                             </button>
-                                            {!selectedImage.sharedFileEntry && (
-                                                <button
-                                                    onClick={() => {
-                                                        setRenameTarget({
-                                                            id: selectedImage.file.id,
-                                                            name: selectedImage.file.name,
-                                                            isFolder: false,
-                                                            sharedItem: selectedImage.sharedItem,
-                                                        });
-                                                        setNewName(getNameWithoutExtension(selectedImage.file.name));
-                                                        setRenameModalOpen(true);
-                                                        setImageMenuOpen(false);
-                                                    }}
-                                                >
-                                                    <FiEdit2 /> Rename
-                                                </button>
-                                            )}
+                                            <button
+                                                onClick={() => {
+                                                    const name = selectedImage.file.name;
+                                                    setRenameTarget({
+                                                        id: selectedImage.file.id,
+                                                        name,
+                                                        isFolder: false,
+                                                        sharedItem: selectedImage.sharedItem,
+                                                        sharedFileEntry: selectedImage.sharedFileEntry,
+                                                    });
+                                                    setNewName(getNameWithoutExtension(name));
+                                                    setRenameModalOpen(true);
+                                                    setImageMenuOpen(false);
+                                                }}
+                                            >
+                                                <FiEdit2 /> Rename
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setMoveTarget({
+                                                        id: selectedImage.file.id,
+                                                        name: selectedImage.file.name,
+                                                        isFolder: false,
+                                                        sharedItem: selectedImage.sharedItem,
+                                                        sharedFileEntry: selectedImage.sharedFileEntry,
+                                                    });
+                                                    setImageMenuOpen(false);
+                                                }}
+                                            >
+                                                <FiCornerUpRight /> Move
+                                            </button>
                                             <button
                                                 onClick={() => {
                                                     handleShareTarget({
@@ -3609,17 +3805,21 @@ export default function FileExplorer() {
                                             >
                                                 <FiShare2 /> Share
                                             </button>
-                                            {!selectedImage.sharedFileEntry && (
-                                                <button
-                                                    className="danger"
-                                                    onClick={() => {
-                                                        setConfirmRemoveShare(selectedImage.sharedItem!);
-                                                        setImageMenuOpen(false);
-                                                    }}
-                                                >
-                                                    <FiTrash2 /> {selectedImage.sharedItem.isSender ? "Revoke" : "Remove"}
-                                                </button>
-                                            )}
+                                            <button
+                                                className="danger"
+                                                onClick={() => {
+                                                    promptDeleteSharedTarget({
+                                                        id: selectedImage.file.id,
+                                                        name: selectedImage.file.name,
+                                                        isFolder: false,
+                                                        sharedItem: selectedImage.sharedItem,
+                                                        sharedFileEntry: selectedImage.sharedFileEntry,
+                                                    });
+                                                    setImageMenuOpen(false);
+                                                }}
+                                            >
+                                                <FiTrash2 /> Delete
+                                            </button>
                                         </>
                                     ) : (
                                         <>
@@ -3759,7 +3959,7 @@ export default function FileExplorer() {
                                     key={selectedImage.file.id}
                                     src={selectedImage.url} 
                                     alt={selectedImage.file.name} 
-                                    className={`media-preview-img image-bg-${imageBgMode}`}
+                                    className="media-preview-img"
                                     onLoad={(e) => {
                                         const w = e.currentTarget.naturalWidth;
                                         const h = e.currentTarget.naturalHeight;
@@ -4234,19 +4434,13 @@ export default function FileExplorer() {
                 onShared={() => void refreshShares()}
             />
 
-            {/* Remove / Revoke Share Confirm Dialog */}
+            {/* Delete Shared Item(s) Confirm Dialog */}
             <ConfirmDialog
-                isOpen={!!confirmRemoveShare}
-                title={confirmRemoveShare?.isSender ? "Revoke Shared Item" : "Remove Shared Item"}
-                message={
-                    confirmRemoveShare?.isSender ? (
-                        <>Are you sure you want to revoke access to <strong>"{confirmRemoveShare?.name}"</strong>? Recipients will no longer be able to open it.</>
-                    ) : (
-                        <>Remove <strong>"{confirmRemoveShare?.name}"</strong> from your Shared with Me list?</>
-                    )
-                }
-                onConfirm={handleConfirmRemoveShare}
-                onCancel={() => setConfirmRemoveShare(null)}
+                isOpen={!!confirmDeleteShared}
+                title={confirmDeleteShared?.title || "Delete Item"}
+                message={confirmDeleteShared?.message || ""}
+                onConfirm={handleConfirmDeleteShared}
+                onCancel={() => setConfirmDeleteShared(null)}
                 loading={actionLoading}
             />
         </div>
