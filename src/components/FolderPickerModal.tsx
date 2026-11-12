@@ -92,7 +92,7 @@ export default function FolderPickerModal({ isOpen, onClose, onSelect, currentFo
                                     border: selectedId === null ? "1px solid var(--accent)" : "1px solid transparent"
                                 }}
                             >
-                                <FiFolder size={16} style={{ color: "var(--text-secondary)" }} />
+                                <FiFolder size={16} style={{ color: "transparent" }} fill="url(#gradient-golden-sand)" />
                                 <span>Home (Root)</span>
                             </div>
 
@@ -111,7 +111,7 @@ export default function FolderPickerModal({ isOpen, onClose, onSelect, currentFo
                                         border: selectedId === f.id ? "1px solid var(--accent)" : "1px solid transparent"
                                     }}
                                 >
-                                    <FiFolder size={16} style={{ color: "var(--text-secondary)" }} />
+                                    <FiFolder size={16} style={{ color: "transparent" }} fill={`url(#gradient-${f.color || "golden-sand"})`} />
                                     <span style={{ wordBreak: "break-all" }}>{f.name}</span>
                                 </div>
                             ))}

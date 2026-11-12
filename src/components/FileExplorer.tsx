@@ -62,6 +62,8 @@ import {
     type SharedVirtualFolder,
 } from "../utils/sharedPreview";
 
+const DEFAULT_FOLDER_COLOR = 'golden-sand';
+
 const gradientColorsList = [
     { id: 'golden-sand', name: 'Golden Sand', start: '#fde68a', end: '#facc15' },
     { id: 'sunset-glow', name: 'Sunset Glow', start: '#fb7185', end: '#fb923c' },
@@ -2299,11 +2301,12 @@ export default function FileExplorer() {
 
     const getSharedItemIcon = (name: string, isFolder: boolean, folderColor?: string, mimeType?: string) => {
         if (isFolder) {
+            const resolvedColor = folderColor || DEFAULT_FOLDER_COLOR;
             return (
                 <FiFolder 
                     size={18} 
-                    style={{ color: folderColor ? "transparent" : "var(--text-primary)" }}
-                    fill={folderColor ? `url(#gradient-${folderColor})` : "none"}
+                    style={{ color: "transparent" }}
+                    fill={`url(#gradient-${resolvedColor})`}
                 />
             );
         }
@@ -2978,7 +2981,7 @@ export default function FileExplorer() {
                                 <div className={`file-grid ${viewMode === "list" ? "list-view" : ""}`}>
                                     {activeSharedDir.folders.map((subFolder) => {
                                         const subFolderKey = `${activeShare.id}:${subFolder.subPath}`;
-                                        const folderColor = activeShare.color || sharedFolderColors[activeShare.id];
+                                        const folderColor = activeShare.color || sharedFolderColors[activeShare.id] || DEFAULT_FOLDER_COLOR;
                                         return (
                                             <div
                                                 key={subFolderKey}
@@ -3198,8 +3201,8 @@ export default function FileExplorer() {
                                     <div className="file-card-icon">
                                         <FiFolder 
                                             size={18} 
-                                            style={{ color: folder.color ? "transparent" : "var(--text-primary)" }}
-                                            fill={folder.color ? `url(#gradient-${folder.color})` : "none"}
+                                            style={{ color: "transparent" }}
+                                            fill={`url(#gradient-${folder.color || DEFAULT_FOLDER_COLOR})`}
                                         />
                                     </div>
                                 </div>
