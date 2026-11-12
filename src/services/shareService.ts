@@ -119,11 +119,16 @@ function shareKeyAad(uid: string): string {
     return `fs:v1:sharing-private-key:${uid}`;
 }
 
-function shareEntryAad(storagePath: string, field: "name" | "type" | "path"): string {
-    return `fs:v1:share-file:${storagePath}:${field}`;
+const SHARE_FILE_BLOB_AAD = "fs:v1:share-file:blob";
+const SHARE_ROOT_NAME_AAD = "fs:v1:share-item:name";
+
+function shareEntryAad(field: "name" | "type" | "path"): string {
+    return `fs:v1:share-file:${field}`;
 }
 
-const SHARE_ROOT_NAME_AAD = "fs:v1:share-item:name";
+function legacyPathShareEntryAad(storagePath: string, field: "name" | "type" | "path"): string {
+    return `fs:v1:share-file:${storagePath}:${field}`;
+}
 
 async function loadOrCreateSharingKeys(): Promise<void> {
     const uid = auth.currentUser?.uid;
@@ -375,7 +380,7 @@ export async function shareItems(
             onProgress?.(Math.min(99, (doneBytes / totalBytes) * 100), `Sharing ${cf.name}…`);
             const plainBlob = cf.file ? await downloadVaultFile(cf.file) : await downloadSharedFile(cf.share!, cf.sharedFile!);
             const storagePath = `users/${uid}/shared/${shareId}/${crypto.randomUUID()}`;
-            const encryptedBlob = await encryptFile(plainBlob, shareKey, storagePath);
+            const encryptedBlob = await encryptFile(plainBlob, shareKey, SHARE_FILE_BLOB_AAD);
             const base = doneBytes;
 
             await uploadBlob(storagePath, encryptedBlob, (bytes) => {
@@ -386,13 +391,13 @@ export async function shareItems(
 
             uploaded.push({
                 storagePath,
-                encryptedName: await encryptPassword(cf.name, shareKey, shareEntryAad(storagePath, "name")),
+                encryptedName: await encryptPassword(cf.name, shareKey, shareEntryAad("name")),
                 encryptedType: await encryptPassword(
                     cf.type || "application/octet-stream",
                     shareKey,
-                    shareEntryAad(storagePath, "type")
+                    shareEntryAad("type")
                 ),
-                encryptedPath: await encryptPassword(cf.relativePath, shareKey, shareEntryAad(storagePath, "path")),
+                encryptedPath: await encryptPassword(cf.relativePath, shareKey, shareEntryAad("path")),
                 size: cf.size || 0,
             });
         }
@@ -444,6 +449,25 @@ async function safeDecrypt(
     }
 }
 
+async function safeDecryptEntryField(
+    value: string,
+    key: CryptoKey | null,
+    fallback: string,
+    field: "name" | "type" | "path",
+    storagePath: string
+): Promise<string> {
+    if (!key) return fallback;
+    try {
+        return await decryptPassword(value, key, shareEntryAad(field));
+    } catch {
+        try {
+            return await decryptPassword(value, key, legacyPathShareEntryAad(storagePath, field));
+        } catch {
+            return fallback;
+        }
+    }
+}
+
 async function decodeShare(raw: RawShare): Promise<SharedItem> {
     let shareKey: CryptoKey | null = null;
     if (raw.wrappedKey && cachedPrivateKey) {
@@ -456,22 +480,24 @@ async function decodeShare(raw: RawShare): Promise<SharedItem> {
 
     const files: SharedFileEntry[] = await Promise.all(
         raw.files.map(async (f) => {
-            const name = await safeDecrypt(
+            const name = await safeDecryptEntryField(
                 f.encryptedName,
                 shareKey,
                 "[Encrypted]",
-                shareEntryAad(f.storagePath, "name")
+                "name",
+                f.storagePath
             );
             return {
                 storagePath: f.storagePath,
                 name,
-                type: await safeDecrypt(
+                type: await safeDecryptEntryField(
                     f.encryptedType,
                     shareKey,
                     "application/octet-stream",
-                    shareEntryAad(f.storagePath, "type")
+                    "type",
+                    f.storagePath
                 ),
-                path: await safeDecrypt(f.encryptedPath, shareKey, name, shareEntryAad(f.storagePath, "path")),
+                path: await safeDecryptEntryField(f.encryptedPath, shareKey, name, "path", f.storagePath),
                 size: f.size,
             };
         })
@@ -510,7 +536,15 @@ export async function downloadSharedFile(share: SharedItem, file: SharedFileEntr
     });
     const response = await fetch(url);
     if (!response.ok) throw new Error("Failed to download file.");
-    return await decryptFile(await response.blob(), share.shareKey, file.type, file.storagePath);
+    const encryptedBlob = await response.blob();
+    try {
+        return await decryptFile(encryptedBlob, share.shareKey, file.type, SHARE_FILE_BLOB_AAD);
+    } catch (err) {
+        if (err instanceof DOMException && err.name === "OperationError") {
+            return await decryptFile(encryptedBlob, share.shareKey, file.type, file.storagePath);
+        }
+        throw err;
+    }
 }
 
 /** Deletes a shared file/folder copy belonging to the current user. */
@@ -566,12 +600,12 @@ export async function renameSharedEntry(
             encryptedName: await encryptPassword(
                 newName,
                 shareKey,
-                shareEntryAad(target.fileEntry.storagePath, "name")
+                shareEntryAad("name")
             ),
             encryptedPath: await encryptPassword(
                 newPath,
                 shareKey,
-                shareEntryAad(target.fileEntry.storagePath, "path")
+                shareEntryAad("path")
             ),
         });
     } else if (target.subPath) {
@@ -590,7 +624,7 @@ export async function renameSharedEntry(
                     encryptedPath: await encryptPassword(
                         updatedPath,
                         shareKey,
-                        shareEntryAad(entry.storagePath, "path")
+                        shareEntryAad("path")
                     ),
                 });
             }
