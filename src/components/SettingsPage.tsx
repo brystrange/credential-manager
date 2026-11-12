@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
 import { FiLock, FiEye, FiEyeOff, FiLogOut, FiEdit2, FiCheckCircle } from "react-icons/fi";
-import { MdFingerprint } from "react-icons/md";
+import VerificationIcon from "./VerificationIcon";
 import type { User } from "firebase/auth";
 import {
     changeVaultPassword,
     generateNewRecoveryKey,
     validatePassword,
     enableBiometricUnlockForCurrentUser,
+    preloadUserCryptoMeta,
 } from "../services/authService";
 import {
     getBiometricStatus,
     disableBiometricUnlock,
-    getBiometricButtonLabels,
+    getVerificationProfile,
     type BiometricStatus,
 } from "../services/biometricService";
 import { migrateLegacyData, hasLegacyCredentials } from "../services/credentialService";
@@ -75,6 +76,7 @@ export default function SettingsPage({
     const [biometricBusy, setBiometricBusy] = useState(false);
     const [biometricError, setBiometricError] = useState("");
     const [biometricSuccess, setBiometricSuccess] = useState("");
+    const verificationProfile = getVerificationProfile(biometricStatus?.method);
 
     useEffect(() => {
         hasLegacyCredentials().then(setShowMigration).catch(console.error);
@@ -86,6 +88,7 @@ export default function SettingsPage({
             return;
         }
         getBiometricStatus(user.uid).then(setBiometricStatus).catch(console.error);
+        preloadUserCryptoMeta().catch(() => {});
     }, [user?.uid]);
 
     const handleEnableBiometric = async (e: React.FormEvent) => {
@@ -97,11 +100,12 @@ export default function SettingsPage({
         try {
             const res = await enableBiometricUnlockForCurrentUser(biometricPw);
             const updated = await getBiometricStatus(user.uid);
+            const profile = getVerificationProfile(res.method);
             setBiometricStatus(updated);
             setBiometricPw("");
-            setBiometricSuccess(`Biometric unlock enabled for ${res.deviceLabel}.`);
+            setBiometricSuccess(`${profile.shortName} unlock enabled for ${res.deviceLabel}.`);
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Failed to enable biometric unlock.";
+            const msg = err instanceof Error ? err.message : verificationProfile.errors.enableFailed;
             setBiometricError(msg);
         } finally {
             setBiometricBusy(false);
@@ -117,9 +121,9 @@ export default function SettingsPage({
             await disableBiometricUnlock(user.uid);
             const updated = await getBiometricStatus(user.uid);
             setBiometricStatus(updated);
-            setBiometricSuccess("Biometric unlock disabled on this device.");
+            setBiometricSuccess(`${verificationProfile.shortName} unlock disabled on this device.`);
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Failed to disable biometric unlock.";
+            const msg = err instanceof Error ? err.message : verificationProfile.errors.disableFailed;
             setBiometricError(msg);
         } finally {
             setBiometricBusy(false);
@@ -301,8 +305,8 @@ export default function SettingsPage({
 
             <div style={{ background: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-color)", marginBottom: "24px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-                    <MdFingerprint size={22} style={{ color: "var(--accent)", flexShrink: 0 }} />
-                    <h3 style={{ margin: 0 }}>Biometric Unlock</h3>
+                    <VerificationIcon method={verificationProfile.method} size={22} style={{ color: "var(--accent)" }} />
+                    <h3 style={{ margin: 0 }}>{verificationProfile.sectionTitle}</h3>
                 </div>
                 <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "16px" }}>
                     Use Fingerprint, Face ID, or Windows Hello (PIN / Biometrics) to unlock your vault faster on this device. You can always use your vault password on desktop or any other device.
@@ -327,7 +331,7 @@ export default function SettingsPage({
                                         Active on {biometricStatus.deviceLabel || "This Device"}
                                     </div>
                                     <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                                        {biometricStatus.mode === "prf" ? "Hardware PRF Key Wrapping" : "Device Biometric Key Gate"}
+                                        {biometricStatus.mode === "prf" ? "Hardware PRF Key Wrapping" : verificationProfile.keyGateLabel}
                                         {biometricStatus.enabledAt ? ` • Enabled ${new Date(biometricStatus.enabledAt).toLocaleDateString()}` : ""}
                                     </div>
                                 </div>
@@ -345,7 +349,7 @@ export default function SettingsPage({
                                 color: "var(--danger)",
                             }}
                         >
-                            {biometricBusy ? "Disabling..." : "Disable Biometric Unlock"}
+                            {biometricBusy ? "Disabling..." : verificationProfile.disable}
                         </button>
                     </div>
                 ) : (
@@ -369,8 +373,8 @@ export default function SettingsPage({
                             </button>
                         </div>
                         <button type="submit" className="auth-submit" disabled={biometricBusy} style={{ marginTop: "8px", maxWidth: "320px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                            <MdFingerprint size={18} style={{ flexShrink: 0 }} />
-                            {biometricBusy ? "Waiting for device..." : getBiometricButtonLabels().enable}
+                            <VerificationIcon method={verificationProfile.method} size={18} />
+                            {biometricBusy ? "Waiting for device..." : verificationProfile.enable}
                         </button>
                     </form>
                 )}

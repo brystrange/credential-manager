@@ -115,7 +115,19 @@ function resetCacheIfUserChanged() {
     }
 }
 
+function shareKeyAad(uid: string): string {
+    return `fs:v1:sharing-private-key:${uid}`;
+}
+
+function shareEntryAad(storagePath: string, field: "name" | "type" | "path"): string {
+    return `fs:v1:share-file:${storagePath}:${field}`;
+}
+
+const SHARE_ROOT_NAME_AAD = "fs:v1:share-item:name";
+
 async function loadOrCreateSharingKeys(): Promise<void> {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error("Not authenticated.");
     const masterKey = getEncryptionKey();
     const getKey = call<void, { key: { publicKeyJwk: string; encryptedPrivateKey: string } | null }>("getSharingKey");
 
@@ -125,7 +137,7 @@ async function loadOrCreateSharingKeys(): Promise<void> {
         const pair = await generateSharingKeyPair();
         const publicKeyJwk = await exportPublicKeyJwk(pair.publicKey);
         const privateHex = await exportPrivateKeyHex(pair.privateKey);
-        const encryptedPrivateKey = await encryptPassword(privateHex, masterKey);
+        const encryptedPrivateKey = await encryptPassword(privateHex, masterKey, shareKeyAad(uid));
 
         const setKey = call<{ publicKeyJwk: string; encryptedPrivateKey: string }, { created: boolean }>("setSharingKey");
         const { created } = await setKey({ publicKeyJwk, encryptedPrivateKey });
@@ -138,7 +150,7 @@ async function loadOrCreateSharingKeys(): Promise<void> {
         }
     }
 
-    const privateHex = await decryptPassword(existing.encryptedPrivateKey, masterKey);
+    const privateHex = await decryptPassword(existing.encryptedPrivateKey, masterKey, shareKeyAad(uid));
     cachedPrivateKey = await importPrivateKeyHex(privateHex);
     cachedPublicKeyJwk = existing.publicKeyJwk;
 }
@@ -362,8 +374,8 @@ export async function shareItems(
         for (const cf of plan.files) {
             onProgress?.(Math.min(99, (doneBytes / totalBytes) * 100), `Sharing ${cf.name}…`);
             const plainBlob = cf.file ? await downloadVaultFile(cf.file) : await downloadSharedFile(cf.share!, cf.sharedFile!);
-            const encryptedBlob = await encryptFile(await plainBlob.arrayBuffer(), shareKey);
             const storagePath = `users/${uid}/shared/${shareId}/${crypto.randomUUID()}`;
+            const encryptedBlob = await encryptFile(plainBlob, shareKey, storagePath);
             const base = doneBytes;
 
             await uploadBlob(storagePath, encryptedBlob, (bytes) => {
@@ -374,9 +386,13 @@ export async function shareItems(
 
             uploaded.push({
                 storagePath,
-                encryptedName: await encryptPassword(cf.name, shareKey),
-                encryptedType: await encryptPassword(cf.type || "application/octet-stream", shareKey),
-                encryptedPath: await encryptPassword(cf.relativePath, shareKey),
+                encryptedName: await encryptPassword(cf.name, shareKey, shareEntryAad(storagePath, "name")),
+                encryptedType: await encryptPassword(
+                    cf.type || "application/octet-stream",
+                    shareKey,
+                    shareEntryAad(storagePath, "type")
+                ),
+                encryptedPath: await encryptPassword(cf.relativePath, shareKey, shareEntryAad(storagePath, "path")),
                 size: cf.size || 0,
             });
         }
@@ -389,7 +405,7 @@ export async function shareItems(
         await call<unknown, { ok: boolean }>("createShare")({
             shareId,
             itemType: plan.itemType,
-            encryptedName: await encryptPassword(plan.name, shareKey),
+            encryptedName: await encryptPassword(plan.name, shareKey, SHARE_ROOT_NAME_AAD),
             files: uploaded,
             recipientUids: recipients.map((r) => r.uid),
             wrappedKeys,
@@ -414,10 +430,15 @@ interface RawShare {
     createdAt: number;
 }
 
-async function safeDecrypt(value: string, key: CryptoKey | null, fallback: string): Promise<string> {
+async function safeDecrypt(
+    value: string,
+    key: CryptoKey | null,
+    fallback: string,
+    expectedAad?: string
+): Promise<string> {
     if (!key) return fallback;
     try {
-        return await decryptPassword(value, key);
+        return await decryptPassword(value, key, expectedAad);
     } catch {
         return fallback;
     }
@@ -435,12 +456,22 @@ async function decodeShare(raw: RawShare): Promise<SharedItem> {
 
     const files: SharedFileEntry[] = await Promise.all(
         raw.files.map(async (f) => {
-            const name = await safeDecrypt(f.encryptedName, shareKey, "[Encrypted]");
+            const name = await safeDecrypt(
+                f.encryptedName,
+                shareKey,
+                "[Encrypted]",
+                shareEntryAad(f.storagePath, "name")
+            );
             return {
                 storagePath: f.storagePath,
                 name,
-                type: await safeDecrypt(f.encryptedType, shareKey, "application/octet-stream"),
-                path: await safeDecrypt(f.encryptedPath, shareKey, name),
+                type: await safeDecrypt(
+                    f.encryptedType,
+                    shareKey,
+                    "application/octet-stream",
+                    shareEntryAad(f.storagePath, "type")
+                ),
+                path: await safeDecrypt(f.encryptedPath, shareKey, name, shareEntryAad(f.storagePath, "path")),
                 size: f.size,
             };
         })
@@ -449,7 +480,7 @@ async function decodeShare(raw: RawShare): Promise<SharedItem> {
     return {
         id: raw.id,
         itemType: raw.itemType,
-        name: await safeDecrypt(raw.encryptedName, shareKey, "[Encrypted]"),
+        name: await safeDecrypt(raw.encryptedName, shareKey, "[Encrypted]", SHARE_ROOT_NAME_AAD),
         color: raw.color || undefined,
         files: files.sort((a, b) => a.path.localeCompare(b.path)),
         createdAt: new Date(raw.createdAt),
@@ -479,7 +510,7 @@ export async function downloadSharedFile(share: SharedItem, file: SharedFileEntr
     });
     const response = await fetch(url);
     if (!response.ok) throw new Error("Failed to download file.");
-    return await decryptFile(await response.blob(), share.shareKey, file.type);
+    return await decryptFile(await response.blob(), share.shareKey, file.type, file.storagePath);
 }
 
 /** Deletes a shared file/folder copy belonging to the current user. */
@@ -504,7 +535,7 @@ async function callUpdateShareItem(payload: UpdateShareItemPayload): Promise<str
 /** Renames a top-level shared file or folder in E2EE Firestore. Returns resolved shareId. */
 export async function renameSharedItem(share: SharedItem, newName: string): Promise<string> {
     if (!share.shareKey) throw new Error("Unable to decrypt this item.");
-    const encryptedName = await encryptPassword(newName, share.shareKey);
+    const encryptedName = await encryptPassword(newName, share.shareKey, SHARE_ROOT_NAME_AAD);
     return callUpdateShareItem({ shareId: share.id, encryptedName });
 }
 
@@ -532,8 +563,16 @@ export async function renameSharedEntry(
         const newPath = lastSlash !== -1 ? `${currentPath.slice(0, lastSlash + 1)}${newName}` : newName;
         updatedFiles.push({
             storagePath: target.fileEntry.storagePath,
-            encryptedName: await encryptPassword(newName, shareKey),
-            encryptedPath: await encryptPassword(newPath, shareKey),
+            encryptedName: await encryptPassword(
+                newName,
+                shareKey,
+                shareEntryAad(target.fileEntry.storagePath, "name")
+            ),
+            encryptedPath: await encryptPassword(
+                newPath,
+                shareKey,
+                shareEntryAad(target.fileEntry.storagePath, "path")
+            ),
         });
     } else if (target.subPath) {
         const oldSub = target.subPath.replace(/^\/+|\/+$/g, "");
@@ -548,7 +587,11 @@ export async function renameSharedEntry(
                 const updatedPath = `${newSub}/${cleanPath.slice(oldPrefix.length)}`;
                 updatedFiles.push({
                     storagePath: entry.storagePath,
-                    encryptedPath: await encryptPassword(updatedPath, shareKey),
+                    encryptedPath: await encryptPassword(
+                        updatedPath,
+                        shareKey,
+                        shareEntryAad(entry.storagePath, "path")
+                    ),
                 });
             }
         }

@@ -3604,7 +3604,7 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 
 .current-badge {
   background: var(--green);
-  color: var(--text-primary);
+  color: #fff;
   border: 1px solid var(--green);
 }
 

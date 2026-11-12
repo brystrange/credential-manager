@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useLoginThrottle } from "../hooks/useLoginThrottle";
 import { isInAppBrowser } from "../utils/browserDetection";
 import { signIn, signUp, signInWithGoogle, unlockVaultWithPassword, unlockVaultWithBiometrics, resendVerificationEmail, resetPassword, validatePassword } from "../services/authService";
-import { hasBiometricEnrollment, getBiometricButtonLabels } from "../services/biometricService";
+import { getEnrolledVerificationMethod, getVerificationProfile, type VerificationMethod } from "../services/biometricService";
+import VerificationIcon from "./VerificationIcon";
 import { auth } from "../firebaseConfig";
 import {
     FiMail,
@@ -19,7 +20,6 @@ import {
     FiInfo,
 } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
-import { MdFingerprint } from "react-icons/md";
 
 interface AuthPageProps {
     onAuthSuccess: () => void;
@@ -91,17 +91,19 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
     const [pendingPassword, setPendingPassword] = useState("");
     const [recoveryKey, setRecoveryKey] = useState("");
     const [resetPasswordSuccess, setResetPasswordSuccess] = useState("");
-    const [biometricAvailable, setBiometricAvailable] = useState(false);
+    const [verificationMethod, setVerificationMethod] = useState<VerificationMethod | null>(null);
     const [biometricBusy, setBiometricBusy] = useState(false);
+    const biometricAvailable = verificationMethod !== null;
+    const verificationProfile = getVerificationProfile(verificationMethod ?? undefined);
 
     useEffect(() => {
         if (view !== "vault-unlock") return;
         const uid = auth.currentUser?.uid;
         if (!uid) {
-            setBiometricAvailable(false);
+            setVerificationMethod(null);
             return;
         }
-        hasBiometricEnrollment(uid).then(setBiometricAvailable).catch(() => setBiometricAvailable(false));
+        getEnrolledVerificationMethod(uid).then(setVerificationMethod).catch(() => setVerificationMethod(null));
     }, [view]);
 
     const handleBiometricUnlock = async () => {
@@ -114,7 +116,7 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
             onAuthSuccess();
         } catch (err: unknown) {
             onAuthEnd?.();
-            const msg = err instanceof Error ? err.message : "Biometric unlock failed. Please enter your password.";
+            const msg = err instanceof Error ? err.message : verificationProfile.errors.unlockFailed;
             setError(msg);
         } finally {
             setBiometricBusy(false);
@@ -421,8 +423,8 @@ export default function AuthPage({ onAuthSuccess, onAuthStart, onAuthEnd, onNewG
                                 disabled={loading || biometricBusy}
                                 style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", gap: "8px", margin: "0 auto 4px" }}
                             >
-                                <MdFingerprint size={20} style={{ flexShrink: 0 }} />
-                                {biometricBusy ? "Verifying..." : getBiometricButtonLabels().unlock}
+                                <VerificationIcon method={verificationProfile.method} size={20} />
+                                {biometricBusy ? "Verifying..." : verificationProfile.unlock}
                             </button>
                             <div className="auth-divider biometric-password-fallback" style={{ margin: "16px 0" }}>
                                 <span>or enter password</span>

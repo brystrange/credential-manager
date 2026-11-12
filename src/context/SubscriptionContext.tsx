@@ -1,10 +1,10 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listenToSubscription, syncSubscriptionStatus } from "../services/subscriptionService";
 import type { Plan, SubscriptionStatus } from "../services/subscriptionService";
 import { auth, db } from "../firebaseConfig";
-import { collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
-import { listShares } from "../services/shareService";
+import { collection, doc, getAggregateFromServer, onSnapshot, query, sum, updateDoc, where } from "firebase/firestore";
+import { listShares, type SharedItem } from "../services/shareService";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -88,6 +88,8 @@ export function SubscriptionProvider({
   const [loaded, setLoaded] = useState(false);
   const [isExempt, setIsExempt] = useState(false);
   const [storageUsed, setStorageUsed] = useState(0);
+  const profileStorageRef = useRef<number | undefined>(undefined);
+  const lastSyncAtRef = useRef<number>(0);
 
   useEffect(() => {
     if (!uid) {
@@ -100,6 +102,8 @@ export function SubscriptionProvider({
       setLoaded(false);
       setIsExempt(false);
       setStorageUsed(0);
+      profileStorageRef.current = undefined;
+      lastSyncAtRef.current = 0;
       return;
     }
 
@@ -109,24 +113,36 @@ export function SubscriptionProvider({
       setSubscriptionId(sub.subscriptionId);
       setCurrentPeriodEnd(sub.currentPeriodEnd);
       setDowngradeGracePeriodEnd(sub.downgradeGracePeriodEnd);
+      if (typeof sub.storageUsed === "number") {
+        profileStorageRef.current = Math.max(0, sub.storageUsed);
+      }
       setLoaded(true);
     });
 
     return unsub;
   }, [uid]);
 
-  // Periodically & on window focus verify Pro subscription status with Lemon Squeezy
+  // Periodically & on window focus verify Pro subscription status with Lemon Squeezy (with cooldown)
   useEffect(() => {
-    if (!uid || (plan !== "pro" && !isExempt)) return;
+    if (!uid || plan !== "pro") return;
 
-    syncSubscriptionStatus();
+    const SYNC_COOLDOWN_MS = 60 * 1000;
+    const maybeSync = () => {
+      const now = Date.now();
+      if (now - lastSyncAtRef.current < SYNC_COOLDOWN_MS) return;
+      lastSyncAtRef.current = now;
+      void syncSubscriptionStatus();
+    };
+
+    maybeSync();
 
     const handleFocus = () => {
-      syncSubscriptionStatus();
+      if (document.visibilityState === "hidden") return;
+      maybeSync();
     };
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
-  }, [uid, plan, isExempt]);
+  }, [uid, plan]);
 
   useEffect(() => {
     if (!uid || !auth.currentUser?.email) {
@@ -144,89 +160,109 @@ export function SubscriptionProvider({
     return unsub;
   }, [uid]);
 
-  // Listen for storage usage from both user files and received shared items, reconciling total storageUsed
+  // Listen for storage usage using server-side aggregate for user files + real-time shares listener
   useEffect(() => {
     if (!uid) return;
-    let profileStorage: number | undefined = undefined;
     let uploadedBytes = 0;
     let sharedBytes = 0;
     let hasCalculatedFiles = false;
-    let hasCalculatedShares = false;
+    let hasLiveSharesListener = false;
+    let lastWrittenTotal: number | undefined = undefined;
 
     const updateTotalStorage = () => {
-      if (!hasCalculatedFiles) return;
+      if (!hasCalculatedFiles) {
+        if (typeof profileStorageRef.current === "number") {
+          setStorageUsed(profileStorageRef.current);
+        }
+        return;
+      }
       const total = uploadedBytes + sharedBytes;
       setStorageUsed(total);
-      if (profileStorage !== undefined && Math.abs(profileStorage - total) > 0) {
+      const knownServerTotal = lastWrittenTotal ?? profileStorageRef.current;
+      if (knownServerTotal !== undefined && Math.abs(knownServerTotal - total) > 0) {
+        lastWrittenTotal = total;
+        profileStorageRef.current = total;
         updateDoc(doc(db, "users", uid), { storageUsed: total }).catch(() => {});
       }
     };
 
-    const unsubProfile = onSnapshot(doc(db, "users", uid), (snap) => {
-      if (snap.exists()) {
-        profileStorage = Math.max(0, snap.data().storageUsed || 0);
-        if (!hasCalculatedFiles && !hasCalculatedShares) {
-          setStorageUsed(profileStorage);
+    const fetchUploadedStorage = async () => {
+      try {
+        const aggSnap = await getAggregateFromServer(
+          collection(db, "users", uid, "files"),
+          { totalSize: sum("size") }
+        );
+        uploadedBytes = Number(aggSnap.data().totalSize) || 0;
+        hasCalculatedFiles = true;
+        updateTotalStorage();
+      } catch (err) {
+        console.warn("Could not aggregate user files for storage calculation:", err);
+        if (typeof profileStorageRef.current === "number") {
+          setStorageUsed(profileStorageRef.current);
         }
       }
-    }, (err) => {
-      console.warn("Could not load user profile for storage info:", err);
-    });
-
-    const unsubFiles = onSnapshot(collection(db, "users", uid, "files"), (snap) => {
-      uploadedBytes = snap.docs.reduce((sum, d) => sum + (Number(d.data().size) || 0), 0);
-      hasCalculatedFiles = true;
-      updateTotalStorage();
-    }, (err) => {
-      console.warn("Could not load user files for storage calculation:", err);
-    });
+    };
 
     const fetchSharedStorage = async () => {
       try {
         const res = await listShares();
         sharedBytes = res.received.reduce(
-          (sum, item) => sum + item.files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0),
+          (sumBytes, item) => sumBytes + item.files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0),
           0
         );
-        hasCalculatedShares = true;
         updateTotalStorage();
       } catch (err) {
         console.debug("Could not calculate shared storage from listShares:", err);
       }
     };
 
-    void fetchSharedStorage();
+    void fetchUploadedStorage();
 
-    const handleSharedFilesUpdated = () => {
-      void fetchSharedStorage();
+    const handleVaultFilesUpdated = () => {
+      void fetchUploadedStorage();
+    };
+    window.addEventListener("vault-files-updated", handleVaultFilesUpdated);
+
+    const handleSharedFilesUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ received?: SharedItem[] }>).detail;
+      if (detail?.received) {
+        sharedBytes = detail.received.reduce(
+          (sumBytes, item) => sumBytes + item.files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0),
+          0
+        );
+        updateTotalStorage();
+        return;
+      }
+      if (!hasLiveSharesListener) {
+        void fetchSharedStorage();
+      }
     };
     window.addEventListener("shared-files-updated", handleSharedFilesUpdated);
-    window.addEventListener("focus", handleSharedFilesUpdated);
 
-    // Also attempt real-time listener on shares collection if allowed by security rules
+    // Real-time listener on shares collection avoids redundant callable/focus polling
     let unsubShares: (() => void) | null = null;
     try {
       const sharesQuery = query(collection(db, "shares"), where("recipientUids", "array-contains", uid));
       unsubShares = onSnapshot(sharesQuery, (snap) => {
-        sharedBytes = snap.docs.reduce((sum, d) => {
+        hasLiveSharesListener = true;
+        sharedBytes = snap.docs.reduce((sumBytes, d) => {
           const files = (d.data().files as Array<{ size?: number }>) || [];
-          return sum + files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0);
+          return sumBytes + files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0);
         }, 0);
-        hasCalculatedShares = true;
         updateTotalStorage();
       }, (err) => {
+        hasLiveSharesListener = false;
         console.debug("Shares snapshot listener not active, using callable fallback:", err);
+        void fetchSharedStorage();
       });
     } catch {
-      // Ignore if query construction fails
+      void fetchSharedStorage();
     }
 
     return () => {
-      unsubProfile();
-      unsubFiles();
       unsubShares?.();
+      window.removeEventListener("vault-files-updated", handleVaultFilesUpdated);
       window.removeEventListener("shared-files-updated", handleSharedFilesUpdated);
-      window.removeEventListener("focus", handleSharedFilesUpdated);
     };
   }, [uid]);
 

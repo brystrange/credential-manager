@@ -3,7 +3,7 @@ import { EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopu
 import { collection, getDocs, doc, deleteDoc, getDoc } from "firebase/firestore";
 import { ref, deleteObject } from "firebase/storage";
 import { deriveKey, decryptPassword } from "./crypto";
-import { clearEncryptionKey } from "./authService";
+import { clearEncryptionKey, resolveKdfIterations, userFieldAad } from "./authService";
 import { disableBiometricUnlock } from "./biometricService";
 import { listShares, removeShare } from "./shareService";
 
@@ -21,8 +21,8 @@ export async function deleteAccount(password: string, onProgress?: (msg: string)
             throw new Error("User profile or vault metadata missing.");
         }
         try {
-            const pdk = await deriveKey(password, data.salt);
-            await decryptPassword(data.encryptedMasterKey, pdk);
+            const pdk = await deriveKey(password, data.salt, resolveKdfIterations(data.kdfIterations));
+            await decryptPassword(data.encryptedMasterKey, pdk, userFieldAad(user.uid, "encryptedMasterKey"));
         } catch {
             throw new Error("auth/wrong-password");
         }

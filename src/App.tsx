@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router-dom";
 import { onAuthChange, signOutUser, clearEncryptionKey, hasEncryptionKey, unlockVaultWithPassword, unlockVaultWithBiometrics, setupGoogleVault, resetGoogleVaultPassword, checkSecurityTerms, agreeSecurityTerms, validatePassword } from "./services/authService";
-import { hasBiometricEnrollment, getBiometricButtonLabels } from "./services/biometricService";
+import { getEnrolledVerificationMethod, getVerificationProfile, type VerificationMethod } from "./services/biometricService";
+import VerificationIcon from "./components/VerificationIcon";
 import { ensureSharingKeys } from "./services/shareService";
 import type { Credential, CredentialInput } from "./services/credentialService";
 import {
@@ -42,7 +43,6 @@ import {
     FiInfo,
     FiCreditCard,
 } from "react-icons/fi";
-import { MdFingerprint } from "react-icons/md";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { updateProfile } from "firebase/auth";
 import type { User } from "firebase/auth";
@@ -261,13 +261,15 @@ function VaultUnlockGate({
     const [showPw, setShowPw] = useState(false);
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
-    const [biometricAvailable, setBiometricAvailable] = useState(false);
+    const [verificationMethod, setVerificationMethod] = useState<VerificationMethod | null>(null);
     const [biometricBusy, setBiometricBusy] = useState(false);
     const [view, setView] = useState<"unlock" | "reset-vault">("unlock");
+    const biometricAvailable = verificationMethod !== null;
+    const verificationProfile = getVerificationProfile(verificationMethod ?? undefined);
 
     useEffect(() => {
         if (!userId) return;
-        hasBiometricEnrollment(userId).then(setBiometricAvailable).catch(() => setBiometricAvailable(false));
+        getEnrolledVerificationMethod(userId).then(setVerificationMethod).catch(() => setVerificationMethod(null));
     }, [userId]);
 
     const handleBiometricUnlock = async () => {
@@ -278,7 +280,7 @@ function VaultUnlockGate({
             import("./hooks/useLoginThrottle").then(m => m.clearLoginThrottle());
             onUnlocked();
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Biometric unlock failed. Please enter your password.";
+            const msg = err instanceof Error ? err.message : verificationProfile.errors.unlockFailed;
             setError(msg);
         } finally {
             setBiometricBusy(false);
@@ -478,8 +480,8 @@ function VaultUnlockGate({
                             disabled={busy || biometricBusy}
                             style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", gap: "8px", margin: "0 auto 4px" }}
                         >
-                            <MdFingerprint size={20} style={{ flexShrink: 0 }} />
-                            {biometricBusy ? "Verifying..." : getBiometricButtonLabels().unlock}
+                            <VerificationIcon method={verificationProfile.method} size={20} />
+                            {biometricBusy ? "Verifying..." : verificationProfile.unlock}
                         </button>
                         <div className="auth-divider biometric-password-fallback" style={{ margin: "16px 0" }}>
                             <span>or enter password</span>

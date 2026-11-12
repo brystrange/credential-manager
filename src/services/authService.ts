@@ -14,22 +14,26 @@ import type { User } from "firebase/auth";
 
 import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
-import { 
-    generateSalt, 
-    deriveKey, 
-    decryptPassword, 
+import {
+    PBKDF2_ITERATIONS,
+    RECOMMENDED_PBKDF2_ITERATIONS,
+    generateSalt,
+    deriveKey,
+    decryptPassword,
     encryptPassword,
     generateMasterKey,
     exportKeyToHex,
     importKeyFromHex,
-    generateRecoveryKey
+    generateRecoveryKey,
 } from "./crypto";
 import { clearSharingKeys } from "./shareService";
 import {
     enrollBiometricUnlock,
-    unwrapMasterKeyWithBiometrics,
+    unwrapMasterKeyWithBiometricsResult,
     disableBiometricUnlock,
+    getVerificationProfile,
     type BiometricMode,
+    type VerificationMethod,
 } from "./biometricService";
 
 export type AuthUser = User;
@@ -40,6 +44,17 @@ export async function resetPassword(email: string): Promise<void> {
 
 let encryptionKey: CryptoKey | null = null;
 let pendingSyncPassword: string | null = null;
+let cachedCryptoMeta: { uid: string; salt: string; encryptedMasterKey: string; kdfIterations: number; hasAgreedToSecurityTerms?: boolean } | null = null;
+
+export function resolveKdfIterations(value: unknown): number {
+    return typeof value === "number" && Number.isInteger(value) && value >= PBKDF2_ITERATIONS
+        ? value
+        : PBKDF2_ITERATIONS;
+}
+
+export function userFieldAad(uid: string, field: "encryptedMasterKey" | "encryptedMasterKeyRecovery" | "fullName"): string {
+    return `fs:v1:user:${uid}:${field}`;
+}
 
 export function getEncryptionKey(): CryptoKey {
     if (!encryptionKey) throw new Error("Encryption key not available. Please sign in.");
@@ -66,19 +81,26 @@ export async function signUp(email: string, password: string, fullName: string):
     await updateProfile(userCredential.user, { displayName: fullName });
 
     const salt = generateSalt();
-    const pdk = await deriveKey(password, salt);
+    const kdfIterations = RECOMMENDED_PBKDF2_ITERATIONS;
+    const pdk = await deriveKey(password, salt, kdfIterations);
     const mk = await generateMasterKey();
     const masterKeyHex = await exportKeyToHex(mk);
-    const encryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
+    const encryptedMasterKey = await encryptPassword(masterKeyHex, pdk, userFieldAad(uid, "encryptedMasterKey"));
 
     const recoveryKey = generateRecoveryKey();
-    const recoveryPdk = await deriveKey(recoveryKey, salt);
-    const encryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
+    const recoveryPdk = await deriveKey(recoveryKey, salt, kdfIterations);
+    const encryptedMasterKeyRecovery = await encryptPassword(
+        masterKeyHex,
+        recoveryPdk,
+        userFieldAad(uid, "encryptedMasterKeyRecovery")
+    );
 
-    const encryptedFullName = await encryptPassword(fullName, mk);
+    const encryptedFullName = await encryptPassword(fullName, mk, userFieldAad(uid, "fullName"));
 
     await setDoc(doc(db, "users", uid), {
         salt,
+        kdfIterations,
+        recoveryKdfIterations: kdfIterations,
         // Store normalized email for admin exemption lookup
         email: (auth.currentUser?.email || "").toLowerCase(),
         fullName: encryptedFullName,
@@ -128,8 +150,10 @@ export async function signIn(email: string, password: string): Promise<void> {
     const userDoc = await getDoc(doc(db, "users", uid));
     if (!userDoc.exists()) throw new Error("User profile not found.");
 
-    const salt = userDoc.data().salt as string;
-    const pdk = await deriveKey(password, salt);
+    const data = userDoc.data();
+    const salt = data.salt as string;
+    const kdfIterations = resolveKdfIterations(data.kdfIterations);
+    const pdk = await deriveKey(password, salt, kdfIterations);
     // signIn already validated the password via Firebase Auth, so escrow recovery is safe.
     try {
         await initializeMasterKey(uid, pdk, userDoc.data(), password);
@@ -152,14 +176,33 @@ async function initializeMasterKey(
 ): Promise<void> {
     const encryptedMasterKey = userDocData.encryptedMasterKey;
 
+    const kdfIterations = resolveKdfIterations(userDocData.kdfIterations);
+
     if (encryptedMasterKey) {
         try {
-            const masterKeyHex = await decryptPassword(encryptedMasterKey, pdk);
+            const masterKeyHex = await decryptPassword(
+                encryptedMasterKey,
+                pdk,
+                userFieldAad(uid, "encryptedMasterKey")
+            );
             encryptionKey = await importKeyFromHex(masterKeyHex);
-            
+            if (typeof userDocData.salt === "string" && userDocData.salt) {
+                cachedCryptoMeta = {
+                    uid,
+                    salt: userDocData.salt,
+                    encryptedMasterKey,
+                    kdfIterations,
+                    hasAgreedToSecurityTerms: userDocData.hasAgreedToSecurityTerms === true,
+                };
+            }
+
             // Check if fullName is still plaintext (doesn't contain our iv separator ":")
             if (userDocData.fullName && !userDocData.fullName.includes(":")) {
-                const encryptedFullName = await encryptPassword(userDocData.fullName, encryptionKey);
+                const encryptedFullName = await encryptPassword(
+                    userDocData.fullName,
+                    encryptionKey,
+                    userFieldAad(uid, "fullName")
+                );
                 await setDoc(doc(db, "users", uid), { fullName: encryptedFullName }, { merge: true });
             }
         } catch (e) {
@@ -176,14 +219,31 @@ async function initializeMasterKey(
         const masterKeyHex = await exportKeyToHex(mk);
 
         // Encrypt MK with PDK
-        const newEncryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
-        
+        const newEncryptedMasterKey = await encryptPassword(
+            masterKeyHex,
+            pdk,
+            userFieldAad(uid, "encryptedMasterKey")
+        );
+
         const updateData: any = { encryptedMasterKey: newEncryptedMasterKey };
         if (userDocData.fullName && !userDocData.fullName.includes(":")) {
-            updateData.fullName = await encryptPassword(userDocData.fullName, mk);
+            updateData.fullName = await encryptPassword(
+                userDocData.fullName,
+                mk,
+                userFieldAad(uid, "fullName")
+            );
         }
 
         await setDoc(doc(db, "users", uid), updateData, { merge: true });
+        if (typeof userDocData.salt === "string" && userDocData.salt) {
+            cachedCryptoMeta = {
+                uid,
+                salt: userDocData.salt,
+                encryptedMasterKey: newEncryptedMasterKey,
+                kdfIterations,
+                hasAgreedToSecurityTerms: userDocData.hasAgreedToSecurityTerms === true,
+            };
+        }
 
         // Re-encrypt all existing credentials (currently encrypted with PDK)
         const credsRef = collection(db, "users", uid, "credentials");
@@ -193,7 +253,11 @@ async function initializeMasterKey(
             const data = credDoc.data();
             try {
                 const decryptedPass = await decryptPassword(data.password, pdk);
-                const reEncryptedPass = await encryptPassword(decryptedPass, mk);
+                const reEncryptedPass = await encryptPassword(
+                    decryptedPass,
+                    mk,
+                    `fs:v1:cred:${uid}:${credDoc.id}:password`
+                );
                 await setDoc(credDoc.ref, { password: reEncryptedPass }, { merge: true });
             } catch (err) {
                 console.error("Migration failed for credential", credDoc.id);
@@ -259,21 +323,28 @@ export async function setupGoogleVault(password: string): Promise<string> {
     if (pwErr) throw new Error(pwErr);
 
     const salt = generateSalt();
-    const pdk = await deriveKey(password, salt);
-    
+    const kdfIterations = RECOMMENDED_PBKDF2_ITERATIONS;
+    const pdk = await deriveKey(password, salt, kdfIterations);
+
     const mk = await generateMasterKey();
     const masterKeyHex = await exportKeyToHex(mk);
-    const encryptedMasterKey = await encryptPassword(masterKeyHex, pdk);
+    const encryptedMasterKey = await encryptPassword(masterKeyHex, pdk, userFieldAad(uid, "encryptedMasterKey"));
 
     const recoveryKey = generateRecoveryKey();
-    const recoveryPdk = await deriveKey(recoveryKey, salt);
-    const encryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
-    
+    const recoveryPdk = await deriveKey(recoveryKey, salt, kdfIterations);
+    const encryptedMasterKeyRecovery = await encryptPassword(
+        masterKeyHex,
+        recoveryPdk,
+        userFieldAad(uid, "encryptedMasterKeyRecovery")
+    );
+
     const rawFullName = auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0] || "User";
-    const encryptedFullName = await encryptPassword(rawFullName, mk);
-    
+    const encryptedFullName = await encryptPassword(rawFullName, mk, userFieldAad(uid, "fullName"));
+
     await setDoc(doc(db, "users", uid), {
         salt,
+        kdfIterations,
+        recoveryKdfIterations: kdfIterations,
         email: (auth.currentUser?.email || "").toLowerCase(),
         fullName: encryptedFullName,
         createdAt: new Date(),
@@ -282,6 +353,7 @@ export async function setupGoogleVault(password: string): Promise<string> {
     });
 
     encryptionKey = mk;
+    cachedCryptoMeta = { uid, salt, encryptedMasterKey, kdfIterations, hasAgreedToSecurityTerms: false };
     return recoveryKey;
 }
 
@@ -292,19 +364,31 @@ export async function unlockVaultWithPassword(password: string): Promise<void> {
     const userDoc = await getDoc(doc(db, "users", uid));
     if (!userDoc.exists()) throw new Error("User profile not found.");
 
-    const salt = userDoc.data().salt as string;
-    const pdk = await deriveKey(password, salt);
+    const data = userDoc.data();
+    const salt = data.salt as string;
+    const kdfIterations = resolveKdfIterations(data.kdfIterations);
+    const pdk = await deriveKey(password, salt, kdfIterations);
 
     // Pass rawPassword so initializeMasterKey can re-authenticate with Firebase
     // if MK decryption fails, to confirm it's a password reset and not a wrong password.
-    await initializeMasterKey(uid, pdk, userDoc.data(), password);
+    await initializeMasterKey(uid, pdk, data, password);
 
     if (pendingSyncPassword && pendingSyncPassword !== password) {
         try {
-            const newPdk = await deriveKey(pendingSyncPassword, salt);
+            const newIterations = RECOMMENDED_PBKDF2_ITERATIONS;
+            const newPdk = await deriveKey(pendingSyncPassword, salt, newIterations);
             const masterKeyHex = await exportKeyToHex(encryptionKey!);
-            const newEncryptedMasterKey = await encryptPassword(masterKeyHex, newPdk);
-            await setDoc(doc(db, "users", uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
+            const newEncryptedMasterKey = await encryptPassword(
+                masterKeyHex,
+                newPdk,
+                userFieldAad(uid, "encryptedMasterKey")
+            );
+            await setDoc(
+                doc(db, "users", uid),
+                { encryptedMasterKey: newEncryptedMasterKey, kdfIterations: newIterations },
+                { merge: true }
+            );
+            cachedCryptoMeta = { uid, salt, encryptedMasterKey: newEncryptedMasterKey, kdfIterations: newIterations };
         } catch (err) {
             console.error("Failed to auto-sync vault password", err);
         } finally {
@@ -329,8 +413,10 @@ export async function resetGoogleVaultPassword(newPassword: string, recoveryKey:
     const userDoc = await getDoc(doc(db, "users", user.uid));
     if (!userDoc.exists()) throw new Error("User profile not found.");
 
-    const salt = userDoc.data().salt as string;
-    const encryptedMasterKeyRecovery = userDoc.data().encryptedMasterKeyRecovery as string;
+    const userData = userDoc.data();
+    const salt = userData.salt as string;
+    const encryptedMasterKeyRecovery = userData.encryptedMasterKeyRecovery as string;
+    const recoveryIterations = resolveKdfIterations(userData.recoveryKdfIterations);
 
     const pwErr = validatePassword(newPassword);
     if (pwErr) throw new Error(pwErr);
@@ -342,15 +428,24 @@ export async function resetGoogleVaultPassword(newPassword: string, recoveryKey:
     let masterKeyHex: string;
     try {
         // Step 1: Recover the Master Key using the Recovery Key
-        const recoveryPdk = await deriveKey(recoveryKey, salt);
-        masterKeyHex = await decryptPassword(encryptedMasterKeyRecovery, recoveryPdk);
+        const recoveryPdk = await deriveKey(recoveryKey, salt, recoveryIterations);
+        masterKeyHex = await decryptPassword(
+            encryptedMasterKeyRecovery,
+            recoveryPdk,
+            userFieldAad(user.uid, "encryptedMasterKeyRecovery")
+        );
     } catch (e) {
         throw new Error("Invalid Recovery Key. Please try again.");
     }
 
     // Step 2: Derive a new PDK from the new password + salt (all local crypto)
-    const newPdk = await deriveKey(newPassword, salt);
-    const newEncryptedMasterKey = await encryptPassword(masterKeyHex, newPdk);
+    const newIterations = RECOMMENDED_PBKDF2_ITERATIONS;
+    const newPdk = await deriveKey(newPassword, salt, newIterations);
+    const newEncryptedMasterKey = await encryptPassword(
+        masterKeyHex,
+        newPdk,
+        userFieldAad(user.uid, "encryptedMasterKey")
+    );
 
     // Sync Firebase Auth password if not a Google user
     const isGoogleUser = user.providerData.some((p) => p.providerId === "google.com");
@@ -368,13 +463,23 @@ export async function resetGoogleVaultPassword(newPassword: string, recoveryKey:
 
     // Step 3: Save the new encryptedMasterKey to Firestore
     try {
-        await setDoc(doc(db, "users", user.uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
+        await setDoc(
+            doc(db, "users", user.uid),
+            { encryptedMasterKey: newEncryptedMasterKey, kdfIterations: newIterations },
+            { merge: true }
+        );
     } catch {
         throw new Error("Unable to save new vault password.");
     }
 
     // Step 4: Set the in-memory encryption key so the vault unlocks immediately
     encryptionKey = await importKeyFromHex(masterKeyHex);
+    cachedCryptoMeta = {
+        uid: user.uid,
+        salt,
+        encryptedMasterKey: newEncryptedMasterKey,
+        kdfIterations: newIterations,
+    };
     pendingSyncPassword = null;
 }
 
@@ -391,19 +496,30 @@ export async function changeVaultPassword(currentPassword: string, newPassword: 
     const userDoc = await getDoc(doc(db, "users", user.uid));
     if (!userDoc.exists()) throw new Error("User profile not found.");
 
-    const salt = userDoc.data().salt as string;
-    const encryptedMasterKey = userDoc.data().encryptedMasterKey as string;
+    const userData = userDoc.data();
+    const salt = userData.salt as string;
+    const encryptedMasterKey = userData.encryptedMasterKey as string;
+    const currentIterations = resolveKdfIterations(userData.kdfIterations);
 
     let masterKeyHex: string;
     try {
-        const currentPdk = await deriveKey(currentPassword, salt);
-        masterKeyHex = await decryptPassword(encryptedMasterKey, currentPdk);
+        const currentPdk = await deriveKey(currentPassword, salt, currentIterations);
+        masterKeyHex = await decryptPassword(
+            encryptedMasterKey,
+            currentPdk,
+            userFieldAad(user.uid, "encryptedMasterKey")
+        );
     } catch (e) {
         throw new Error("Incorrect current password.");
     }
 
-    const newPdk = await deriveKey(newPassword, salt);
-    const newEncryptedMasterKey = await encryptPassword(masterKeyHex, newPdk);
+    const newIterations = RECOMMENDED_PBKDF2_ITERATIONS;
+    const newPdk = await deriveKey(newPassword, salt, newIterations);
+    const newEncryptedMasterKey = await encryptPassword(
+        masterKeyHex,
+        newPdk,
+        userFieldAad(user.uid, "encryptedMasterKey")
+    );
 
     // Sync Firebase Auth password if not a Google user
     const isGoogleUser = user.providerData.some((p) => p.providerId === "google.com");
@@ -420,7 +536,17 @@ export async function changeVaultPassword(currentPassword: string, newPassword: 
     }
 
     try {
-        await setDoc(doc(db, "users", user.uid), { encryptedMasterKey: newEncryptedMasterKey }, { merge: true });
+        await setDoc(
+            doc(db, "users", user.uid),
+            { encryptedMasterKey: newEncryptedMasterKey, kdfIterations: newIterations },
+            { merge: true }
+        );
+        cachedCryptoMeta = {
+            uid: user.uid,
+            salt,
+            encryptedMasterKey: newEncryptedMasterKey,
+            kdfIterations: newIterations,
+        };
     } catch {
         throw new Error("Unable to save new vault password.");
     }
@@ -437,23 +563,38 @@ export async function generateNewRecoveryKey(currentPassword: string): Promise<s
     const userDoc = await getDoc(doc(db, "users", user.uid));
     if (!userDoc.exists()) throw new Error("User profile not found.");
 
-    const salt = userDoc.data().salt as string;
-    const encryptedMasterKey = userDoc.data().encryptedMasterKey as string;
+    const userData = userDoc.data();
+    const salt = userData.salt as string;
+    const encryptedMasterKey = userData.encryptedMasterKey as string;
+    const currentIterations = resolveKdfIterations(userData.kdfIterations);
 
     let masterKeyHex: string;
     try {
-        const currentPdk = await deriveKey(currentPassword, salt);
-        masterKeyHex = await decryptPassword(encryptedMasterKey, currentPdk);
+        const currentPdk = await deriveKey(currentPassword, salt, currentIterations);
+        masterKeyHex = await decryptPassword(
+            encryptedMasterKey,
+            currentPdk,
+            userFieldAad(user.uid, "encryptedMasterKey")
+        );
     } catch (e) {
         throw new Error("Incorrect current password.");
     }
 
     const recoveryKey = generateRecoveryKey();
-    const recoveryPdk = await deriveKey(recoveryKey, salt);
-    const newEncryptedMasterKeyRecovery = await encryptPassword(masterKeyHex, recoveryPdk);
+    const recoveryIterations = RECOMMENDED_PBKDF2_ITERATIONS;
+    const recoveryPdk = await deriveKey(recoveryKey, salt, recoveryIterations);
+    const newEncryptedMasterKeyRecovery = await encryptPassword(
+        masterKeyHex,
+        recoveryPdk,
+        userFieldAad(user.uid, "encryptedMasterKeyRecovery")
+    );
 
     try {
-        await setDoc(doc(db, "users", user.uid), { encryptedMasterKeyRecovery: newEncryptedMasterKeyRecovery }, { merge: true });
+        await setDoc(
+            doc(db, "users", user.uid),
+            { encryptedMasterKeyRecovery: newEncryptedMasterKeyRecovery, recoveryKdfIterations: recoveryIterations },
+            { merge: true }
+        );
         return recoveryKey;
     } catch {
         throw new Error("Unable to save new recovery key.");
@@ -472,6 +613,7 @@ export function onAuthChange(callback: (user: User | null) => void) {
 export function clearEncryptionKey() {
     encryptionKey = null;
     pendingSyncPassword = null;
+    cachedCryptoMeta = null;
     clearSharingKeys();
 }
 
@@ -482,15 +624,25 @@ export function hasEncryptionKey(): boolean {
 export async function checkSecurityTerms(): Promise<boolean> {
     const uid = auth.currentUser?.uid;
     if (!uid) return true;
+    if (cachedCryptoMeta && cachedCryptoMeta.uid === uid && cachedCryptoMeta.hasAgreedToSecurityTerms !== undefined) {
+        return cachedCryptoMeta.hasAgreedToSecurityTerms;
+    }
     const userDoc = await getDoc(doc(db, "users", uid));
     if (!userDoc.exists()) return true;
-    return userDoc.data().hasAgreedToSecurityTerms === true;
+    const agreed = userDoc.data().hasAgreedToSecurityTerms === true;
+    if (cachedCryptoMeta && cachedCryptoMeta.uid === uid) {
+        cachedCryptoMeta.hasAgreedToSecurityTerms = agreed;
+    }
+    return agreed;
 }
 
 export async function agreeSecurityTerms(): Promise<void> {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     await setDoc(doc(db, "users", uid), { hasAgreedToSecurityTerms: true }, { merge: true });
+    if (cachedCryptoMeta && cachedCryptoMeta.uid === uid) {
+        cachedCryptoMeta.hasAgreedToSecurityTerms = true;
+    }
 }
 
 
@@ -498,26 +650,76 @@ export async function agreeSecurityTerms(): Promise<void> {
  * Enables platform biometric unlock (Fingerprint / Face ID / Windows Hello) for the
  * currently signed-in user on this device. Requires current vault password to prove ownership.
  */
+/**
+ * Preloads the user's salt and wrapped master key outside the click handler so Safari/iOS
+ * WebAuthn enrollment runs within the transient user-activation window.
+ */
+export async function preloadUserCryptoMeta(): Promise<void> {
+    const user = auth.currentUser;
+    if (!user) return;
+    if (cachedCryptoMeta && cachedCryptoMeta.uid === user.uid) return;
+
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    if (!userDoc.exists()) return;
+
+    const data = userDoc.data();
+    const salt = data.salt as string | undefined;
+    const encryptedMasterKey = data.encryptedMasterKey as string | undefined;
+    if (salt && encryptedMasterKey) {
+        cachedCryptoMeta = {
+            uid: user.uid,
+            salt,
+            encryptedMasterKey,
+            kdfIterations: resolveKdfIterations(data.kdfIterations),
+            hasAgreedToSecurityTerms: data.hasAgreedToSecurityTerms === true,
+        };
+    }
+}
+
 export async function enableBiometricUnlockForCurrentUser(
     currentPassword: string
-): Promise<{ mode: BiometricMode; deviceLabel: string }> {
+): Promise<{ mode: BiometricMode; deviceLabel: string; method: VerificationMethod }> {
     const user = auth.currentUser;
     if (!user) throw new Error("Not authenticated.");
 
-    const userDoc = await getDoc(doc(db, "users", user.uid));
-    if (!userDoc.exists()) throw new Error("User profile not found.");
+    let salt: string | undefined;
+    let encryptedMasterKey: string | undefined;
+    let kdfIterations = PBKDF2_ITERATIONS;
 
-    const data = userDoc.data();
-    const salt = data.salt as string;
-    const encryptedMasterKey = data.encryptedMasterKey as string | undefined;
+    if (cachedCryptoMeta && cachedCryptoMeta.uid === user.uid) {
+        salt = cachedCryptoMeta.salt;
+        encryptedMasterKey = cachedCryptoMeta.encryptedMasterKey;
+        kdfIterations = cachedCryptoMeta.kdfIterations;
+    } else {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (!userDoc.exists()) throw new Error("User profile not found.");
+        const data = userDoc.data();
+        salt = data.salt as string | undefined;
+        encryptedMasterKey = data.encryptedMasterKey as string | undefined;
+        kdfIterations = resolveKdfIterations(data.kdfIterations);
+        if (salt && encryptedMasterKey) {
+            cachedCryptoMeta = {
+                uid: user.uid,
+                salt,
+                encryptedMasterKey,
+                kdfIterations,
+                hasAgreedToSecurityTerms: data.hasAgreedToSecurityTerms === true,
+            };
+        }
+    }
+
     if (!salt || !encryptedMasterKey) {
         throw new Error("Vault encryption profile is incomplete.");
     }
 
     let masterKeyHex: string;
     try {
-        const pdk = await deriveKey(currentPassword, salt);
-        masterKeyHex = await decryptPassword(encryptedMasterKey, pdk);
+        const pdk = await deriveKey(currentPassword, salt, kdfIterations);
+        masterKeyHex = await decryptPassword(
+            encryptedMasterKey,
+            pdk,
+            userFieldAad(user.uid, "encryptedMasterKey")
+        );
     } catch {
         throw new Error("Incorrect current password.");
     }
@@ -533,7 +735,7 @@ export async function unlockVaultWithBiometrics(): Promise<void> {
     const user = auth.currentUser;
     if (!user) throw new Error("Not authenticated.");
 
-    const masterKeyHex = await unwrapMasterKeyWithBiometrics(user.uid);
+    const { masterKeyHex, method } = await unwrapMasterKeyWithBiometricsResult(user.uid);
     const mk = await importKeyFromHex(masterKeyHex);
 
     const userDoc = await getDoc(doc(db, "users", user.uid));
@@ -542,11 +744,21 @@ export async function unlockVaultWithBiometrics(): Promise<void> {
     const data = userDoc.data();
     if (data.fullName && typeof data.fullName === "string" && data.fullName.includes(":")) {
         try {
-            await decryptPassword(data.fullName, mk);
+            await decryptPassword(data.fullName, mk, userFieldAad(user.uid, "fullName"));
         } catch {
             await disableBiometricUnlock(user.uid).catch(() => {});
-            throw new Error("Biometric key does not match your current vault. Please unlock with your password.");
+            throw new Error(getVerificationProfile(method).errors.keyMismatch);
         }
+    }
+
+    if (typeof data.salt === "string" && typeof data.encryptedMasterKey === "string") {
+        cachedCryptoMeta = {
+            uid: user.uid,
+            salt: data.salt,
+            encryptedMasterKey: data.encryptedMasterKey,
+            kdfIterations: resolveKdfIterations(data.kdfIterations),
+            hasAgreedToSecurityTerms: data.hasAgreedToSecurityTerms === true,
+        };
     }
 
     encryptionKey = mk;

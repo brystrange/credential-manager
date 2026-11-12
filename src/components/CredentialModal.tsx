@@ -74,7 +74,7 @@ export default function CredentialModal({
             const count = await checkPwnedPassword(password);
             setPwnedCount(count);
         }, 500); // 500ms debounce
-        
+
         return () => clearTimeout(timeoutId);
     }, [password]);
 
@@ -211,7 +211,7 @@ export default function CredentialModal({
                         </button>
                     </div>
                     {pwnedCount !== null && pwnedCount > 0 && (
-                        <div style={{ color: "var(--danger)", fontSize: "0.80rem", fontWeight: "600", marginTop: "0px", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <div style={{ color: "var(--danger)", fontSize: "0.80rem", fontWeight: "400", marginTop: "0px", marginBottom: "10px", marginLeft: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
                             This password has appeared in a data breach {pwnedCount.toLocaleString()} times.
                         </div>
                     )}

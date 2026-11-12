@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
+import DOMPurify from "dompurify";
 
 export interface SheetPreview {
     name: string;
@@ -68,18 +69,13 @@ export function sanitizeExcelHtml(html: string): string {
     try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, "text/html");
-        doc.querySelectorAll("script, iframe, object, embed, link, meta, base").forEach((el) => el.remove());
-        doc.querySelectorAll("*").forEach((el) => {
-            for (const attr of Array.from(el.attributes)) {
-                const name = attr.name.toLowerCase();
-                const val = attr.value.toLowerCase().trim();
-                if (name.startsWith("on") || val.startsWith("javascript:") || val.startsWith("data:text/html")) {
-                    el.removeAttribute(attr.name);
-                }
-            }
-        });
         const table = doc.querySelector("table");
-        return table ? table.outerHTML : doc.body ? doc.body.innerHTML : "";
+        const rawMarkup = table ? table.outerHTML : doc.body ? doc.body.innerHTML : "";
+        return DOMPurify.sanitize(rawMarkup, {
+            USE_PROFILES: { html: true },
+            FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "link", "meta", "base", "svg", "math"],
+            FORBID_ATTR: ["srcdoc"],
+        });
     } catch {
         return "";
     }
@@ -411,3 +407,4 @@ export async function buildOfficePreviewData(
 
     return { arrayBuffer };
 }
+

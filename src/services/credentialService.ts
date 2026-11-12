@@ -1,6 +1,7 @@
 import {
     collection,
     addDoc,
+    setDoc,
     updateDoc,
     doc,
     getDocs,
@@ -13,7 +14,11 @@ import {
 import { db } from "../firebaseConfig";
 import { auth } from "../firebaseConfig";
 import { getEncryptionKey } from "./authService";
-import { encryptPassword, decryptPassword } from "./crypto";
+import { encryptPassword, decryptPassword, isEncryptedPayload } from "./crypto";
+
+function credFieldAad(uid: string, credId: string, field: string): string {
+    return `fs:v1:cred:${uid}:${credId}:${field}`;
+}
 
 export interface Credential {
     id: string;
@@ -59,12 +64,15 @@ function getUserCredentialsRef() {
 }
 
 // Helper function for trying to decrypt metadata fields
-export async function tryDecrypt(value: string | undefined, key: CryptoKey): Promise<string> {
+export async function tryDecrypt(
+    value: string | undefined,
+    key: CryptoKey,
+    expectedAad?: string
+): Promise<string> {
     if (!value) return "";
     try {
-        // Our encryption format is "ivHex:ciphertextHex". IV is 12 bytes = 24 hex characters.
-        if (value.includes(":") && value.split(":")[0].length === 24) {
-            return await decryptPassword(value, key);
+        if (isEncryptedPayload(value)) {
+            return await decryptPassword(value, key, expectedAad);
         }
         return value;
     } catch {
@@ -73,32 +81,65 @@ export async function tryDecrypt(value: string | undefined, key: CryptoKey): Pro
 }
 
 // Helper to encrypt conditionally based on presence
-export async function tryEncrypt(value: string | undefined, key: CryptoKey): Promise<string> {
+export async function tryEncrypt(
+    value: string | undefined,
+    key: CryptoKey,
+    aad?: string
+): Promise<string> {
     if (!value) return "";
-    return await encryptPassword(value, key);
+    return await encryptPassword(value, key, aad);
+}
+
+let cachedLegacyCredentials: { uid: string; hasLegacy: boolean } | null = null;
+let legacyCheckInFlight: { uid: string; promise: Promise<boolean> } | null = null;
+
+export function clearCredentialServiceCache(): void {
+    cachedLegacyCredentials = null;
+    legacyCheckInFlight = null;
 }
 
 export function subscribeToCredentials(callback: (credentials: Credential[]) => void): () => void {
     const key = getEncryptionKey();
     if (!key) return () => {};
+    const uid = auth.currentUser?.uid;
+    if (!uid) return () => {};
 
     const q = query(getUserCredentialsRef(), orderBy("updatedAt", "desc"));
-    return onSnapshot(q, async (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
         const credentials: Credential[] = [];
+        let hasLegacy = false;
         for (const docSnap of snapshot.docs) {
             const data = docSnap.data();
+            if (
+                !hasLegacy &&
+                ((data.email && !isEncryptedPayload(data.email)) ||
+                    (data.username && !isEncryptedPayload(data.username)) ||
+                    (data.pin && !isEncryptedPayload(data.pin)) ||
+                    (data.accountName && !isEncryptedPayload(data.accountName)) ||
+                    (data.comment && !isEncryptedPayload(data.comment)))
+            ) {
+                hasLegacy = true;
+            }
             let decryptedPassword = "";
             try {
-                decryptedPassword = await decryptPassword(data.password, key);
+                decryptedPassword = await decryptPassword(
+                    data.password,
+                    key,
+                    credFieldAad(uid, docSnap.id, "password")
+                );
             } catch {
                 decryptedPassword = "[decryption failed]";
             }
-            
-            const decryptedPin = await tryDecrypt(data.pin, key);
-            const decryptedEmail = await tryDecrypt(data.email, key);
-            const decryptedUsername = await tryDecrypt(data.username, key);
-            const decryptedAccountName = await tryDecrypt(data.accountName, key);
-            const decryptedComment = await tryDecrypt(data.comment, key);
+
+            const decryptedPin = await tryDecrypt(data.pin, key, credFieldAad(uid, docSnap.id, "pin"));
+            const decryptedEmail = await tryDecrypt(data.email, key, credFieldAad(uid, docSnap.id, "email"));
+            const decryptedUsername = await tryDecrypt(data.username, key, credFieldAad(uid, docSnap.id, "username"));
+            const decryptedAccountName = await tryDecrypt(
+                data.accountName,
+                key,
+                credFieldAad(uid, docSnap.id, "accountName")
+            );
+            const decryptedComment = await tryDecrypt(data.comment, key, credFieldAad(uid, docSnap.id, "comment"));
 
             credentials.push({
                 id: docSnap.id,
@@ -113,26 +154,41 @@ export function subscribeToCredentials(callback: (credentials: Credential[]) => 
                 updatedAt: (data.updatedAt as Timestamp).toDate(),
             });
         }
+        cachedLegacyCredentials = { uid, hasLegacy };
         callback(credentials);
     }, (error) => {
         console.error("Credentials subscription error:", error);
     });
+
+    return () => {
+        if (cachedLegacyCredentials?.uid === uid) {
+            cachedLegacyCredentials = null;
+        }
+        unsubscribe();
+    };
 }
 
 export async function addCredential(input: CredentialInput): Promise<string> {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error("Not authenticated");
     const key = getEncryptionKey();
-    
-    // Encrypt fields
-    const encryptedPw = await tryEncrypt(input.password, key);
-    const encryptedPin = await tryEncrypt(input.pin, key);
-    const encryptedEmail = await tryEncrypt(input.email, key);
-    const encryptedUsername = await tryEncrypt(input.username, key);
-    const encryptedAccountName = await tryEncrypt(input.accountName, key);
-    const encryptedComment = await tryEncrypt(input.comment, key);
+    const credRef = doc(getUserCredentialsRef());
+
+    // Encrypt fields with credential-scoped AAD
+    const encryptedPw = await tryEncrypt(input.password, key, credFieldAad(uid, credRef.id, "password"));
+    const encryptedPin = await tryEncrypt(input.pin, key, credFieldAad(uid, credRef.id, "pin"));
+    const encryptedEmail = await tryEncrypt(input.email, key, credFieldAad(uid, credRef.id, "email"));
+    const encryptedUsername = await tryEncrypt(input.username, key, credFieldAad(uid, credRef.id, "username"));
+    const encryptedAccountName = await tryEncrypt(
+        input.accountName,
+        key,
+        credFieldAad(uid, credRef.id, "accountName")
+    );
+    const encryptedComment = await tryEncrypt(input.comment, key, credFieldAad(uid, credRef.id, "comment"));
 
     const now = Timestamp.now();
 
-    const credRef = await addDoc(getUserCredentialsRef(), {
+    await setDoc(credRef, {
         platform: input.platform,
         email: encryptedEmail,
         username: encryptedUsername,
@@ -165,20 +221,19 @@ export async function updateCredential(
     input: CredentialInput,
     oldCredential: Credential
 ): Promise<void> {
-    const key = getEncryptionKey();
-    
-    // Encrypt fields
-    const encryptedPw = await tryEncrypt(input.password, key);
-    const encryptedPin = await tryEncrypt(input.pin, key);
-    const encryptedEmail = await tryEncrypt(input.email, key);
-    const encryptedUsername = await tryEncrypt(input.username, key);
-    const encryptedAccountName = await tryEncrypt(input.accountName, key);
-    const encryptedComment = await tryEncrypt(input.comment, key);
-    
-    const now = Timestamp.now();
-
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error("Not authenticated");
+    const key = getEncryptionKey();
+
+    // Encrypt fields with credential-scoped AAD
+    const encryptedPw = await tryEncrypt(input.password, key, credFieldAad(uid, id, "password"));
+    const encryptedPin = await tryEncrypt(input.pin, key, credFieldAad(uid, id, "pin"));
+    const encryptedEmail = await tryEncrypt(input.email, key, credFieldAad(uid, id, "email"));
+    const encryptedUsername = await tryEncrypt(input.username, key, credFieldAad(uid, id, "username"));
+    const encryptedAccountName = await tryEncrypt(input.accountName, key, credFieldAad(uid, id, "accountName"));
+    const encryptedComment = await tryEncrypt(input.comment, key, credFieldAad(uid, id, "comment"));
+
+    const now = Timestamp.now();
 
     const credDocRef = doc(db, "users", uid, "credentials", id);
     await updateDoc(credDocRef, {
@@ -253,16 +308,16 @@ export async function getHistory(id: string): Promise<HistoryEntry[]> {
         const data = d.data();
         let decryptedPassword = "";
         try {
-            decryptedPassword = await decryptPassword(data.password, key);
+            decryptedPassword = await decryptPassword(data.password, key, credFieldAad(uid, id, "password"));
         } catch {
             decryptedPassword = "[decryption failed]";
         }
-        
-        const decryptedPin = await tryDecrypt(data.pin, key);
-        const decryptedEmail = await tryDecrypt(data.email, key);
-        const decryptedUsername = await tryDecrypt(data.username, key);
-        const decryptedAccountName = await tryDecrypt(data.accountName, key);
-        const decryptedComment = await tryDecrypt(data.comment, key);
+
+        const decryptedPin = await tryDecrypt(data.pin, key, credFieldAad(uid, id, "pin"));
+        const decryptedEmail = await tryDecrypt(data.email, key, credFieldAad(uid, id, "email"));
+        const decryptedUsername = await tryDecrypt(data.username, key, credFieldAad(uid, id, "username"));
+        const decryptedAccountName = await tryDecrypt(data.accountName, key, credFieldAad(uid, id, "accountName"));
+        const decryptedComment = await tryDecrypt(data.comment, key, credFieldAad(uid, id, "comment"));
         
         return {
             id: d.id,
@@ -284,18 +339,42 @@ export async function hasLegacyCredentials(): Promise<boolean> {
     const uid = auth.currentUser?.uid;
     if (!uid) return false;
 
-    const q = query(getUserCredentialsRef());
-    const snapshot = await getDocs(q);
-
-    for (const docSnap of snapshot.docs) {
-        const data = docSnap.data();
-        if (data.email && (!data.email.includes(":") || data.email.split(":")[0].length !== 24)) return true;
-        if (data.username && (!data.username.includes(":") || data.username.split(":")[0].length !== 24)) return true;
-        if (data.pin && (!data.pin.includes(":") || data.pin.split(":")[0].length !== 24)) return true;
-        if (data.accountName && (!data.accountName.includes(":") || data.accountName.split(":")[0].length !== 24)) return true;
-        if (data.comment && (!data.comment.includes(":") || data.comment.split(":")[0].length !== 24)) return true;
+    if (cachedLegacyCredentials?.uid === uid) {
+        return cachedLegacyCredentials.hasLegacy;
     }
-    return false;
+
+    if (legacyCheckInFlight?.uid === uid) {
+        return legacyCheckInFlight.promise;
+    }
+
+    const promise = (async () => {
+        const q = query(getUserCredentialsRef());
+        const snapshot = await getDocs(q);
+
+        let hasLegacy = false;
+        for (const docSnap of snapshot.docs) {
+            const data = docSnap.data();
+            if (
+                (data.email && !isEncryptedPayload(data.email)) ||
+                (data.username && !isEncryptedPayload(data.username)) ||
+                (data.pin && !isEncryptedPayload(data.pin)) ||
+                (data.accountName && !isEncryptedPayload(data.accountName)) ||
+                (data.comment && !isEncryptedPayload(data.comment))
+            ) {
+                hasLegacy = true;
+                break;
+            }
+        }
+        cachedLegacyCredentials = { uid, hasLegacy };
+        return hasLegacy;
+    })().finally(() => {
+        if (legacyCheckInFlight?.uid === uid) {
+            legacyCheckInFlight = null;
+        }
+    });
+
+    legacyCheckInFlight = { uid, promise };
+    return promise;
 }
 
 export async function migrateLegacyData(): Promise<number> {
@@ -311,26 +390,38 @@ export async function migrateLegacyData(): Promise<number> {
     for (const docSnap of snapshot.docs) {
         const data = docSnap.data();
         
-        const isLegacy = 
-            (data.email && (!data.email.includes(":") || data.email.split(":")[0].length !== 24)) ||
-            (data.username && (!data.username.includes(":") || data.username.split(":")[0].length !== 24)) ||
-            (data.pin && (!data.pin.includes(":") || data.pin.split(":")[0].length !== 24)) ||
-            (data.accountName && (!data.accountName.includes(":") || data.accountName.split(":")[0].length !== 24)) ||
-            (data.comment && (!data.comment.includes(":") || data.comment.split(":")[0].length !== 24));
-            
+        const isLegacy =
+            Boolean(data.email && !isEncryptedPayload(data.email)) ||
+            Boolean(data.username && !isEncryptedPayload(data.username)) ||
+            Boolean(data.pin && !isEncryptedPayload(data.pin)) ||
+            Boolean(data.accountName && !isEncryptedPayload(data.accountName)) ||
+            Boolean(data.comment && !isEncryptedPayload(data.comment));
+
         if (isLegacy) {
             let decryptedPassword = "";
             try {
-                decryptedPassword = await decryptPassword(data.password, key);
+                decryptedPassword = await decryptPassword(
+                    data.password,
+                    key,
+                    credFieldAad(uid, docSnap.id, "password")
+                );
             } catch {
                 decryptedPassword = "[decryption failed]";
             }
-            
-            const decryptedEmail = await tryDecrypt(data.email, key);
-            const decryptedUsername = await tryDecrypt(data.username, key);
-            const decryptedPin = await tryDecrypt(data.pin, key);
-            const decryptedAccountName = await tryDecrypt(data.accountName, key);
-            const decryptedComment = await tryDecrypt(data.comment, key);
+
+            const decryptedEmail = await tryDecrypt(data.email, key, credFieldAad(uid, docSnap.id, "email"));
+            const decryptedUsername = await tryDecrypt(
+                data.username,
+                key,
+                credFieldAad(uid, docSnap.id, "username")
+            );
+            const decryptedPin = await tryDecrypt(data.pin, key, credFieldAad(uid, docSnap.id, "pin"));
+            const decryptedAccountName = await tryDecrypt(
+                data.accountName,
+                key,
+                credFieldAad(uid, docSnap.id, "accountName")
+            );
+            const decryptedComment = await tryDecrypt(data.comment, key, credFieldAad(uid, docSnap.id, "comment"));
 
             const input: CredentialInput = {
                 platform: data.platform,
@@ -348,5 +439,6 @@ export async function migrateLegacyData(): Promise<number> {
         }
     }
     
+    cachedLegacyCredentials = { uid, hasLegacy: false };
     return migratedCount;
 }

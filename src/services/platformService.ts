@@ -27,37 +27,99 @@ export interface PlatformInput {
 }
 
 const PLATFORMS_COLLECTION = "platforms";
+const PLATFORMS_CACHE_KEY = "fs_platforms_cache_v1";
+const PLATFORMS_CACHE_TTL_MS = 10 * 60 * 1000;
 
 let cachedPlatforms: Platform[] | null = null;
+let inFlightPlatforms: Promise<Platform[]> | null = null;
+
+function readSessionPlatforms(): Platform[] | null {
+    try {
+        const raw = sessionStorage.getItem(PLATFORMS_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { ts?: number; data?: Platform[] };
+        if (
+            typeof parsed.ts === "number" &&
+            Date.now() - parsed.ts < PLATFORMS_CACHE_TTL_MS &&
+            Array.isArray(parsed.data)
+        ) {
+            return parsed.data;
+        }
+    } catch {
+        // Ignore storage parse/access errors
+    }
+    return null;
+}
+
+function writeSessionPlatforms(platforms: Platform[]): void {
+    try {
+        sessionStorage.setItem(
+            PLATFORMS_CACHE_KEY,
+            JSON.stringify({ ts: Date.now(), data: platforms })
+        );
+    } catch {
+        // Ignore storage quota/access errors
+    }
+}
+
+function invalidatePlatformsCache(): void {
+    cachedPlatforms = null;
+    inFlightPlatforms = null;
+    try {
+        sessionStorage.removeItem(PLATFORMS_CACHE_KEY);
+    } catch {
+        // Ignore storage access errors
+    }
+}
 
 function getPlatformsRef() {
     return collection(db, PLATFORMS_COLLECTION);
 }
 
-/** Read platforms directly from Firestore (with memory caching) */
+/** Read platforms directly from Firestore (with memory + session caching & in-flight deduplication) */
 export async function getPlatforms(forceRefresh = false): Promise<Platform[]> {
-    if (cachedPlatforms && !forceRefresh) {
+    if (!forceRefresh && cachedPlatforms) {
         return cachedPlatforms;
     }
-    const q = query(getPlatformsRef(), orderBy("name", "asc"));
-    const snapshot = await getDocs(q);
-    cachedPlatforms = snapshot.docs.map((d) => ({
-        id: d.id,
-        name: d.data().name,
-        domain: d.data().domain || "",
-        color: d.data().color || "#6366f1",
-        category: d.data().category || "Other",
-        logoUrl: d.data().logoUrl || "",
-        link: d.data().link || "",
-    }));
-    return cachedPlatforms;
+    if (!forceRefresh) {
+        const sessionCached = readSessionPlatforms();
+        if (sessionCached) {
+            cachedPlatforms = sessionCached;
+            return sessionCached;
+        }
+        if (inFlightPlatforms) {
+            return inFlightPlatforms;
+        }
+    }
+
+    const promise = (async () => {
+        const q = query(getPlatformsRef(), orderBy("name", "asc"));
+        const snapshot = await getDocs(q);
+        const platforms = snapshot.docs.map((d) => ({
+            id: d.id,
+            name: d.data().name,
+            domain: d.data().domain || "",
+            color: d.data().color || "#6366f1",
+            category: d.data().category || "Other",
+            logoUrl: d.data().logoUrl || "",
+            link: d.data().link || "",
+        }));
+        cachedPlatforms = platforms;
+        writeSessionPlatforms(platforms);
+        return platforms;
+    })().finally(() => {
+        inFlightPlatforms = null;
+    });
+
+    inFlightPlatforms = promise;
+    return promise;
 }
 
 /** Add platform via Cloud Function (admin only) */
 export async function addPlatform(input: PlatformInput): Promise<string> {
     const fn = httpsCallable<PlatformInput, { id: string }>(functions, "addPlatform");
     const result = await fn(input);
-    cachedPlatforms = null; // Invalidate cache
+    invalidatePlatformsCache();
     return result.data.id;
 }
 
@@ -68,14 +130,14 @@ export async function updatePlatform(
 ): Promise<void> {
     const fn = httpsCallable<PlatformInput & { id: string }, { success: boolean }>(functions, "updatePlatform");
     await fn({ ...input, id });
-    cachedPlatforms = null; // Invalidate cache
+    invalidatePlatformsCache();
 }
 
 /** Delete platform via Cloud Function (admin only) */
 export async function deletePlatform(id: string): Promise<void> {
     const fn = httpsCallable<{ id: string }, { success: boolean }>(functions, "deletePlatform");
     await fn({ id });
-    cachedPlatforms = null; // Invalidate cache
+    invalidatePlatformsCache();
 }
 
 /** Find a platform by name from a provided list */

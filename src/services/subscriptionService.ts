@@ -1,6 +1,6 @@
-import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
-import { auth, db, functions } from "../firebaseConfig";
+import { db, functions } from "../firebaseConfig";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ export interface Subscription {
   currentPeriodEnd?: Date | null;
   lsCustomerId?: string;
   downgradeGracePeriodEnd?: Date | null;
+  storageUsed?: number;
 }
 
 // ─── Real-time subscription listener ────────────────────────────────────────
@@ -29,7 +30,7 @@ export function listenToSubscription(
 ): () => void {
   const userRef = doc(db, "users", uid);
 
-  return onSnapshot(userRef, async (snap) => {
+  return onSnapshot(userRef, (snap) => {
     if (!snap.exists()) {
       onUpdate({ plan: "free", subscriptionStatus: null });
       return;
@@ -39,27 +40,7 @@ export function listenToSubscription(
     const graceEnd = data.downgradeGracePeriodEnd?.toDate?.() ?? null;
     const rawPlan = (data.plan as Plan) ?? "free";
     const rawStatus = (data.subscriptionStatus as SubscriptionStatus) ?? null;
-
-    // Check if the user is in the /admin exemptions list
-    const email = (auth.currentUser?.email || data.email || "").trim().toLowerCase();
-    if (email) {
-      try {
-        const exemptSnap = await getDoc(doc(db, "exemptions", email));
-        if (exemptSnap.exists() && exemptSnap.data()?.exempt !== false) {
-          onUpdate({
-            plan: "pro",
-            subscriptionStatus: "active",
-            subscriptionId: data.subscriptionId ?? undefined,
-            currentPeriodEnd: periodEnd,
-            lsCustomerId: data.lsCustomerId ?? undefined,
-            downgradeGracePeriodEnd: null,
-          });
-          return;
-        }
-      } catch {
-        // Proceed with normal subscription check if exemption read fails
-      }
-    }
+    const storageUsed = typeof data.storageUsed === "number" ? data.storageUsed : undefined;
 
     const isExpiredByDate = periodEnd !== null && periodEnd <= new Date();
     const isCancelledOrExpired =
@@ -79,6 +60,7 @@ export function listenToSubscription(
         currentPeriodEnd: periodEnd,
         lsCustomerId: data.lsCustomerId ?? undefined,
         downgradeGracePeriodEnd: graceEnd,
+        storageUsed,
       });
       return;
     }
@@ -90,6 +72,7 @@ export function listenToSubscription(
       currentPeriodEnd: periodEnd,
       lsCustomerId: data.lsCustomerId ?? undefined,
       downgradeGracePeriodEnd: graceEnd,
+      storageUsed,
     });
   });
 }

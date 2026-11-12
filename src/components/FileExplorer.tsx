@@ -5,13 +5,13 @@ import {
     FiChevronLeft, FiChevronRight, FiChevronUp, FiChevronDown, FiHome, FiX, FiFileText, FiImage, FiArchive,
     FiGrid, FiList, FiCornerUpRight, FiMoreHorizontal, FiLoader,
     FiZoomIn, FiZoomOut, FiMaximize, FiMusic, FiVideo, FiShare2, FiUsers, FiUploadCloud,
-    FiCode, FiTerminal, FiRotateCw, FiFolderPlus
+    FiCode, FiTerminal, FiRotateCw
 } from "react-icons/fi";
 import { FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCsv, FaFilePdf } from "react-icons/fa";
 import { 
     subscribeToFolders, subscribeToFiles, createFolder, renameFolder, deleteFolder, 
     uploadVaultFile, downloadVaultFile, renameVaultFile, deleteVaultFile,
-    moveFolder, moveVaultFile, getFolderItemCount, updateFolderColor,
+    moveFolder, moveVaultFile, getFolderItemCount, updateFolderColor, clearFileServiceCache,
     getAllFolders, getFilesInFolder
 } from "../services/fileService";
 import type { VaultFolder, VaultFile } from "../services/fileService";
@@ -388,11 +388,21 @@ export function clearFileExplorerCache(): void {
     }
     globalFoldersCache = null;
     globalFilesCache = null;
+    clearFileServiceCache();
+}
+
+if (typeof window !== "undefined") {
+    window.addEventListener("vault-folders-updated", () => {
+        for (const k in globalFolderCountsCache) {
+            delete globalFolderCountsCache[k];
+        }
+    });
 }
 
 export default function FileExplorer() {
     const { startTask, updateTask, finishTask, dismissTask } = useTaskToast();
     const { storageUsed, storageLimit, isStorageAtLimit, isPro } = useSubscription();
+    const hasLoadedSharesRef = useRef(false);
     
     const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
     const [breadcrumbs, setBreadcrumbs] = useState<{id: string | null, name: string}[]>([{ id: null, name: "Home" }]);
@@ -426,7 +436,6 @@ export default function FileExplorer() {
         sharedItem?: SharedItem;
         sharedFileEntry?: SharedFileEntry;
         virtualSubFolder?: SharedVirtualFolder;
-        copyOnly?: boolean;
     } | null>(null);
 
     // View Mode
@@ -524,7 +533,6 @@ export default function FileExplorer() {
     const [bulkMoveModalOpen, setBulkMoveModalOpen] = useState(false);
     const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
     const [bulkMoveSharedModalOpen, setBulkMoveSharedModalOpen] = useState(false);
-    const [bulkMoveSharedCopyOnly, setBulkMoveSharedCopyOnly] = useState(false);
 
     // Sharing State
     const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -553,8 +561,9 @@ export default function FileExplorer() {
                 });
                 return next;
             });
+            hasLoadedSharesRef.current = true;
             if (typeof window !== "undefined") {
-                window.dispatchEvent(new CustomEvent("shared-files-updated"));
+                window.dispatchEvent(new CustomEvent("shared-files-updated", { detail: { received: res.received } }));
             }
             return res.received;
         } catch (err) {
@@ -901,7 +910,9 @@ export default function FileExplorer() {
             setFolders([]);
             setFiles([]);
             setLoading(false);
-            void refreshShares();
+            if (!hasLoadedSharesRef.current) {
+                void refreshShares();
+            }
             return;
         }
 
@@ -931,13 +942,16 @@ export default function FileExplorer() {
                 setFolderCounts(prev => ({ ...prev, ...initialCounts }));
             }
             
-            const counts: Record<string, number> = {};
-            await Promise.all(fetchedFolders.map(async f => {
-                const count = await getFolderItemCount(f.id);
-                counts[f.id] = count;
-                globalFolderCountsCache[f.id] = count;
-            }));
-            setFolderCounts(prev => ({ ...prev, ...counts }));
+            const missingFolders = fetchedFolders.filter((f) => globalFolderCountsCache[f.id] === undefined);
+            if (missingFolders.length > 0) {
+                const counts: Record<string, number> = {};
+                await Promise.all(missingFolders.map(async f => {
+                    const count = await getFolderItemCount(f.id);
+                    counts[f.id] = count;
+                    globalFolderCountsCache[f.id] = count;
+                }));
+                setFolderCounts(prev => ({ ...prev, ...counts }));
+            }
         });
 
         const unsubFiles = subscribeToFiles(currentFolderId, (fetchedFiles) => {
@@ -1105,11 +1119,10 @@ export default function FileExplorer() {
     const handleMove = async (destinationFolderId: string | null) => {
         if (!moveTarget) return;
         const target = moveTarget;
-        const isCopy = Boolean(target.copyOnly);
         setActionLoading(true);
         const taskId = startTask({
-            title: `${isCopy ? "Saving" : "Moving"} "${target.name}"`,
-            detail: isCopy ? "Copying to your encrypted vault…" : "Moving to the selected folder…",
+            title: `Moving "${target.name}"`,
+            detail: "Moving to the selected folder…",
         });
         try {
             if (target.sharedItem) {
@@ -1123,39 +1136,31 @@ export default function FileExplorer() {
                         folderId,
                         target.virtualSubFolder.subPath
                     );
-                    if (!isCopy) {
-                        const nextShareId = await deleteSharedEntries(share, target.virtualSubFolder.entries);
-                        syncForkedShareId(share.id, nextShareId);
-                        await refreshShares();
-                    }
+                    const nextShareId = await deleteSharedEntries(share, target.virtualSubFolder.entries);
+                    syncForkedShareId(share.id, nextShareId);
+                    await refreshShares();
                 } else if (fileEntry && share.itemType === "folder") {
                     const blob = await downloadSharedFile(share, fileEntry);
                     const fileObj = new File([blob], target.name || fileEntry.name, {
                         type: fileEntry.type || blob.type || "application/octet-stream",
                     });
                     await uploadVaultFile(fileObj, destinationFolderId);
-                    if (!isCopy) {
-                        const nextShareId = await deleteSharedEntries(share, [fileEntry]);
-                        syncForkedShareId(share.id, nextShareId);
-                        await refreshShares();
-                    }
+                    const nextShareId = await deleteSharedEntries(share, [fileEntry]);
+                    syncForkedShareId(share.id, nextShareId);
+                    await refreshShares();
                 } else if (share.itemType === "file" && share.files[0]) {
                     const blob = await downloadSharedFile(share, share.files[0]);
                     const fileObj = new File([blob], share.name, {
                         type: share.files[0].type || blob.type || "application/octet-stream",
                     });
                     await uploadVaultFile(fileObj, destinationFolderId);
-                    if (!isCopy) {
-                        await removeShare(share.id);
-                        await refreshShares();
-                    }
+                    await removeShare(share.id);
+                    await refreshShares();
                 } else {
                     const newFolderId = await createFolder(share.name, destinationFolderId);
                     await copySharedEntriesToVault(share, share.files, newFolderId);
-                    if (!isCopy) {
-                        await removeShare(share.id);
-                        await refreshShares();
-                    }
+                    await removeShare(share.id);
+                    await refreshShares();
                 }
             } else if (target.isFolder) {
                 await moveFolder(target.id, destinationFolderId);
@@ -1164,37 +1169,35 @@ export default function FileExplorer() {
             }
             setMoveTarget(null);
 
-            if (!isCopy) {
-                setSelectedImage(prev => {
-                    if (!prev) return null;
-                    const matchesChild = Boolean(
-                        target.sharedFileEntry &&
-                        prev.sharedFileEntry?.storagePath === target.sharedFileEntry.storagePath
-                    );
-                    const matchesFolderSub = Boolean(
-                        target.virtualSubFolder &&
-                        prev.sharedFileEntry &&
-                        target.virtualSubFolder.entries.some((e) => e.storagePath === prev.sharedFileEntry?.storagePath)
-                    );
-                    const matchesTopShare = Boolean(
-                        target.sharedItem &&
-                        !target.sharedFileEntry &&
-                        !target.virtualSubFolder &&
-                        prev.sharedItem?.id === target.sharedItem.id
-                    );
-                    const matches = prev.file.id === target.id || matchesChild || matchesFolderSub || matchesTopShare;
-                    return matches ? null : prev;
-                });
-            }
+            setSelectedImage(prev => {
+                if (!prev) return null;
+                const matchesChild = Boolean(
+                    target.sharedFileEntry &&
+                    prev.sharedFileEntry?.storagePath === target.sharedFileEntry.storagePath
+                );
+                const matchesFolderSub = Boolean(
+                    target.virtualSubFolder &&
+                    prev.sharedFileEntry &&
+                    target.virtualSubFolder.entries.some((e) => e.storagePath === prev.sharedFileEntry?.storagePath)
+                );
+                const matchesTopShare = Boolean(
+                    target.sharedItem &&
+                    !target.sharedFileEntry &&
+                    !target.virtualSubFolder &&
+                    prev.sharedItem?.id === target.sharedItem.id
+                );
+                const matches = prev.file.id === target.id || matchesChild || matchesFolderSub || matchesTopShare;
+                return matches ? null : prev;
+            });
             finishTask(taskId, {
                 status: "success",
-                title: isCopy ? `Saved "${target.name}" to Vault` : `Moved "${target.name}"`,
+                title: `Moved "${target.name}"`,
             });
         } catch (err) {
             console.error(err);
             finishTask(taskId, {
                 status: "error",
-                title: `Couldn't ${isCopy ? "save" : "move"} "${target.name}"`,
+                title: `Couldn't move "${target.name}"`,
                 detail: "Something went wrong. Please try again.",
             });
         } finally {
@@ -1985,15 +1988,13 @@ export default function FileExplorer() {
     };
 
     const handleBulkMoveShared = async (targetFolderId: string | null) => {
-        const isCopy = bulkMoveSharedCopyOnly;
         setBulkMoveSharedModalOpen(false);
-        setBulkMoveSharedCopyOnly(false);
         const targets = getSelectedSharedTargets();
         if (targets.length === 0) return;
         const total = targets.length;
         setActionLoading(true);
         const taskId = startTask({
-            title: isCopy ? `Saving ${total} item${total === 1 ? "" : "s"} to Vault` : (total === 1 ? "Moving 1 item" : `Moving ${total} items`),
+            title: total === 1 ? "Moving 1 item" : `Moving ${total} items`,
             detail: `0 of ${total} processed`,
             progress: 0,
         });
@@ -2013,22 +2014,20 @@ export default function FileExplorer() {
                         type: t.fileEntry.type || blob.type || "application/octet-stream",
                     });
                     await uploadVaultFile(fileObj, targetFolderId);
-                    if (!isCopy) {
-                        const existing = entriesToDeleteByShare.get(t.share.id);
-                        if (existing) existing.entries.push(t.fileEntry);
-                        else entriesToDeleteByShare.set(t.share.id, { share: t.share, entries: [t.fileEntry] });
-                    }
+                    const existing = entriesToDeleteByShare.get(t.share.id);
+                    if (existing) existing.entries.push(t.fileEntry);
+                    else entriesToDeleteByShare.set(t.share.id, { share: t.share, entries: [t.fileEntry] });
                 } else if (t.fileEntry) {
                     const blob = await downloadSharedFile(t.share, t.fileEntry);
                     const fileObj = new File([blob], t.share.name, {
                         type: t.fileEntry.type || blob.type || "application/octet-stream",
                     });
                     await uploadVaultFile(fileObj, targetFolderId);
-                    if (!isCopy) sharesToRemove.add(t.share.id);
+                    sharesToRemove.add(t.share.id);
                 } else if (t.share.itemType === "folder") {
                     const newFolderId = await createFolder(t.share.name, targetFolderId);
                     await copySharedEntriesToVault(t.share, t.share.files, newFolderId);
-                    if (!isCopy) sharesToRemove.add(t.share.id);
+                    sharesToRemove.add(t.share.id);
                 }
                 tick();
             }
@@ -2043,11 +2042,11 @@ export default function FileExplorer() {
             await refreshShares();
             finishTask(taskId, {
                 status: "success",
-                title: isCopy ? `Saved ${total} item${total === 1 ? "" : "s"} to Vault` : (total === 1 ? "Moved 1 item" : `Moved ${total} items`),
+                title: total === 1 ? "Moved 1 item" : `Moved ${total} items`,
             });
         } catch (e) {
             console.error(e);
-            finishTask(taskId, { status: "error", title: `Couldn't ${isCopy ? "save" : "move"} some items`, detail: `${done} of ${total} completed. Please try again.` });
+            finishTask(taskId, { status: "error", title: "Couldn't move some items", detail: `${done} of ${total} completed. Please try again.` });
         } finally {
             setActionLoading(false);
         }
@@ -2834,30 +2833,6 @@ export default function FileExplorer() {
                                 <div className="shared-folder-actions">
                                     <button
                                         className="auth-submit"
-                                        style={{ width: "auto", margin: 0, padding: "6px 12px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "6px", background: "var(--bg-card)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
-                                        onClick={() => {
-                                            setMoveTarget({
-                                                id: activeShare.id,
-                                                name: currentDirName,
-                                                isFolder: true,
-                                                sharedItem: activeShare,
-                                                virtualSubFolder: activeSharedLocation.subPath
-                                                    ? {
-                                                          name: currentDirName,
-                                                          subPath: activeSharedLocation.subPath,
-                                                          entries: activeSharedDir.allEntries,
-                                                          totalSize: subFolderTotalSize,
-                                                      }
-                                                    : undefined,
-                                                copyOnly: true,
-                                            });
-                                        }}
-                                    >
-                                        <FiFolderPlus size={14} />
-                                        Save to Vault
-                                    </button>
-                                    <button
-                                        className="auth-submit"
                                         style={{ width: "auto", margin: 0, padding: "6px 12px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "6px" }}
                                         onClick={() =>
                                             handleDownloadAllShared(
@@ -3268,9 +3243,6 @@ export default function FileExplorer() {
                             >
                                 <FiDownload /> Download
                             </button>
-                            <button className="context-menu-item" onClick={() => { setMoveTarget({ ...contextMenu.target, copyOnly: true }); setContextMenu(null); }}>
-                                <FiFolderPlus /> Save to Vault
-                            </button>
                             <button className="context-menu-item" onClick={() => { 
                                 setRenameTarget(contextMenu.target); 
                                 setNewName(contextMenu.target.isFolder ? contextMenu.target.name : getNameWithoutExtension(contextMenu.target.name)); 
@@ -3393,17 +3365,6 @@ export default function FileExplorer() {
                     </button>
                     <button 
                         onClick={() => {
-                            setBulkMoveSharedCopyOnly(true);
-                            setBulkMoveSharedModalOpen(true);
-                        }} 
-                        disabled={actionLoading} 
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 500 }}
-                    >
-                        <FiFolderPlus size={16} /> Save to Vault
-                    </button>
-                    <button 
-                        onClick={() => {
-                            setBulkMoveSharedCopyOnly(false);
                             setBulkMoveSharedModalOpen(true);
                         }} 
                         disabled={actionLoading} 
@@ -3615,21 +3576,6 @@ export default function FileExplorer() {
                                 <>
                                     <button
                                         onClick={() => {
-                                            setMoveTarget({
-                                                id: selectedImage.file.id,
-                                                name: selectedImage.file.name,
-                                                isFolder: false,
-                                                sharedItem: selectedImage.sharedItem,
-                                                sharedFileEntry: selectedImage.sharedFileEntry,
-                                                copyOnly: true,
-                                            });
-                                        }}
-                                        title="Save a copy to My Vault"
-                                    >
-                                        <FiFolderPlus /> Save to Vault
-                                    </button>
-                                    <button
-                                        onClick={() => {
                                             const name = selectedImage.file.name;
                                             setRenameTarget({
                                                 id: selectedImage.file.id,
@@ -3745,21 +3691,6 @@ export default function FileExplorer() {
                                     </button>
                                     {selectedImage.sharedItem ? (
                                         <>
-                                            <button
-                                                onClick={() => {
-                                                    setMoveTarget({
-                                                        id: selectedImage.file.id,
-                                                        name: selectedImage.file.name,
-                                                        isFolder: false,
-                                                        sharedItem: selectedImage.sharedItem,
-                                                        sharedFileEntry: selectedImage.sharedFileEntry,
-                                                        copyOnly: true,
-                                                    });
-                                                    setImageMenuOpen(false);
-                                                }}
-                                            >
-                                                <FiFolderPlus /> Save to Vault
-                                            </button>
                                             <button
                                                 onClick={() => {
                                                     const name = selectedImage.file.name;
