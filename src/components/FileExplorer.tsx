@@ -403,11 +403,17 @@ export default function FileExplorer() {
     const { startTask, updateTask, finishTask, dismissTask } = useTaskToast();
     const { storageUsed, storageLimit, isStorageAtLimit, isPro } = useSubscription();
     const hasLoadedSharesRef = useRef(false);
+    const sharesRefreshInFlightRef = useRef<Promise<SharedItem[]> | null>(null);
+    const sharesRefreshQueuedRef = useRef(false);
     
     const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+    const currentFolderIdRef = useRef<string | null>(currentFolderId);
+    currentFolderIdRef.current = currentFolderId;
     const [breadcrumbs, setBreadcrumbs] = useState<{id: string | null, name: string}[]>([{ id: null, name: "Home" }]);
     
     const [folders, setFolders] = useState<VaultFolder[]>(() => globalFoldersCache ?? []);
+    const visibleFoldersRef = useRef<VaultFolder[]>(folders);
+    visibleFoldersRef.current = folders;
     const [files, setFiles] = useState<VaultFile[]>(() => globalFilesCache ?? []);
     const [loading, setLoading] = useState(() => !globalFoldersCache);
     const [actionLoading, setActionLoading] = useState(false);
@@ -549,29 +555,43 @@ export default function FileExplorer() {
     const [downloadingSharedId, setDownloadingSharedId] = useState<string | null>(null);
 
     const refreshShares = async (): Promise<SharedItem[]> => {
-        setLoadingShares(true);
-        try {
-            await ensureSharingKeys();
-            const res = await listShares();
-            setSharedItems(res.received);
-            setSharedFolderColors((prev) => {
-                const next = { ...prev };
-                res.received.forEach((s) => {
-                    if (s.color) next[s.id] = s.color;
-                });
-                return next;
-            });
-            hasLoadedSharesRef.current = true;
-            if (typeof window !== "undefined") {
-                window.dispatchEvent(new CustomEvent("shared-files-updated", { detail: { received: res.received } }));
-            }
-            return res.received;
-        } catch (err) {
-            console.debug("Failed to list shares:", err);
-            return [];
-        } finally {
-            setLoadingShares(false);
+        if (sharesRefreshInFlightRef.current) {
+            sharesRefreshQueuedRef.current = true;
+            return sharesRefreshInFlightRef.current;
         }
+        const run = (async (): Promise<SharedItem[]> => {
+            setLoadingShares(true);
+            try {
+                await ensureSharingKeys();
+                const res = await listShares();
+                setSharedItems(res.received);
+                setSharedFolderColors((prev) => {
+                    const next = { ...prev };
+                    res.received.forEach((s) => {
+                        if (s.color) next[s.id] = s.color;
+                    });
+                    return next;
+                });
+                hasLoadedSharesRef.current = true;
+                if (typeof window !== "undefined") {
+                    window.dispatchEvent(new CustomEvent("shared-files-updated", { detail: { received: res.received } }));
+                }
+                return res.received;
+            } catch (err) {
+                console.debug("Failed to list shares:", err);
+                return [];
+            } finally {
+                setLoadingShares(false);
+            }
+        })().finally(() => {
+            sharesRefreshInFlightRef.current = null;
+            if (sharesRefreshQueuedRef.current) {
+                sharesRefreshQueuedRef.current = false;
+                void refreshShares();
+            }
+        });
+        sharesRefreshInFlightRef.current = run;
+        return run;
     };
 
     const syncForkedShareId = (oldId: string, newId: string) => {
@@ -633,6 +653,42 @@ export default function FileExplorer() {
 
     useEffect(() => {
         void refreshShares();
+
+        const handleSharesCollectionUpdated = () => {
+            void refreshShares();
+        };
+        const handleExternalShareUpdate = (event: Event) => {
+            const detail = (event as CustomEvent<{ received?: SharedItem[] }>).detail;
+            if (detail?.received) return;
+            void refreshShares();
+        };
+        const handleVaultFoldersUpdated = () => {
+            if (currentFolderIdRef.current?.startsWith("__shared__")) return;
+            const currentVisibleFolders = visibleFoldersRef.current;
+            if (currentVisibleFolders.length === 0) return;
+            void Promise.all(
+                currentVisibleFolders.map(async (f) => {
+                    const count = await getFolderItemCount(f.id);
+                    globalFolderCountsCache[f.id] = count;
+                    return [f.id, count] as const;
+                })
+            ).then((entries) => {
+                const counts: Record<string, number> = {};
+                for (const [id, count] of entries) {
+                    counts[id] = count;
+                }
+                setFolderCounts((prev) => ({ ...prev, ...counts }));
+            }).catch(() => {});
+        };
+
+        window.addEventListener("shares-collection-updated", handleSharesCollectionUpdated);
+        window.addEventListener("shared-files-updated", handleExternalShareUpdate);
+        window.addEventListener("vault-folders-updated", handleVaultFoldersUpdated);
+        return () => {
+            window.removeEventListener("shares-collection-updated", handleSharesCollectionUpdated);
+            window.removeEventListener("shared-files-updated", handleExternalShareUpdate);
+            window.removeEventListener("vault-folders-updated", handleVaultFoldersUpdated);
+        };
     }, []);
 
     // Zoom and Pan State

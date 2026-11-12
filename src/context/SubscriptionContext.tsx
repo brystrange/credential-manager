@@ -241,10 +241,24 @@ export function SubscriptionProvider({
 
     // Real-time listener on shares collection avoids redundant callable/focus polling
     let unsubShares: (() => void) | null = null;
+    let lastSharesSig: string | null = null;
     try {
       const sharesQuery = query(collection(db, "shares"), where("recipientUids", "array-contains", uid));
       unsubShares = onSnapshot(sharesQuery, (snap) => {
         hasLiveSharesListener = true;
+        const nextSharesSig = snap.docs
+          .map((d) => {
+            const data = d.data();
+            const filesArr = (data.files as unknown[]) || [];
+            return `${d.id}:${filesArr.length}:${String(data.encryptedName ?? "")}:${String(data.color ?? "")}:${data.updatedAt?.toMillis?.() ?? data.createdAt?.toMillis?.() ?? ""}`;
+          })
+          .sort()
+          .join("|");
+        if (lastSharesSig !== null && lastSharesSig !== nextSharesSig) {
+          window.dispatchEvent(new CustomEvent("shares-collection-updated"));
+        }
+        lastSharesSig = nextSharesSig;
+
         sharedBytes = snap.docs.reduce((sumBytes, d) => {
           const files = (d.data().files as Array<{ size?: number }>) || [];
           return sumBytes + files.reduce((fSum, f) => fSum + (Number(f.size) || 0), 0);

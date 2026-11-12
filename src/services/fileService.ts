@@ -74,10 +74,14 @@ export function subscribeToFolders(parentId: string | null = null, callback: (fo
     const uid = auth.currentUser?.uid;
     if (!key || !uid) return () => {};
 
+    let cancelled = false;
+    let latestSeq = 0;
     const q = query(getUserFoldersRef(), where("parentId", "==", parentId));
-    return onSnapshot(q, async (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const seq = ++latestSeq;
         const folders: VaultFolder[] = [];
         for (const docSnap of snapshot.docs) {
+            if (cancelled || seq !== latestSeq) return;
             const data = docSnap.data();
             const decryptedName = await tryDecryptName(data.name, key, folderNameAad(uid, docSnap.id));
             folders.push({
@@ -89,10 +93,17 @@ export function subscribeToFolders(parentId: string | null = null, callback: (fo
                 updatedAt: (data.updatedAt as Timestamp).toDate(),
             });
         }
-        callback(folders.sort((a, b) => a.name.localeCompare(b.name)));
+        if (!cancelled && seq === latestSeq) {
+            callback(folders.sort((a, b) => a.name.localeCompare(b.name)));
+        }
     }, (error) => {
         console.error("Folders subscription error:", error);
     });
+
+    return () => {
+        cancelled = true;
+        unsubscribe();
+    };
 }
 
 const folderCountCache = new Map<string, number>();
@@ -272,10 +283,14 @@ export function subscribeToFiles(folderId: string | null = null, callback: (file
     const uid = auth.currentUser?.uid;
     if (!key || !uid) return () => {};
 
+    let cancelled = false;
+    let latestSeq = 0;
     const q = query(getUserFilesRef(), where("folderId", "==", folderId));
-    return onSnapshot(q, async (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const seq = ++latestSeq;
         const files: VaultFile[] = [];
         for (const docSnap of snapshot.docs) {
+            if (cancelled || seq !== latestSeq) return;
             const data = docSnap.data();
             let decryptedName = "";
             let decryptedType = "";
@@ -297,10 +312,17 @@ export function subscribeToFiles(folderId: string | null = null, callback: (file
                 updatedAt: (data.updatedAt as Timestamp).toDate(),
             });
         }
-        callback(files.sort((a, b) => a.name.localeCompare(b.name)));
+        if (!cancelled && seq === latestSeq) {
+            callback(files.sort((a, b) => a.name.localeCompare(b.name)));
+        }
     }, (error) => {
         console.error("Files subscription error:", error);
     });
+
+    return () => {
+        cancelled = true;
+        unsubscribe();
+    };
 }
 
 export async function getFilesInFolder(folderId: string | null): Promise<VaultFile[]> {
