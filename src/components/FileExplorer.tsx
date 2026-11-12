@@ -554,7 +554,6 @@ export default function FileExplorer() {
         sharesToDelete?: SharedItem[];
         entriesToDelete?: { share: SharedItem; entries: SharedFileEntry[] }[];
     } | null>(null);
-    const [downloadingSharedId, setDownloadingSharedId] = useState<string | null>(null);
 
     const refreshShares = async (): Promise<SharedItem[]> => {
         if (sharesRefreshInFlightRef.current) {
@@ -1746,8 +1745,6 @@ export default function FileExplorer() {
     };
 
     const handleDownloadSharedFile = async (share: SharedItem, file: SharedFileEntry) => {
-        const key = `${share.id}:${file.storagePath}`;
-        setDownloadingSharedId(key);
         try {
             const blob = await downloadSharedFile(share, file);
             const url = URL.createObjectURL(blob);
@@ -1761,8 +1758,6 @@ export default function FileExplorer() {
         } catch (err) {
             console.error("Failed to download file:", err);
             alert("Failed to download file.");
-        } finally {
-            setDownloadingSharedId(null);
         }
     };
 
@@ -1772,7 +1767,6 @@ export default function FileExplorer() {
         customZipName?: string,
         stripPrefix = ""
     ) => {
-        setDownloadingSharedId(share.id);
         try {
             const entries = subsetEntries || share.files;
             const zip = new JSZip();
@@ -1797,8 +1791,6 @@ export default function FileExplorer() {
         } catch (err) {
             console.error("Failed to download shared ZIP:", err);
             alert("Failed to download all shared files.");
-        } finally {
-            setDownloadingSharedId(null);
         }
     };
 
@@ -2870,62 +2862,12 @@ export default function FileExplorer() {
                             </div>
                         );
                     }
-                    const currentDirName = activeSharedLocation.subPath
-                        ? activeSharedLocation.subPath.split("/").pop() || activeShare.name
-                        : activeShare.name;
                     const dirFileIds = activeSharedDir.files.map((f) => `${activeShare.id}:${f.entry.storagePath}`);
                     const allSelected = dirFileIds.length > 0 && dirFileIds.every((id) => selectedSharedIds.has(id));
                     const someSelected = dirFileIds.some((id) => selectedSharedIds.has(id));
-                    const subFolderTotalSize = activeSharedDir.allEntries.reduce((sum, e) => sum + (e.size || 0), 0);
 
                     return (
                         <div>
-                            <div className="shared-folder-banner">
-                                <div className="shared-folder-meta">
-                                    <div style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 500 }}>
-                                        {currentDirName}
-                                    </div>
-                                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                                        {activeSharedDir.allEntries.length} file{activeSharedDir.allEntries.length === 1 ? "" : "s"} • {formatSize(subFolderTotalSize)} • {activeShare.createdAt.toLocaleDateString()}
-                                    </div>
-                                </div>
-                                <div className="shared-folder-actions">
-                                    <button
-                                        className="auth-submit"
-                                        style={{ width: "auto", margin: 0, padding: "6px 12px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "6px" }}
-                                        onClick={() =>
-                                            handleDownloadAllShared(
-                                                activeShare,
-                                                activeSharedDir.allEntries,
-                                                currentDirName,
-                                                activeSharedLocation.subPath
-                                            )
-                                        }
-                                        disabled={downloadingSharedId === activeShare.id}
-                                    >
-                                        {downloadingSharedId === activeShare.id ? <FiLoader className="spin" size={14} /> : <FiArchive size={14} />}
-                                        Download (ZIP)
-                                    </button>
-                                    {!activeSharedLocation.subPath && (
-                                        <button
-                                            className="auth-submit"
-                                            style={{ width: "auto", margin: 0, padding: "6px 12px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "6px", background: "transparent", border: "1px solid var(--danger)", color: "var(--danger)" }}
-                                            onClick={() =>
-                                                promptDeleteSharedTarget({
-                                                    id: activeShare.id,
-                                                    name: activeShare.name,
-                                                    isFolder: true,
-                                                    sharedItem: activeShare,
-                                                })
-                                            }
-                                        >
-                                            <FiTrash2 size={14} />
-                                            Delete
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-
                             {viewMode === "grid" && dirFileIds.length > 0 && (
                                 <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-color)", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "16px" }}>
                                     <input 

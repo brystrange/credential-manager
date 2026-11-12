@@ -6150,33 +6150,6 @@ section.docx {
 
 
 /* ─── Shared with Me & Media Preview Polish ────────────────────────────── */
-.shared-folder-banner {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  flex-wrap: wrap;
-}
-
-.shared-folder-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.shared-folder-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .floating-bulk-bar {
   position: fixed;
   bottom: 24px;
