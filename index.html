@@ -3,31 +3,38 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" href="/logo.png" type="image/png" />
-  <link rel="apple-touch-icon" href="/logo.png" />
-  <link rel="manifest" href="/manifest.json" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
   <meta name="theme-color" content="#080b10" />
 
   <!-- Primary Meta Tags -->
   <title>Fort Sterling — The zero-knowledge credential manager</title>
   <meta name="title" content="Fort Sterling — The zero-knowledge credential manager" />
-  <meta name="description" content="The zero-knowledge credential manager" />
+  <meta name="description" content="The zero-knowledge credential manager. Encrypt and store passwords, files, and credentials with local zero-knowledge AES-256-GCM encryption." />
   <meta name="keywords" content="Fort Sterling, zero-knowledge, credential manager, password manager, secure file storage, end-to-end encryption, E2EE, encrypted vault" />
   <meta name="author" content="Fort Sterling" />
   <meta name="application-name" content="Fort Sterling" />
-  <meta name="robots" content="index, follow" />
+  <meta name="apple-mobile-web-app-title" content="Fort Sterling" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
   <link rel="canonical" href="https://fort-sterling.vercel.app/" />
 
   <!-- Google Site Verification -->
   <meta name="google-site-verification" content="g9SCuH8N1Twi2mXw7wbqivWziCTlma-dFBUZpnstjZY" />
+
+  <!-- Favicons for Google Search & Browsers (Multiple of 48px required by Google) -->
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+  <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Fort Sterling" />
   <meta property="og:url" content="https://fort-sterling.vercel.app/" />
   <meta property="og:title" content="Fort Sterling — The zero-knowledge credential manager" />
-  <meta property="og:description" content="The zero-knowledge credential manager" />
+  <meta property="og:description" content="The zero-knowledge credential manager. Encrypt and store passwords, files, and credentials with local zero-knowledge AES-256-GCM encryption." />
   <meta property="og:image" content="https://fort-sterling.vercel.app/hero.png" />
   <meta property="og:image:alt" content="Fort Sterling — The zero-knowledge credential manager" />
   <meta property="og:locale" content="en_US" />
@@ -36,15 +43,23 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:url" content="https://fort-sterling.vercel.app/" />
   <meta name="twitter:title" content="Fort Sterling — The zero-knowledge credential manager" />
-  <meta name="twitter:description" content="The zero-knowledge credential manager" />
+  <meta name="twitter:description" content="The zero-knowledge credential manager. Encrypt and store passwords, files, and credentials with local zero-knowledge AES-256-GCM encryption." />
   <meta name="twitter:image" content="https://fort-sterling.vercel.app/hero.png" />
   <meta name="twitter:image:alt" content="Fort Sterling — The zero-knowledge credential manager" />
 
-  <!-- Structured Data (JSON-LD) -->
+  <!-- Structured Data (JSON-LD) for Google Search Site Name, Logo & WebApp -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://fort-sterling.vercel.app/#website",
+        "url": "https://fort-sterling.vercel.app/",
+        "name": "Fort Sterling",
+        "alternateName": ["Fort Sterling Credential Manager", "FortSterling"],
+        "description": "The zero-knowledge credential manager"
+      },
       {
         "@type": "WebApplication",
         "@id": "https://fort-sterling.vercel.app/#webapp",
@@ -73,7 +88,13 @@
         "@id": "https://fort-sterling.vercel.app/#organization",
         "name": "Fort Sterling",
         "url": "https://fort-sterling.vercel.app/",
-        "logo": "https://fort-sterling.vercel.app/logo.png",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://fort-sterling.vercel.app/logo.png",
+          "width": 930,
+          "height": 930
+        },
+        "image": "https://fort-sterling.vercel.app/logo.png",
         "description": "The zero-knowledge credential manager"
       }
     ]
