@@ -48,19 +48,18 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    padding: 3px 10px;
-    border-radius: 999px;
+    padding: 2px 0;
     font-size: 0.78rem;
     font-weight: 600;
-    background: color-mix(in srgb, var(--lang-accent) 16%, transparent);
-    border: 1px solid color-mix(in srgb, var(--lang-accent) 42%, transparent);
+    background: transparent;
+    border: none;
     color: #f8fafc;
     user-select: none;
 }
 
 .code-viewer-container.theme-light .code-lang-badge {
     color: #0f172a;
-    background: color-mix(in srgb, var(--lang-accent) 14%, #ffffff);
+    background: transparent;
 }
 
 .code-lang-dot {
