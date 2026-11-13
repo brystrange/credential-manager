@@ -193,32 +193,43 @@ function TaskToastHost() {
         ? determinate.reduce((sum, t) => sum + clampPercent(t.progress as number), 0) / determinate.length
         : 0;
 
+    const isSingle = tasks.length === 1;
+
     return (
         <div className="task-toast" role="status" aria-live="polite">
-            <div className="task-toast-controls">
-                <button
-                    type="button"
-                    className="task-toast-btn"
-                    onClick={() => setMinimized(!minimized)}
-                    aria-label={minimized ? "Expand" : "Minimize"}
-                    title={minimized ? "Expand" : "Minimize"}
-                >
-                    {minimized ? <FiChevronUp size={18} /> : <FiChevronDown size={18} />}
-                </button>
-                {!hasRunning && (
-                    <button
-                        type="button"
-                        className="task-toast-btn"
-                        onClick={dismissAll}
-                        aria-label="Close"
-                        title="Close"
-                    >
-                        <FiX size={18} />
-                    </button>
-                )}
-            </div>
+            {!isSingle && (
+                <div className="task-toast-controls">
+                    <span className="task-toast-summary">
+                        {hasRunning
+                            ? `${running.length} task${running.length === 1 ? "" : "s"} in progress`
+                            : `${tasks.length} task${tasks.length === 1 ? "" : "s"} completed`}
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                        <button
+                            type="button"
+                            className="task-toast-btn"
+                            onClick={() => setMinimized(!minimized)}
+                            aria-label={minimized ? "Expand" : "Minimize"}
+                            title={minimized ? "Expand" : "Minimize"}
+                        >
+                            {minimized ? <FiChevronUp size={18} /> : <FiChevronDown size={18} />}
+                        </button>
+                        {!hasRunning && (
+                            <button
+                                type="button"
+                                className="task-toast-btn"
+                                onClick={dismissAll}
+                                aria-label="Close"
+                                title="Close"
+                            >
+                                <FiX size={18} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
 
-            {minimized ? (
+            {minimized && !isSingle ? (
                 hasRunning && (
                     <div className="task-toast-progress task-toast-progress-mini">
                         <div
@@ -230,7 +241,12 @@ function TaskToastHost() {
             ) : (
                 <div className="task-toast-body">
                     {tasks.map((task) => (
-                        <TaskRow key={task.id} task={task} />
+                        <TaskRow
+                            key={task.id}
+                            task={task}
+                            showClose={isSingle && task.status !== "running"}
+                            onClose={dismissAll}
+                        />
                     ))}
                 </div>
             )}
@@ -238,7 +254,15 @@ function TaskToastHost() {
     );
 }
 
-function TaskRow({ task }: { task: ToastTask }) {
+function TaskRow({
+    task,
+    showClose,
+    onClose,
+}: {
+    task: ToastTask;
+    showClose?: boolean;
+    onClose?: () => void;
+}) {
     const isDeterminate = typeof task.progress === "number";
     const percent = isDeterminate ? clampPercent(task.progress as number) : 0;
 
@@ -251,6 +275,17 @@ function TaskRow({ task }: { task: ToastTask }) {
                 <span className="task-toast-row-title" title={task.title}>{task.title}</span>
                 {task.status === "running" && isDeterminate && (
                     <span className="task-toast-row-percent">{Math.round(percent)}%</span>
+                )}
+                {showClose && (
+                    <button
+                        type="button"
+                        className="task-toast-btn task-toast-btn-inline"
+                        onClick={onClose}
+                        aria-label="Close"
+                        title="Close"
+                    >
+                        <FiX size={16} />
+                    </button>
                 )}
             </div>
             {task.detail && <div className="task-toast-row-detail" title={task.detail}>{task.detail}</div>}

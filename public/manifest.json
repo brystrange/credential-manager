@@ -1,7 +1,7 @@
 {
   "name": "Fort Sterling",
   "short_name": "Fort Sterling",
-  "description": "Your credentials, safely locked away",
+  "description": "The zero-knowledge credential manager",
   "theme_color": "#080b10",
   "background_color": "#080b10",
   "display": "standalone",

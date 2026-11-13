@@ -4972,10 +4972,11 @@ section.docx {
   width: 360px;
   max-width: calc(100vw - 40px);
   z-index: 10050;
-  background: var(--bg-card);
+  background: var(--bg-secondary);
+  background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
   overflow: hidden;
   animation: taskToastIn 0.2s ease-out;
 }
@@ -4983,29 +4984,47 @@ section.docx {
 .task-toast-controls {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-  padding: 4px 6px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+}
+
+.task-toast-summary {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-toast-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
 .task-toast-btn:hover {
   background: var(--bg-input);
   color: var(--text-primary);
+}
+
+.task-toast-btn-inline {
+  width: 24px;
+  height: 24px;
+  margin-left: 6px;
+  flex-shrink: 0;
 }
 
 .task-toast-icon {
@@ -5019,11 +5038,13 @@ section.docx {
 .task-toast-body {
   max-height: 260px;
   overflow-y: auto;
+  background: var(--bg-secondary);
 }
 
 .task-toast-row {
-  padding: 12px 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
 .task-toast-row:last-child {
@@ -5071,7 +5092,7 @@ section.docx {
 .task-toast-progress {
   position: relative;
   height: 4px;
-  margin-top: 10px;
+  margin-top: 8px;
   border-radius: 2px;
   background: var(--bg-input);
   overflow: hidden;
@@ -5106,23 +5127,25 @@ section.docx {
   100% { left: 100%; }
 }
 
-/* Mobile: dock to the bottom edge of the screen */
+/* Mobile: floating card above the bottom navigation / safe area */
 @media (max-width: 768px) {
   .task-toast {
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    max-width: 100%;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    padding-bottom: env(safe-area-inset-bottom);
+    left: 12px;
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: calc(100vw - 24px);
+    background: var(--bg-secondary);
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.75);
+    padding-bottom: 0;
   }
 
   .task-toast-body {
     max-height: 40vh;
+    background: var(--bg-secondary);
   }
 }
 
